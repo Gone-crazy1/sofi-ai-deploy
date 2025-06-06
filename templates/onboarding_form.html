@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Sofi AI Onboarding</title>
+    <style>
+        body { font-family: sans-serif; padding: 20px; background-color: #f7f7f7; }
+        form { background: white; padding: 20px; border-radius: 10px; max-width: 500px; margin: auto; }
+        input, select { display: block; margin-top: 10px; padding: 10px; width: 100%; }
+        button { margin-top: 20px; padding: 10px; background: #005eff; color: white; border: none; width: 100%; }
+    </style>
+</head>
+<body>
+    <h2>🚀 Sofi AI - Open Your Account</h2>
+    <form action="/submit_onboarding" method="POST">
+        <input name="first_name" placeholder="First Name" required>
+        <input name="last_name" placeholder="Last Name" required>
+        <input name="address" placeholder="Address" required>
+        <input name="city" placeholder="City" required>
+        <input name="state" placeholder="State" required>
+        <input name="bvn" placeholder="BVN" required>
+        <input name="pin" placeholder="Create 4-digit PIN" minlength="4" maxlength="4" required>
+        <button type="submit">Create My Account</button>
+    </form>
+</body>
+</html>
