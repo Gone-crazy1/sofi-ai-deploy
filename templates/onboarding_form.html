@@ -11,7 +11,7 @@
 </head>
 <body>
     <h2>🚀 Sofi AI - Open Your Account</h2>
-    <form action="/submit_onboarding" method="POST">
+    <form action="/onboard" method="POST">
         <input name="first_name" placeholder="First Name" required>
         <input name="last_name" placeholder="Last Name" required>
         <input name="address" placeholder="Address" required>
@@ -19,7 +19,30 @@
         <input name="state" placeholder="State" required>
         <input name="bvn" placeholder="BVN" required>
         <input name="pin" placeholder="Create 4-digit PIN" minlength="4" maxlength="4" required>
+        <input type="hidden" name="chat_id" value="{{ chat_id }}">
         <button type="submit">Create My Account</button>
     </form>
+
+    <script>
+        document.querySelector('form').addEventListener('submit', function(event) {
+            event.preventDefault();  // Prevent default submit
+
+            const pinInput = document.querySelector('input[name="pin"]');
+            const encoder = new TextEncoder();
+            const data = encoder.encode(pinInput.value);
+
+            crypto.subtle.digest('SHA-256', data).then(hashBuffer => {
+                const hashArray = Array.from(new Uint8Array(hashBuffer));
+                const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+                pinInput.value = hashHex;  // Replace PIN with hash
+
+                event.target.submit();  // Now submit the form
+            });
+        });
+    </script>
+
+    <a href="https://t.me/your_bot_username" target="_blank">
+        <button type="button" style="background: #0088cc;">Return to Telegram</button>
+    </a>
 </body>
 </html>

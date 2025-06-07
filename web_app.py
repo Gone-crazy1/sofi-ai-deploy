@@ -1,67 +1,73 @@
-from flask import Flask, request, render_template_string
+from flask import Flask, render_template, request, jsonify
 from supabase import create_client
+from monnify.Auth import get_monnify_token
+from monnify.Transfers import create_virtual_account
+from telegram import Bot
 import os
-import ssl
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Load environment variables
 SUPABASE_URL = os.getenv("SUPABASE_URL", "https://your-project.supabase.co")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY", "your-supabase-key")
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "YOUR_TELEGRAM_BOT_TOKEN")
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+bot = Bot(token=TELEGRAM_BOT_TOKEN)
 
-app = Flask(__name__)
+app = Flask(__name__, template_folder="templates")
 
-# HTML Form Template
-onboarding_form = '''
-<!doctype html>
-<title>Sofi AI Onboarding</title>
-<h2>🧠 Sofi AI - Open Your Virtual Account</h2>
-<form method=post>
-  First Name: <input type=text name=first_name required><br><br>
-  Last Name: <input type=text name=last_name required><br><br>
-  Address: <input type=text name=address required><br><br>
-  City: <input type=text name=city required><br><br>
-  State: <input type=text name=state required><br><br>
-  BVN: <input type=text name=bvn required><br><br>
-  Telegram Chat ID: <input type=text name=telegram_chat_id required><br><br>
-  Choose Transaction PIN: <input type=password name=pin required><br><br>
-  <input type=submit value=Submit>
-</form>
-'''
+@app.route("/onboarding", methods=["GET"])
+def onboarding_form():
+    """Serve the onboarding form."""
+    return render_template("onboarding_form.html")
 
-@app.route("/onboarding", methods=["GET", "POST"])
-def onboarding():
-    if request.method == "POST":
-        first_name = request.form["first_name"]
-        last_name = request.form["last_name"]
-        address = request.form["address"]
-        city = request.form["city"]
-        state = request.form["state"]
-        bvn = request.form["bvn"]
-        telegram_chat_id = request.form["telegram_chat_id"]
-        pin = request.form["pin"]
+@app.route("/submit_onboarding", methods=["POST"])
+def submit_onboarding():
+    """Handle form submission and send account details via Telegram."""
+    user_data = {
+        "first_name": request.form.get("first_name"),
+        "last_name": request.form.get("last_name"),
+        "address": request.form.get("address"),
+        "city": request.form.get("city"),
+        "state": request.form.get("state"),
+        "bvn": request.form.get("bvn"),
+        "pin": request.form.get("pin"),
+        "chat_id": request.form.get("chat_id"),  # Collect chat_id from the form
+    }
 
-        # Insert user data into Supabase
-        try:
-            supabase.table("users").insert({
-                "first_name": first_name,
-                "last_name": last_name,
-                "address": address,
-                "city": city,
-                "state": state,
-                "bvn": bvn,
-                "telegram_chat_id": telegram_chat_id,
-                "pin": pin
-            }).execute()
-            return "<h3>🎉 Onboarding Successful!</h3><p>Your profile has been created.</p>"
-        except Exception as e:
-            return f"<h3>❌ Onboarding Failed!</h3><p>Error: {e}</p>"
+    try:
+        # Create Monnify virtual account
+        token = get_monnify_token()
+        account_details = create_virtual_account(
+            first_name=user_data["first_name"],
+            last_name=user_data["last_name"],
+            bvn=user_data["bvn"],
+            token=token
+        )
 
-    return render_template_string(onboarding_form)
+        # Save user data and account details to Supabase
+        user_data.update({
+            "account_number": account_details.get("accountNumber"),
+            "bank_name": account_details.get("bankName"),
+        })
+        supabase.table("users").insert(user_data).execute()
+
+        # Send account details via Telegram
+        message = (
+            f"🎉 Hello {user_data['first_name']} {user_data['last_name']}!\n"
+            f"Your account has been successfully created.\n\n"
+            f"🏦 Bank Name: {account_details.get('bankName')}\n"
+            f"💳 Account Number: {account_details.get('accountNumber')}\n"
+            f"📍 Address: {user_data['address']}, {user_data['city']}, {user_data['state']}"
+        )
+        bot.send_message(chat_id=user_data["chat_id"], text=message)
+
+        return jsonify({"message": "Onboarding successful!"})
+    except Exception as e:
+        return jsonify({"message": "Onboarding failed!", "error": str(e)}), 500
 
 if __name__ == "__main__":
-    # Path to your SSL certificate and key files
-    ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS)
-    ssl_context.load_cert_chain(certfile="path/to/certificate.crt", keyfile="path/to/private.key")
-
-    app.run(port=5001, ssl_context=ssl_context)
+    app.run(port=5001)
