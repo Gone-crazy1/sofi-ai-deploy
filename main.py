@@ -14,6 +14,7 @@ import json
 from datetime import datetime
 import hashlib
 import hmac
+from flask_wtf.csrf import CSRFError
 
 # Load environment variables from .env at the very top
 from dotenv import load_dotenv
