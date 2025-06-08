@@ -262,6 +262,8 @@ Reply:
 Always respond with just the JSON, no extra text.
 """
 
+# Added a safe implementation of the `detect_intent` function to process user messages.
+# Includes error handling to log issues and return a fallback JSON response in case of errors.
 def detect_intent(user_message):
     """
     Detects the user's intent based on their message and returns a JSON response.
@@ -333,8 +335,6 @@ def extract_and_store_memory(chat_id, user_message):
         """
         response = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
-            messages=[{"role": "system", "content": prompt}],
-            temperature=0.3
         )
         reply = json.loads(response['choices'][0]['message']['content'])
 
