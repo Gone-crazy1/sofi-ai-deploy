@@ -263,6 +263,15 @@ Always respond with just the JSON, no extra text.
 """
 
 def detect_intent(user_message):
+    """
+    Detects the user's intent based on their message and returns a JSON response.
+
+    Args:
+        user_message (str): The message sent by the user.
+
+    Returns:
+        str: A JSON string representing the detected intent and extracted information.
+    """
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_message}
@@ -276,7 +285,8 @@ def detect_intent(user_message):
         reply = response['choices'][0]['message']['content']
         return reply
     except Exception as e:
-        return f"Error: {e}"
+        logger.error(f"Error in detect_intent: {e}")
+        return json.dumps({"error": "Unable to process the request", "details": str(e)})
 
 def send_reply(chat_id, message):
     """
