@@ -14,7 +14,7 @@ import json
 from datetime import datetime
 import hashlib
 import hmac
-from flask_wtf.csrf import CSRFError
+from flask_wtf.csrf import CSRFError, csrf_exempt
 
 # Load environment variables from .env at the very top
 from dotenv import load_dotenv
@@ -905,8 +905,6 @@ def handle_telegram_update(update):
         send_reply(chat_id, f"🤖 Here's what I understood: {ai_response}")
 
 # Exempt the /webhook route from CSRF protection
-from flask_wtf.csrf import csrf_exempt
-
 @app.route('/webhook', methods=['POST'])
 @csrf_exempt
 def webhook():
