@@ -29,6 +29,22 @@ app = Flask(__name__)
 app.secret_key = os.getenv("FLASK_SECRET_KEY") or uuid.uuid4().hex  # Use env or random fallback
 csrf = CSRFProtect(app)
 
+# Ensure CSRF is disabled for the /webhook route
+@app.route('/webhook', methods=['POST'])
+@csrf_exempt
+def webhook():
+    """
+    Handle Telegram webhook updates.
+    """
+    try:
+        json_data = request.get_json()
+        update = Update.de_json(json_data, bot)
+        handle_update(update)
+        return jsonify({"status": "ok"})
+    except Exception as e:
+        logging.error(f"Error processing webhook: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
 # === Security: HTTPS enforcement ===
 @app.before_request
 def enforce_https():
@@ -888,10 +904,14 @@ def handle_telegram_update(update):
     else:
         send_reply(chat_id, f"🤖 Here's what I understood: {ai_response}")
 
+# Exempt the /webhook route from CSRF protection
+from flask_wtf.csrf import csrf_exempt
+
 @app.route('/webhook', methods=['POST'])
+@csrf_exempt
 def webhook():
-    """
-    Handle Telegram webhook updates.
+        # Check if user is in the middle of a transfer
+        if chat_id in user_state and user_state[chat_id].get("intent") == "transfer":
     """
     try:
         json_data = request.get_json()
@@ -901,6 +921,11 @@ def webhook():
     except Exception as e:
         logging.error(f"Error processing webhook: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
+
+# Root route to return a welcome message
+@app.route('/')
+def root():
+    return "Welcome to Sofi AI! Your smart assistant is ready to help. 🚀"
 
 if __name__ == "__main__":
     print("\n--- Flask Routes ---")
