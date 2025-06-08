@@ -910,8 +910,8 @@ from flask_wtf.csrf import csrf_exempt
 @app.route('/webhook', methods=['POST'])
 @csrf_exempt
 def webhook():
-        # Check if user is in the middle of a transfer
-        if chat_id in user_state and user_state[chat_id].get("intent") == "transfer":
+    """
+    Handle Telegram webhook updates.
     """
     try:
         json_data = request.get_json()
