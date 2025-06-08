@@ -5,7 +5,8 @@ from flask import Flask, request, jsonify, render_template
 from flask_wtf import CSRFProtect
 from flask_wtf.csrf import CSRFError
 from telegram import Update, Bot, InlineKeyboardMarkup, InlineKeyboardButton
-from telegram.ext import Dispatcher, MessageHandler, Filters
+from telegram.ext import Application, MessageHandler, filters
+from dotenv import load_dotenv
 
 # --- Init ---
 app = Flask(__name__)
@@ -15,19 +16,24 @@ app.secret_key = os.getenv("FLASK_SECRET_KEY") or uuid.uuid4().hex
 app.config['WTF_CSRF_ENABLED'] = False
 csrf = CSRFProtect(app)
 
+# Load environment variables from .env file
+load_dotenv()
+
 # --- Telegram Bot ---
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-bot = Bot(token=TELEGRAM_TOKEN)
-dispatcher = Dispatcher(bot, None, use_context=True)
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+if not TELEGRAM_TOKEN:
+    raise ValueError("TELEGRAM_BOT_TOKEN is not set. Please check your .env file.")
+
+application = Application.builder().token(TELEGRAM_TOKEN).build()
 
 # --- Webhook Handler ---
 @app.route('/webhook', methods=['POST'])
 @csrf.exempt  # CRUCIAL for Telegram webhook
-def webhook():
+async def webhook():
     try:
         json_data = request.get_json(force=True)
-        update = Update.de_json(json_data, bot)
-        dispatcher.process_update(update)
+        update = Update.de_json(json_data, application.bot)
+        await application.process_update(update)
         return jsonify({"status": "ok"}), 200
     except Exception as e:
         logging.error(f"Webhook error: {e}")
@@ -46,7 +52,7 @@ def handle_message(update, context):
         ])
     )
 
-dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_message))
+application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
 # --- Web Form Handler ---
 @app.route('/onboard', methods=['GET', 'POST'])
