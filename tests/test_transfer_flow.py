@@ -5,6 +5,10 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 import pytest
 from unittest.mock import patch, MagicMock
 from main import app, detect_intent, generate_pos_style_receipt
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 @pytest.fixture
 def client():
@@ -81,3 +85,32 @@ def test_full_transfer_flow(mock_supabase, mock_send_money, client):
         assert response.status_code == 200
         assert "status" in response.json
         assert response.json["status"] == "ok"
+
+# Mock required environment variables for testing
+@patch.dict(os.environ, {
+    "TELEGRAM_BOT_TOKEN": "mock_token",
+    "OPENAI_API_KEY": "mock_api_key",
+    "SUPABASE_URL": "mock_url",
+    "SUPABASE_KEY": "mock_key",
+    "MONNIFY_API_KEY": "mock_api_key",
+    "MONNIFY_SECRET_KEY": "mock_secret_key",
+    "MONNIFY_CONTRACT_CODE": "mock_contract_code"
+})
+def test_environment_variables():
+    # Ensure the application initializes without missing environment variables
+    from main import app  # Re-import to apply mocked environment
+    assert app is not None
+
+@pytest.fixture(autouse=True)
+def mock_env_vars():
+    """Automatically mock environment variables for all tests."""
+    with patch.dict(os.environ, {
+        "TELEGRAM_BOT_TOKEN": "mock_token",
+        "OPENAI_API_KEY": "mock_api_key",
+        "SUPABASE_URL": "mock_url",
+        "SUPABASE_KEY": "mock_key",
+        "MONNIFY_API_KEY": "mock_api_key",
+        "MONNIFY_SECRET_KEY": "mock_secret_key",
+        "MONNIFY_CONTRACT_CODE": "mock_contract_code"
+    }):
+        yield

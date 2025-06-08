@@ -14,10 +14,10 @@ import json
 from datetime import datetime
 import hashlib
 import hmac
-from flask_wtf.csrf import CSRFError, csrf_exempt
+from flask_wtf.csrf import CSRFError
+from dotenv import load_dotenv
 
 # Load environment variables from .env at the very top
-from dotenv import load_dotenv
 load_dotenv()
 
 # Configure logging at the top
@@ -25,62 +25,74 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 # === Security: CSRF Protection ===
+# Move application initialization into a function to delay execution
+
+# Define required environment variables
+REQUIRED_ENV_VARS = [
+    "TELEGRAM_BOT_TOKEN", "OPENAI_API_KEY", "SUPABASE_URL", "SUPABASE_KEY"
+]
+
+# Initialize global variables
+bot = None
+
+# Define the Flask app and CSRF protection globally
 app = Flask(__name__)
-app.secret_key = os.getenv("FLASK_SECRET_KEY") or uuid.uuid4().hex  # Use env or random fallback
+app.secret_key = os.getenv("FLASK_SECRET_KEY") or uuid.uuid4().hex
 csrf = CSRFProtect(app)
 
-# Ensure CSRF is disabled for the /webhook route
-@app.route('/webhook', methods=['POST'])
-@csrf_exempt
-def webhook():
+def create_app():
     """
-    Handle Telegram webhook updates.
+    Application factory to create and configure the Flask app.
     """
-    try:
-        json_data = request.get_json()
-        update = Update.de_json(json_data, bot)
-        handle_update(update)
-        return jsonify({"status": "ok"})
-    except Exception as e:
-        logging.error(f"Error processing webhook: {e}")
-        return jsonify({"status": "error", "message": str(e)}), 500
+    app = Flask(__name__)
+    app.secret_key = os.getenv("FLASK_SECRET_KEY") or uuid.uuid4().hex
+    csrf = CSRFProtect(app)
 
-# === Security: HTTPS enforcement ===
-@app.before_request
-def enforce_https():
-    # Only enforce HTTPS in production, not in development
-    if not request.is_secure and os.getenv("FLASK_ENV") == "production":
-        url = request.url.replace("http://", "https://", 1)
-        return redirect(url, code=301)
+    # Ensure CSRF is disabled for the /webhook route
+    @app.route('/webhook', methods=['POST'])
+    @csrf.exempt
+    def webhook():
+        """
+        Handle Telegram webhook updates.
+        """
+        try:
+            json_data = request.get_json()
+            update = Update.de_json(json_data, bot)
+            handle_update(update)
+            return jsonify({"status": "ok"})
+        except Exception as e:
+            logging.error(f"Error processing webhook: {e}")
+            return jsonify({"status": "error", "message": str(e)}), 500
 
-# === Config / Keys ===
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
-MONNIFY_API_KEY = os.getenv("MONNIFY_API_KEY")
-MONNIFY_SECRET_KEY = os.getenv("MONNIFY_SECRET_KEY")
-MONNIFY_CONTRACT_CODE = os.getenv("MONNIFY_CONTRACT_CODE")
+    return app
 
-REQUIRED_ENV_VARS = [
-    "TELEGRAM_BOT_TOKEN", "OPENAI_API_KEY", "SUPABASE_URL", "SUPABASE_KEY",
-    "MONNIFY_API_KEY", "MONNIFY_SECRET_KEY", "MONNIFY_CONTRACT_CODE"
-]
+# Check for missing environment variables
 missing_vars = [var for var in REQUIRED_ENV_VARS if not os.getenv(var)]
 if missing_vars:
     logger.error(f"Missing required environment variables: {', '.join(missing_vars)}")
-    sys.exit(1)
+    raise RuntimeError("Missing required environment variables")
 
-# Initialize Supabase and OpenAI
+# Centralize Supabase initialization
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+
+if not SUPABASE_URL or not SUPABASE_KEY:
+    raise RuntimeError("Supabase URL or Key is missing from environment variables.")
+
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-openai.api_key = OPENAI_API_KEY
-bot = Bot(token=TELEGRAM_BOT_TOKEN)
 
-# --- Flask App Setup ---
-from werkzeug.middleware.proxy_fix import ProxyFix
+# Initialize OpenAI and Telegram bot
+openai.api_key = os.getenv("OPENAI_API_KEY")
+bot = Bot(token=os.getenv("TELEGRAM_BOT_TOKEN"))
 
-# Use ProxyFix if behind a proxy (e.g., on Heroku)
-app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
+# Load and validate additional environment variables
+MONNIFY_API_KEY = os.getenv("MONNIFY_API_KEY")
+MONNIFY_SECRET_KEY = os.getenv("MONNIFY_SECRET_KEY")
+MONNIFY_CONTRACT_CODE = os.getenv("MONNIFY_CONTRACT_CODE")
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+
+if not MONNIFY_API_KEY or not MONNIFY_SECRET_KEY or not MONNIFY_CONTRACT_CODE or not TELEGRAM_BOT_TOKEN:
+    raise RuntimeError("One or more required environment variables are missing.")
 
 # === Input Validation: WTForms for onboarding ===
 class OnboardingForm(Form):
@@ -831,13 +843,28 @@ def handle_telegram_update(update):
     user_resp = supabase.table("users").select("id").eq("telegram_chat_id", str(chat_id)).execute()
     if not user_resp.data:
         base_url = os.getenv("BASE_URL", "http://127.0.0.1:5001")
-        onboarding_url = f"{base_url}/onboarding"
+        onboarding_url = "https://sofi-ai-trio.onrender.com/onboard"
         welcome_message = f"""
-👋 Hello {telegram_username}!\n\nI'm Sofi, your Personal Account Manager AI from Sofi Technologies. I can handle transactions, schedule payments, and even analyze your spending!\n\n🔐 Quick tip: Lock down your Telegram for extra security!\n\nReady to get started? Let's begin your onboarding! ✨
-        """
+👋 Hello {telegram_username}! (Your Telegram username)
+
+I'm Sofi — your Personal Account Manager AI from Sofi Technologies.
+
+💸 I can help you:
+• Send and receive money instantly
+• Buy airtime and data at the best rates
+• Analyze and manage your spending
+• Schedule bills and transfers
+• Fund betting wallets ⚽️
+• Earn cashback and bonuses
+
+🔐 Quick tip: Lock your Telegram to keep your account safe.
+
+Let’s begin your onboarding 👇
+[📝 Start Onboarding] {onboarding_url}
+"""
         keyboard = {
             "inline_keyboard": [
-                [{"text": "Complete Onboarding", "url": onboarding_url}]
+                [{"text": "Complete Onboarding", "url": "https://t.me/getsofi_bot"}]
             ]
         }
         requests.post(
@@ -904,31 +931,63 @@ def handle_telegram_update(update):
     else:
         send_reply(chat_id, f"🤖 Here's what I understood: {ai_response}")
 
-# Exempt the /webhook route from CSRF protection
-@app.route('/webhook', methods=['POST'])
-@csrf_exempt
-def webhook():
-    """
-    Handle Telegram webhook updates.
-    """
-    try:
-        json_data = request.get_json()
-        update = Update.de_json(json_data, bot)
-        handle_update(update)
-        return jsonify({"status": "ok"})
-    except Exception as e:
-        logging.error(f"Error processing webhook: {e}")
-        return jsonify({"status": "error", "message": str(e)}), 500
-
-# Root route to return a welcome message
-@app.route('/')
-def root():
-    return "Welcome to Sofi AI! Your smart assistant is ready to help. 🚀"
-
+# Initialize the app only when running directly
 if __name__ == "__main__":
-    print("\n--- Flask Routes ---")
-    for rule in app.url_map.iter_rules():
-        print(f"{rule.endpoint}: {rule}")
-    print("--- End Routes ---\n")
-    # Run without SSL context for local HTTP testing
-    app.run(port=5000)
+    app = create_app()
+    app.run(debug=True)
+
+@app.route('/submit', methods=['POST'])
+@csrf.exempt
+def submit():
+    logger.info(f"Received request at /submit with data: {request.json}")
+    data = request.json or {}
+    chat_id = data.get("chat_id")
+    first_name = data.get("first_name")
+    last_name = data.get("last_name")
+    address = data.get("address")
+    city = data.get("city")
+    state = data.get("state")
+    bvn = data.get("bvn")
+    pin = data.get("pin")
+
+    if not all([chat_id, first_name, last_name, address, city, state, bvn, pin]):
+        return jsonify({"status": "error", "message": "All fields are required."}), 400
+
+    try:
+        # Hash the PIN
+        hashed_pin = hashlib.sha256(pin.encode()).hexdigest()
+
+        # Create the virtual account
+        result = create_virtual_account(first_name, last_name, bvn)
+        acct_no = result.get("accountNumber", "")
+        acct_name = result.get("accountName", "")
+        bank_name = result.get("bankName", "")
+        account_reference = result.get("accountReference", "")
+
+        # Save user data to Supabase
+        supabase.table("users").insert({
+            "telegram_chat_id": chat_id,
+            "first_name": first_name,
+            "last_name": last_name,
+            "address": address,
+            "city": city,
+            "state": state,
+            "bvn": bvn,
+            "pin": hashed_pin,
+            "account_number": acct_no,
+            "account_name": acct_name,
+            "bank_name": bank_name,
+            "account_reference": account_reference
+        }).execute()
+
+        logger.info(f"User onboarded successfully: {first_name} {last_name}")
+
+        return jsonify({
+            "status": "success",
+            "message": "Onboarding successful!",
+            "account_number": acct_no,
+            "bank_name": bank_name
+        }), 201
+    except Exception as e:
+        logger.error(f"Error during onboarding: {e}")
+        return jsonify({"status": "error", "message": "Onboarding failed. Please try again later."}), 500
