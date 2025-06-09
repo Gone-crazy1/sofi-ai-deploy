@@ -83,6 +83,8 @@ def create_virtual_account(first_name, last_name, bvn):
         "getAllAvailableBanks": False
     }
 
+    logger.info(f"Payload sent to Monnify: {payload}")  # Log the payload being sent
+
     response = requests.post(create_account_url, json=payload, headers=headers)
 
     if response.status_code != 201:
@@ -155,6 +157,16 @@ def handle_incoming_message():
         send_reply(chat_id, ai_reply)
 
         return jsonify({"response": ai_reply})
+
+    if "photo" in data["message"]:
+        chat_id = data["message"]["chat"]["id"]
+        send_reply(chat_id, "I received your photo, but I can't process images yet.")
+        return jsonify({"response": "Photo received"})
+
+    if "voice" in data["message"]:
+        chat_id = data["message"]["chat"]["id"]
+        send_reply(chat_id, "I received your voice message, but I can't process audio yet.")
+        return jsonify({"response": "Voice message received"})
 
 def handle_telegram_update(update):
     if not update or "message" not in update:
@@ -334,6 +346,10 @@ def onboarding_form():
     """Serve the onboarding form."""
     return render_template("onboarding_form.html")
 
+@app.route('/simple_onboarding_form')
+def simple_onboarding_form():
+    return render_template('simple_onboarding_form.html')
+
 def generate_pos_style_receipt(sender_name, amount, recipient_name, recipient_account, recipient_bank, balance, transaction_id):
     return f"""
     Transaction Receipt
@@ -391,8 +407,17 @@ def onboard():
     last_name = data.get('last_name')
     bvn = data.get('bvn')
 
+    if not bvn or len(bvn) != 11 or not bvn.isdigit():
+        return "Invalid BVN", 400
+
+    print("Raw request data:", request.data)  # Log raw request data for debugging
+    print("Form data:", request.form)  # Log parsed form data
+
+    logger.info(f"Creating virtual account with payload: {{'first_name': first_name, 'last_name': last_name, 'bvn': bvn}}")
     # Call your Monnify Virtual Account creation function here
     result = create_virtual_account(first_name, last_name, bvn)
+
+    logger.info(f"Monnify API response: {result}")
 
     if result:
         return jsonify({"message": "Account creation logic ran successfully!", "data": result})
@@ -437,6 +462,8 @@ def transfer_money():
         "currency": "NGN",
         "sourceAccountNumber": "1234567890"  # Replace with actual source account
     }
+
+    logger.info(f"Payload sent to Monnify: {payload}")  # Log the payload being sent
 
     response = requests.post(transfer_url, json=payload, headers=headers)
 
