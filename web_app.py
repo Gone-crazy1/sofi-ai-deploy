@@ -1,7 +1,5 @@
 from flask import Flask, render_template, request, jsonify
 from supabase import create_client
-from monnify.Auth import get_monnify_token
-from monnify.Transfers import create_virtual_account
 from telegram import Bot
 import os
 from dotenv import load_dotenv
@@ -39,28 +37,13 @@ def submit_onboarding():
     }
 
     try:
-        # Create Monnify virtual account
-        token = get_monnify_token()
-        account_details = create_virtual_account(
-            first_name=user_data["first_name"],
-            last_name=user_data["last_name"],
-            bvn=user_data["bvn"],
-            token=token
-        )
-
-        # Save user data and account details to Supabase
-        user_data.update({
-            "account_number": account_details.get("accountNumber"),
-            "bank_name": account_details.get("bankName"),
-        })
+        # Save user data to Supabase
         supabase.table("users").insert(user_data).execute()
 
         # Send account details via Telegram
         message = (
             f"🎉 Hello {user_data['first_name']} {user_data['last_name']}!\n"
             f"Your account has been successfully created.\n\n"
-            f"🏦 Bank Name: {account_details.get('bankName')}\n"
-            f"💳 Account Number: {account_details.get('accountNumber')}\n"
             f"📍 Address: {user_data['address']}, {user_data['city']}, {user_data['state']}"
         )
         bot.send_message(chat_id=user_data["chat_id"], text=message)

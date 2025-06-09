@@ -31,6 +31,13 @@ def test_detect_intent(mock_openai):
     response = detect_intent(user_message)
     assert "intent" in response
     assert "transfer" in response
+    assert response["intent"] == "transfer"
+    assert response["amount"] == 500
+    assert response["recipient_name"] == "John"
+
+def test_detect_intent():
+    assert detect_intent("Hello Sofi!") == "greeting"
+    assert detect_intent("What is the weather?") == "unknown"
 
 # Test Receipt Generation
 def test_generate_pos_style_receipt():
@@ -50,51 +57,12 @@ def test_generate_pos_style_receipt():
     assert "Access Bank" in receipt
     assert "4500" in receipt
 
-# Test Full Transfer Flow
-@patch('main.send_money')
-@patch('main.supabase.table')
-def test_full_transfer_flow(mock_supabase, mock_send_money, client):
-    # Mock Supabase PIN validation
-    mock_supabase.return_value.select.return_value.eq.return_value.single.return_value.execute.return_value = {
-        'data': {'pin': '1234'}
-    }
-
-    # Mock Monnify API response
-    mock_send_money.return_value = {
-        'requestSuccessful': True,
-        'responseBody': {'status': 'SUCCESS'}
-    }
-
-    # Simulate user interaction
-    chat_id = 12345
-    user_state = {
-        chat_id: {
-            "intent": "transfer",
-            "step": "awaiting_pin",
-            "transfer_data": {
-                "amount": 500,
-                "recipient_name": "John",
-                "account_number": "0123456789",
-                "bank_name": "Access Bank"
-            }
-        }
-    }
-
-    with patch('main.user_state', user_state):
-        response = client.post('/process_transfer', json={"chat_id": chat_id})
-        assert response.status_code == 200
-        assert "status" in response.json
-        assert response.json["status"] == "ok"
-
 # Mock required environment variables for testing
 @patch.dict(os.environ, {
     "TELEGRAM_BOT_TOKEN": "mock_token",
     "OPENAI_API_KEY": "mock_api_key",
     "SUPABASE_URL": "mock_url",
     "SUPABASE_KEY": "mock_key",
-    "MONNIFY_API_KEY": "mock_api_key",
-    "MONNIFY_SECRET_KEY": "mock_secret_key",
-    "MONNIFY_CONTRACT_CODE": "mock_contract_code"
 })
 def test_environment_variables():
     # Ensure the application initializes without missing environment variables
@@ -109,8 +77,5 @@ def mock_env_vars():
         "OPENAI_API_KEY": "mock_api_key",
         "SUPABASE_URL": "mock_url",
         "SUPABASE_KEY": "mock_key",
-        "MONNIFY_API_KEY": "mock_api_key",
-        "MONNIFY_SECRET_KEY": "mock_secret_key",
-        "MONNIFY_CONTRACT_CODE": "mock_contract_code"
     }):
         yield
