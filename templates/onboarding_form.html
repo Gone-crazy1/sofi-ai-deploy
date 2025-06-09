@@ -40,6 +40,9 @@
                 event.target.submit();  // Now submit the form
             });
         });
+
+        const tg = window.Telegram.WebApp;
+        document.querySelector('input[name="chat_id"]').value = tg.initDataUnsafe.user.id;
     </script>
 
     <a href="https://t.me/getsofi_bot" class="return-button">Return to Telegram</a>

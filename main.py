@@ -165,7 +165,7 @@ def handle_telegram_update(update):
 
     user_resp = supabase.table("users").select("id").eq("telegram_chat_id", str(chat_id)).execute()
     if not user_resp.data:
-        onboarding_url = "https://sofi-ai-trio.onrender.com/onboarding_form.html"
+        onboarding_url = "https://sofi-ai-trio.onrender.com/onboarding"
         welcome_message = (
             f"Hello {telegram_username}!\n\n"
             "I'm Sofi — your Personal Account Manager AI from Sofi Technologies.\n\n"
@@ -383,6 +383,10 @@ def get_user_memory(chat_id, key):
 @app.route('/onboard', methods=['POST'])
 def onboard():
     data = request.form
+    chat_id = data.get('chat_id')
+    if not chat_id:
+        return "Missing chat_id", 400
+
     first_name = data.get('first_name')
     last_name = data.get('last_name')
     bvn = data.get('bvn')
