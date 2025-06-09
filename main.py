@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, url_for
+from flask import Flask, request, jsonify, url_for, render_template
 from flask_cors import CORS
 import os, requests, hashlib, logging
 from supabase import create_client
@@ -324,55 +324,10 @@ def submit():
     except Exception:
         return jsonify({"status": "error", "message": "Onboarding failed. Please try again later."}), 500
 
-@app.route('/onboard', methods=['POST'])
-def onboard():
-    data = request.form
-    chat_id = data.get("chat_id")
-    first_name = data.get("first_name")
-    last_name = data.get("last_name")
-    address = data.get("address")
-    city = data.get("city")
-    state = data.get("state")
-    bvn = data.get("bvn")
-    pin = data.get("pin")
-
-    if not all([chat_id, first_name, last_name, address, city, state, bvn, pin]):
-        return jsonify({"status": "error", "message": "All fields are required."}), 400
-
-    try:
-        result = create_virtual_account(first_name, last_name, bvn)
-        acct_no = result.get("accountNumber", "")
-        acct_name = result.get("accountName", "")
-        bank_name = result.get("bankName", "")
-        account_reference = result.get("accountReference", "")
-
-        if not all([acct_no, acct_name, bank_name]):
-            return jsonify({"status": "error", "message": "Failed to create virtual account."}), 500
-
-        supabase.table("users").insert({
-            "telegram_chat_id": chat_id,
-            "first_name": first_name,
-            "last_name": last_name,
-            "address": address,
-            "city": city,
-            "state": state,
-            "bvn": bvn,
-            "pin": pin,
-            "account_number": acct_no,
-            "account_name": acct_name,
-            "bank_name": bank_name,
-            "account_reference": account_reference
-        }).execute()
-
-        return jsonify({
-            "status": "success",
-            "message": "Onboarding successful!",
-            "account_number": acct_no,
-            "bank_name": bank_name
-        }), 201
-    except Exception as e:
-        logger.error(f"Error during onboarding: {e}")
-        return jsonify({"status": "error", "message": "Onboarding failed. Please try again later."}), 500
+@app.route('/onboarding', methods=['GET'])
+def onboarding_form():
+    """Serve the onboarding form."""
+    return render_template("onboarding_form.html")
 
 def generate_pos_style_receipt(sender_name, amount, recipient_name, recipient_account, recipient_bank, balance, transaction_id):
     return f"""
