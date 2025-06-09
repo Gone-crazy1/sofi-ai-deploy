@@ -34,7 +34,7 @@ def test_detect_intent(mock_openai):
 
 def test_detect_intent():
     assert detect_intent("Hello Sofi!")["intent"] == "greeting"
-    assert detect_intent("What is the weather?")["intent"] == "unknown"
+    assert detect_intent("What is the weather?")["intent"] == "inquiry"
 
 # Test Receipt Generation
 def test_generate_pos_style_receipt():

@@ -5,6 +5,10 @@ from supabase import create_client
 import openai
 from dotenv import load_dotenv
 import random
+from PIL import Image
+from io import BytesIO
+from pydub import AudioSegment
+from pydub.utils import which
 
 # Load environment variables from .env file
 load_dotenv()
@@ -19,6 +23,8 @@ SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+if not TELEGRAM_BOT_TOKEN:
+    raise ValueError("TELEGRAM_BOT_TOKEN is not set in the environment variables.")
 
 user_state = {}
 onboarding_state = {}
@@ -27,6 +33,9 @@ openai.api_key = os.getenv("OPENAI_API_KEY")  # Make sure your .env has this key
 
 NELLOBYTES_USERID = os.getenv("NELLOBYTES_USERID")
 NELLOBYTES_APIKEY = os.getenv("NELLOBYTES_APIKEY")
+
+# Set the path to the ffmpeg executable for pydub
+AudioSegment.converter = which("ffmpeg")
 
 def send_reply(chat_id, message):
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
@@ -43,7 +52,10 @@ def detect_intent(message):
             ],
             max_tokens=10
         )
+        with open("api_logs.txt", "a") as log_file:
+            log_file.write(f"Message: {message}\nResponse: {response}\n\n")
         intent = response['choices'][0]['message']['content'].strip().lower()
+        intent = intent.strip("'")  # Remove extra quotes if present
         if intent not in ["greeting", "inquiry", "unknown"]:
             intent = "unknown"
         return {"intent": intent}
@@ -142,9 +154,63 @@ def generate_ai_reply(message):
     except Exception as e:
         return "Sorry, I'm having trouble thinking right now. Please try again later."
 
+def download_file(file_id):
+    # Get file path
+    file_info_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getFile?file_id={file_id}"
+    file_info = requests.get(file_info_url).json()
+    file_path = file_info["result"]["file_path"]
+
+    # Download file
+    file_url = f"https://api.telegram.org/file/bot{TELEGRAM_BOT_TOKEN}/{file_path}"
+    file_data = requests.get(file_url).content
+    return file_data
+
+def process_photo(file_id):
+    file_data = download_file(file_id)
+    image = Image.open(BytesIO(file_data))
+    # Example: Resize image
+    image = image.resize((200, 200))
+    image.save("processed_image.jpg")
+
+def process_voice(file_id):
+    file_data = download_file(file_id)
+    with open("voice.ogg", "wb") as f:
+        f.write(file_data)
+    # Convert OGG to MP3 using pydub
+    audio = AudioSegment.from_file("voice.ogg", format="ogg")
+    audio.export("voice.mp3", format="mp3")
+
 @app.route("/webhook_incoming", methods=["POST"])
 def handle_incoming_message():
     data = request.get_json()
+    if not data or "message" not in data:
+        return jsonify({"error": "Invalid update payload", "response": None}), 400
+
+    if "message" in data:
+        chat_id = data["message"]["chat"]["id"]
+
+        if "photo" in data["message"]:
+            # Get the largest photo
+            photo = data["message"]["photo"][-1]
+            process_photo(photo["file_id"])
+            send_reply(chat_id, "Photo processed successfully!")
+            return jsonify({"status": "ok", "response": "Photo processed successfully!"})
+
+        elif "voice" in data["message"]:
+            voice = data["message"]["voice"]
+            process_voice(voice["file_id"])
+            send_reply(chat_id, "Voice message processed successfully!")
+            return jsonify({"status": "ok", "response": "Voice message processed successfully!"})
+
+        else:
+            user_message = data["message"].get("text", "").strip()
+            if user_message:
+                ai_reply = generate_ai_reply(user_message)
+                send_reply(chat_id, ai_reply)
+                return jsonify({"status": "ok", "response": ai_reply})
+
+    return jsonify({"status": "ok", "response": None})
+
     if "message" in data:
         chat_id = data["message"]["chat"]["id"]
         user_message = data["message"].get("text", "").strip()

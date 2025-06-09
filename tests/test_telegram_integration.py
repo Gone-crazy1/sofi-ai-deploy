@@ -28,7 +28,10 @@ def test_telegram_integration(client):
     # Assert the response status code
     assert response.status_code == 200
 
-    # Assert Sofi's reply for greeting intent
+    # Log the response data for debugging
     response_data = response.get_json()
+    print("Response Data:", response_data)  # Log the response data
+
+    # Assert Sofi's reply for greeting intent
     assert "response" in response_data
     assert "Hello! How can I assist you today?" in response_data["response"]
