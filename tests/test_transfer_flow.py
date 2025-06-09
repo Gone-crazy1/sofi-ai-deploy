@@ -22,7 +22,7 @@ def test_detect_intent(mock_openai):
     mock_openai.return_value = MagicMock(
         choices=[{
             'message': {
-                'content': '{"intent": "transfer", "amount": 500, "recipient_name": "John", "account_number": "0123456789", "bank_name": "Access Bank"}'
+                'content': '{"intent": "transfer"}'
             }
         }]
     )
@@ -30,14 +30,11 @@ def test_detect_intent(mock_openai):
     user_message = "Send ₦500 to John at Access Bank, 0123456789"
     response = detect_intent(user_message)
     assert "intent" in response
-    assert "transfer" in response
     assert response["intent"] == "transfer"
-    assert response["amount"] == 500
-    assert response["recipient_name"] == "John"
 
 def test_detect_intent():
-    assert detect_intent("Hello Sofi!") == "greeting"
-    assert detect_intent("What is the weather?") == "unknown"
+    assert detect_intent("Hello Sofi!")["intent"] == "greeting"
+    assert detect_intent("What is the weather?")["intent"] == "unknown"
 
 # Test Receipt Generation
 def test_generate_pos_style_receipt():

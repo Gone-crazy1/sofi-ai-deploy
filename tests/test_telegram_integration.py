@@ -30,4 +30,5 @@ def test_telegram_integration(client):
 
     # Assert Sofi's reply for greeting intent
     response_data = response.get_json()
-    assert response_data["intent"] == "greeting"
+    assert "response" in response_data
+    assert "Hello! How can I assist you today?" in response_data["response"]

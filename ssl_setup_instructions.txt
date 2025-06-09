@@ -1,0 +1,30 @@
+# SSL Setup Instructions for Local Development
+
+1. **Generate SSL Certificates**:
+   - Use `mkcert` (recommended) or OpenSSL to create a self-signed certificate.
+   - Example with `mkcert`:
+     ```bash
+     mkcert -install
+     mkcert localhost
+     ```
+   - This will generate `localhost.pem` and `localhost-key.pem`.
+
+2. **Update Flask Configuration**:
+   - Modify the `main.py` file to include SSL context:
+     ```python
+     if __name__ == "__main__":
+         app.run(ssl_context=("localhost.pem", "localhost-key.pem"))
+     ```
+
+3. **Run the Flask App**:
+   - Start the app with HTTPS enabled:
+     ```bash
+     flask --app main run --reload
+     ```
+
+4. **Test HTTPS Locally**:
+   - Access the app via `https://localhost:5000` in your browser.
+
+5. **Troubleshooting**:
+   - Ensure the generated certificates are in the same directory as `main.py`.
+   - If using a custom domain, update the certificate generation command accordingly.

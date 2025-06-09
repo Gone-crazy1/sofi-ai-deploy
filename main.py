@@ -25,6 +25,9 @@ onboarding_state = {}
 
 openai.api_key = os.getenv("OPENAI_API_KEY")  # Make sure your .env has this key
 
+NELLOBYTES_USERID = os.getenv("NELLOBYTES_USERID")
+NELLOBYTES_APIKEY = os.getenv("NELLOBYTES_APIKEY")
+
 def send_reply(chat_id, message):
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     requests.post(url, json={"chat_id": chat_id, "text": message})
@@ -35,16 +38,18 @@ def detect_intent(message):
         response = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
             messages=[
-                {"role": "system", "content": "You are an intent classification assistant. Respond with only the intent label, such as 'greeting', 'inquiry', or 'unknown'."},
+                {"role": "system", "content": "You are an intent classification assistant. Respond with only one of the following intents: 'greeting', 'inquiry', or 'unknown'."},
                 {"role": "user", "content": f"Classify the intent of this message: '{message}'"}
             ],
             max_tokens=10
         )
         intent = response['choices'][0]['message']['content'].strip().lower()
-        return intent
+        if intent not in ["greeting", "inquiry", "unknown"]:
+            intent = "unknown"
+        return {"intent": intent}
     except Exception as e:
         logger.error(f"Error detecting intent: {e}")
-        return "unknown"
+        return {"intent": "unknown"}
 
 def create_virtual_account(first_name, last_name, bvn):
     """Create a virtual account using Monnify API."""
@@ -374,6 +379,125 @@ def get_user_memory(chat_id, key):
         logger.error(f"Error retrieving memory: {e}")
         logger.debug(f"Failed retrieval: chat_id={chat_id}, key={key}")
         return None
+
+@app.route('/onboard', methods=['POST'])
+def onboard():
+    data = request.form
+    first_name = data.get('first_name')
+    last_name = data.get('last_name')
+    bvn = data.get('bvn')
+
+    # Call your Monnify Virtual Account creation function here
+    result = create_virtual_account(first_name, last_name, bvn)
+
+    if result:
+        return jsonify({"message": "Account creation logic ran successfully!", "data": result})
+    else:
+        return jsonify({"message": "Failed to create virtual account."}), 500
+
+@app.route('/transfer', methods=['POST'])
+def transfer_money():
+    data = request.json
+    sender_name = data.get('sender_name')
+    amount = data.get('amount')
+    recipient_name = data.get('recipient_name')
+    recipient_account = data.get('recipient_account')
+    recipient_bank = data.get('recipient_bank')
+
+    monnify_base_url = os.getenv("MONNIFY_BASE_URL")
+    monnify_api_key = os.getenv("MONNIFY_API_KEY")
+    monnify_secret_key = os.getenv("MONNIFY_SECRET_KEY")
+
+    # Generate authentication token
+    auth_url = f"{monnify_base_url}/api/v1/auth/login"
+    auth_response = requests.post(auth_url, auth=(monnify_api_key, monnify_secret_key))
+
+    if auth_response.status_code != 200:
+        logger.error("Failed to authenticate with Monnify API.")
+        return jsonify({"status": "error", "message": "Authentication failed."}), 500
+
+    auth_token = auth_response.json().get("responseBody", {}).get("accessToken")
+    if not auth_token:
+        logger.error("Authentication token not found in Monnify response.")
+        return jsonify({"status": "error", "message": "Authentication token missing."}), 500
+
+    # Perform transfer
+    transfer_url = f"{monnify_base_url}/api/v2/disbursements/single"
+    headers = {"Authorization": f"Bearer {auth_token}"}
+    payload = {
+        "amount": amount,
+        "reference": f"transfer_{random.randint(1000, 9999)}",
+        "narration": f"Transfer to {recipient_name}",
+        "destinationBankCode": recipient_bank,
+        "destinationAccountNumber": recipient_account,
+        "currency": "NGN",
+        "sourceAccountNumber": "1234567890"  # Replace with actual source account
+    }
+
+    response = requests.post(transfer_url, json=payload, headers=headers)
+
+    if response.status_code != 200:
+        logger.error(f"Failed to complete transfer: {response.text}")
+        return jsonify({"status": "error", "message": "Transfer failed."}), 500
+
+    logger.info(f"Transfer successful: {response.json()}")
+    return jsonify({"status": "success", "message": "Transfer completed successfully."})
+
+@app.route('/buy_airtime', methods=['POST'])
+def buy_airtime():
+    data = request.json
+    mobile_network = data.get('MobileNetwork')
+    amount = data.get('Amount')
+    mobile_number = data.get('MobileNumber')
+    request_id = data.get('RequestID')
+    callback_url = data.get('CallBackURL')
+
+    if not all([mobile_network, amount, mobile_number, request_id, callback_url]):
+        return jsonify({"error": "Missing required parameters"}), 400
+
+    url = f"https://www.nellobytesystems.com/APIAirtimeV1.asp?UserID={NELLOBYTES_USERID}&APIKey={NELLOBYTES_APIKEY}&MobileNetwork={mobile_network}&Amount={amount}&MobileNumber={mobile_number}&RequestID={request_id}&CallBackURL={callback_url}"
+
+    response = requests.get(url)
+    return jsonify(response.json()), response.status_code
+
+@app.route('/buy_databundle', methods=['POST'])
+def buy_databundle():
+    data = request.json
+    mobile_network = data.get('MobileNetwork')
+    data_plan = data.get('DataPlan')
+    mobile_number = data.get('MobileNumber')
+    request_id = data.get('RequestID')
+    callback_url = data.get('CallBackURL')
+
+    if not all([mobile_network, data_plan, mobile_number, request_id, callback_url]):
+        return jsonify({"error": "Missing required parameters"}), 400
+
+    url = f"https://www.nellobytesystems.com/APIDatabundleV1.asp?UserID={NELLOBYTES_USERID}&APIKey={NELLOBYTES_APIKEY}&MobileNetwork={mobile_network}&DataPlan={data_plan}&MobileNumber={mobile_number}&RequestID={request_id}&CallBackURL={callback_url}"
+
+    response = requests.get(url)
+    return jsonify(response.json()), response.status_code
+
+@app.route('/query_transaction', methods=['POST'])
+def query_transaction():
+    data = request.json
+    order_id = data.get('OrderID')
+    request_id = data.get('RequestID')
+
+    if not (order_id or request_id):
+        return jsonify({"error": "Either OrderID or RequestID is required"}), 400
+
+    if order_id:
+        url = f"https://www.nellobytesystems.com/APIQueryV1.asp?UserID={NELLOBYTES_USERID}&APIKey={NELLOBYTES_APIKEY}&OrderID={order_id}"
+    else:
+        url = f"https://www.nellobytesystems.com/APIQueryV1.asp?UserID={NELLOBYTES_USERID}&APIKey={NELLOBYTES_APIKEY}&RequestID={request_id}"
+
+    response = requests.get(url)
+    return jsonify(response.json()), response.status_code
+
+@app.before_request
+def log_request_info():
+    logger.info(f"Headers: {request.headers}")
+    logger.info(f"Body: {request.get_data()}")
 
 if __name__ == "__main__":
     app.run(debug=True)
