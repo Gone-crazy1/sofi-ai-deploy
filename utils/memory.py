@@ -7,8 +7,19 @@ from datetime import datetime
 # Load environment variables
 load_dotenv()
 
-supabase_url = "https://qbxherpwkxckwlkwjhpm.supabase.co"
-supabase_key = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFieGhlcnB3a3hja3dsa3dqaHBtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDkxNDQ1MzYsImV4cCI6MjA2NDcyMDUzNn0._YOyoxWVoaOD7VMl_OwP1t-duw6s4qWmtNZm2rrcskM"
+supabase_url = os.getenv("SUPABASE_URL")
+# Use service role key for server-side operations to bypass RLS
+# Fall back to anon key if service role key is not set
+supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_KEY")
+
+if not supabase_url or not supabase_key:
+    raise ValueError("SUPABASE_URL and SUPABASE_KEY must be set in environment variables")
+
+# Check if we have a valid key (not placeholder)
+if supabase_key == "your_service_role_key_here":
+    print("Warning: Using placeholder service role key. Please set SUPABASE_SERVICE_ROLE_KEY to your actual service role key.")
+    supabase_key = os.getenv("SUPABASE_KEY")
+
 supabase = create_client(supabase_url, supabase_key)
 
 async def save_chat_message(chat_id: str, role: str, content: str) -> bool:
