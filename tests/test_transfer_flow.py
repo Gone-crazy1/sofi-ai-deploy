@@ -52,7 +52,7 @@ def test_generate_pos_style_receipt():
     assert "John" in receipt
     assert "0123456789" in receipt
     assert "Access Bank" in receipt
-    assert "4500" in receipt
+    assert "4,500.00" in receipt  # Check for formatted balance
 
 # Mock required environment variables for testing
 @patch.dict(os.environ, {

@@ -1,6 +1,7 @@
 from flask import Flask, request, jsonify, url_for, render_template
 from flask_cors import CORS
 import os, requests, hashlib, logging
+from datetime import datetime
 from supabase import create_client
 import openai
 from dotenv import load_dotenv
@@ -9,25 +10,50 @@ from PIL import Image
 from io import BytesIO
 from pydub import AudioSegment
 from pydub.utils import which
+from utils.memory import save_memory, list_memories
 
 # Load environment variables from .env file
 load_dotenv()
+
+def generate_pos_style_receipt(sender_name, amount, recipient_name, recipient_account, recipient_bank, balance, transaction_id):
+    """Generate a POS-style receipt for a transaction."""
+    receipt = f"""
+=================================
+      SOFI AI TRANSFER RECEIPT
+=================================
+Date: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+Transaction ID: {transaction_id}
+---------------------------------
+Sender: {sender_name}
+Amount: ₦{amount:,.2f}
+Recipient: {recipient_name}
+Account: {recipient_account}
+Bank: {recipient_bank}
+---------------------------------
+Balance: ₦{balance:,.2f}
+=================================
+    Thank you for using Sofi AI!
+=================================
+"""
+    return receipt
+
+# Initialize required variables
+SUPABASE_URL = "https://qbxherpwkxckwlkwjhpm.supabase.co"
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFieGhlcnB3a3hja3dsa3dqaHBtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDkxNDQ1MzYsImV4cCI6MjA2NDcyMDUzNn0._YOyoxWVoaOD7VMl_OwP1t-duw6s4qWmtNZm2rrcskM"
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+NELLOBYTES_USERID = os.getenv("NELLOBYTES_USERID")
+NELLOBYTES_APIKEY = os.getenv("NELLOBYTES_APIKEY")
+MONNIFY_BASE_URL = os.getenv("MONNIFY_BASE_URL")
+MONNIFY_API_KEY = os.getenv("MONNIFY_API_KEY")
+MONNIFY_SECRET_KEY = os.getenv("MONNIFY_SECRET_KEY")
+
+# Initialize Supabase client
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 app = Flask(__name__)
 CORS(app)  # CSRF Disabled globally
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
-supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
-
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-if not TELEGRAM_BOT_TOKEN:
-    raise ValueError("TELEGRAM_BOT_TOKEN is not set in the environment variables.")
-
-user_state = {}
-onboarding_state = {}
 
 openai.api_key = os.getenv("OPENAI_API_KEY")  # Make sure your .env has this key
 
@@ -166,73 +192,86 @@ def download_file(file_id):
     return file_data
 
 def process_photo(file_id):
-    file_data = download_file(file_id)
-    image = Image.open(BytesIO(file_data))
-    # Example: Resize image
-    image = image.resize((200, 200))
-    image.save("processed_image.jpg")
+    try:
+        file_data = download_file(file_id)
+        image = Image.open(BytesIO(file_data))
+        # Example: Resize image
+        image = image.resize((200, 200))
+        processed_file = "processed_image.jpg"
+        image.save(processed_file)
+        
+        # Cleanup after processing
+        if os.path.exists(processed_file):
+            os.remove(processed_file)
+            
+        return True
+    except Exception as e:
+        logger.error(f"Error processing photo: {e}")
+        return False
 
 def process_voice(file_id):
-    file_data = download_file(file_id)
-    with open("voice.ogg", "wb") as f:
-        f.write(file_data)
-    # Convert OGG to MP3 using pydub
-    audio = AudioSegment.from_file("voice.ogg", format="ogg")
-    audio.export("voice.mp3", format="mp3")
+    try:
+        file_data = download_file(file_id)
+        voice_ogg = "voice.ogg"
+        voice_mp3 = "voice.mp3"
+        
+        with open(voice_ogg, "wb") as f:
+            f.write(file_data)
+            
+        # Convert OGG to MP3 using pydub
+        audio = AudioSegment.from_file(voice_ogg, format="ogg")
+        audio.export(voice_mp3, format="mp3")
+        
+        # Cleanup after processing
+        for file in [voice_ogg, voice_mp3]:
+            if os.path.exists(file):
+                os.remove(file)
+                
+        return True
+    except Exception as e:
+        logger.error(f"Error processing voice message: {e}")
+        return False
 
 @app.route("/webhook_incoming", methods=["POST"])
 def handle_incoming_message():
-    data = request.get_json()
-    if not data or "message" not in data:
-        return jsonify({"error": "Invalid update payload", "response": None}), 400
+    try:
+        data = request.get_json()
+        if not data or "message" not in data:
+            return jsonify({"error": "Invalid update payload", "response": None}), 400
 
-    if "message" in data:
         chat_id = data["message"]["chat"]["id"]
+        telegram_username = data["message"]["chat"].get("username", "there")
 
         if "photo" in data["message"]:
-            # Get the largest photo
             photo = data["message"]["photo"][-1]
-            process_photo(photo["file_id"])
-            send_reply(chat_id, "Photo processed successfully!")
-            return jsonify({"status": "ok", "response": "Photo processed successfully!"})
+            if process_photo(photo["file_id"]):
+                ai_reply = generate_ai_reply(f"Thanks for sharing the image! I've processed it successfully.")
+            else:
+                ai_reply = "I'm sorry, I had trouble processing that image. Could you try sending it again or describe what you wanted to show me?"
+            send_reply(chat_id, ai_reply)
+            return jsonify({"status": "ok", "response": ai_reply})
 
-        elif "voice" in data["message"]:
+        if "voice" in data["message"]:
             voice = data["message"]["voice"]
-            process_voice(voice["file_id"])
-            send_reply(chat_id, "Voice message processed successfully!")
-            return jsonify({"status": "ok", "response": "Voice message processed successfully!"})
+            if process_voice(voice["file_id"]):
+                ai_reply = generate_ai_reply(f"Thanks for the voice message! I've processed it successfully.")
+            else:
+                ai_reply = "I'm sorry, I had trouble processing that voice message. Could you try sending it again or type your message instead?"
+            send_reply(chat_id, ai_reply)
+            return jsonify({"status": "ok", "response": ai_reply})
 
-        else:
-            user_message = data["message"].get("text", "").strip()
-            if user_message:
-                ai_reply = generate_ai_reply(user_message)
-                send_reply(chat_id, ai_reply)
-                return jsonify({"status": "ok", "response": ai_reply})
-
-    return jsonify({"status": "ok", "response": None})
-
-    if "message" in data:
-        chat_id = data["message"]["chat"]["id"]
         user_message = data["message"].get("text", "").strip()
-
         if not user_message:
+            send_reply(chat_id, "Please send a valid message!")
             return jsonify({"error": "No message provided"}), 400
 
-        # Use GPT AI for all replies
+        # Generate AI reply for text messages
         ai_reply = generate_ai_reply(user_message)
         send_reply(chat_id, ai_reply)
-
-        return jsonify({"response": ai_reply})
-
-    if "photo" in data["message"]:
-        chat_id = data["message"]["chat"]["id"]
-        send_reply(chat_id, "I received your photo, but I can't process images yet.")
-        return jsonify({"response": "Photo received"})
-
-    if "voice" in data["message"]:
-        chat_id = data["message"]["chat"]["id"]
-        send_reply(chat_id, "I received your voice message, but I can't process audio yet.")
-        return jsonify({"response": "Voice message received"})
+        return jsonify({"status": "ok", "response": ai_reply})
+    except Exception as e:
+        logger.error(f"Error in webhook handler: {e}")
+        return jsonify({"error": "Internal server error", "details": str(e)}), 500
 
 def handle_telegram_update(update):
     if not update or "message" not in update:
@@ -243,7 +282,6 @@ def handle_telegram_update(update):
 
     user_resp = supabase.table("users").select("id").eq("telegram_chat_id", str(chat_id)).execute()
     if not user_resp.data:
-        onboarding_url = "https://sofi-ai-trio.onrender.com/onboarding"
         welcome_message = (
             f"Hello {telegram_username}!\n\n"
             "I'm Sofi — your Personal Account Manager AI from Sofi Technologies.\n\n"
@@ -255,7 +293,7 @@ def handle_telegram_update(update):
             "• Fund betting wallets ⚽️\n"
             "• Earn cashback and bonuses\n\n"
             "Quick tip: Lock your Telegram to keep your account safe.\n\n"
-            f"Let’s begin your onboarding 👉\n[Start Onboarding]({onboarding_url})"
+            "Let’s begin your onboarding 👉\n[Start Onboarding](https://sofi-ai-trio.onrender.com/onboarding)"
         )
         keyboard = {
             "inline_keyboard": [
@@ -268,227 +306,11 @@ def handle_telegram_update(update):
         )
         return
 
-    if chat_id in onboarding_state:
-        user_data = onboarding_state[chat_id]
-        if "first_name" not in user_data:
-            user_data["first_name"] = user_message
-            send_reply(chat_id, "Great! Now, please tell me your last name.")
-        elif "last_name" not in user_data:
-            user_data["last_name"] = user_message
-            send_reply(chat_id, "Got it! What's your BVN?")
-        elif "bvn" not in user_data:
-            user_data["bvn"] = user_message
-            send_reply(chat_id, "Almost done! Choose a transaction PIN.")
-        elif "pin" not in user_data:
-            user_data["pin"] = user_message
-            try:
-                result = create_virtual_account(
-                    user_data["first_name"], user_data["last_name"], user_data["bvn"]
-                )
-                acct_no = result.get("accountNumber", "")
-                bank_name = result.get("bankName", "")
-                if acct_no and bank_name:
-                    supabase.table("users").upsert({
-                        "telegram_chat_id": chat_id,
-                        "first_name": user_data["first_name"],
-                        "last_name": user_data["last_name"],
-                        "bvn": user_data["bvn"],
-                        "pin": user_data["pin"],
-                        "account_number": acct_no,
-                        "bank_name": bank_name,
-                        "address": user_data.get("address", ""),
-                        "city": user_data.get("city", ""),
-                        "state": user_data.get("state", "")
-                    }, on_conflict=["telegram_chat_id"]).execute()
-                    send_reply(
-                        chat_id,
-                        f"Success! Your account has been created.\n\nAccount Number: {acct_no}\nBank Name: {bank_name}"
-                    )
-                else:
-                    send_reply(chat_id, "Failed to create your account. Please try again later.")
-            except Exception:
-                send_reply(chat_id, "Something went wrong during onboarding. Please try again.")
-            onboarding_state.pop(chat_id, None)
-        return
-
-    if user_message.lower() == "/start_onboarding":
-        onboarding_state[chat_id] = {}
-        send_reply(chat_id, "Welcome to Sofi AI! Let's get started. What's your first name?")
-        return
-
-    if "my name is" in user_message.lower():
-        # Extract and save the name
-        user_name = user_message.split("my name is")[-1].strip().capitalize()
-        save_user_memory(chat_id, "name", user_name)
-        send_reply(chat_id, f"Nice to meet you, {user_name}!")
-        return
-
-    if "what's my name" in user_message.lower() or "what is my name" in user_message.lower():
-        name = get_user_memory(chat_id, "name")
-        if name:
-            send_reply(chat_id, f"Your name is {name}!")
-        else:
-            send_reply(chat_id, "I don't know your name yet. What's your name?")
-        return
-
-    if user_message.lower().startswith("remember"):
-        # Example: "Remember my API key is sk-12345"
-        key_value = user_message.replace("remember", "").strip()
-        if "is" in key_value:
-            parts = key_value.split("is")
-            key = parts[0].strip()
-            value = parts[1].strip()
-            save_user_memory(chat_id, key, value)
-            send_reply(chat_id, f"Got it! I'll remember that your {key} is {value}.")
-        else:
-            send_reply(chat_id, "Please tell me what to remember in the format: 'Remember [thing] is [value]'.")
-        return
-
-    if user_message.lower().startswith("what is"):
-        # Example: "What is my API key"
-        key = user_message.replace("what is", "").replace("my", "").strip()
-        value = get_user_memory(chat_id, key)
-        if value:
-            send_reply(chat_id, f"Your {key} is {value}.")
-        else:
-            send_reply(chat_id, f"I don't remember your {key}.")
-        return
-
     ai_response = detect_intent(user_message)
     if isinstance(ai_response, str) and ai_response.startswith("Error"):
         send_reply(chat_id, "Sorry, I couldn't process that. Please try again or type /start_onboarding to begin.")
     else:
         send_reply(chat_id, f"Here's what I understood: {ai_response}")
-
-@app.route('/submit', methods=['POST'])
-def submit():
-    data = request.json or {}
-    chat_id = data.get("chat_id")
-    first_name = data.get("first_name")
-    last_name = data.get("last_name")
-    address = data.get("address")
-    city = data.get("city")
-    state = data.get("state")
-    bvn = data.get("bvn")
-    pin = data.get("pin")
-
-    if not all([chat_id, first_name, last_name, address, city, state, bvn, pin]):
-        return jsonify({"status": "error", "message": "All fields are required."}), 400
-
-    try:
-        hashed_pin = hashlib.sha256(pin.encode()).hexdigest()
-        result = create_virtual_account(first_name, last_name, bvn)
-        acct_no = result.get("accountNumber", "")
-        acct_name = result.get("accountName", "")
-        bank_name = result.get("bankName", "")
-        account_reference = result.get("accountReference", "")
-
-        supabase.table("users").insert({
-            "telegram_chat_id": chat_id,
-            "first_name": first_name,
-            "last_name": last_name,
-            "address": address,
-            "city": city,
-            "state": state,
-            "bvn": bvn,
-            "pin": hashed_pin,
-            "account_number": acct_no,
-            "account_name": acct_name,
-            "bank_name": bank_name,
-            "account_reference": account_reference
-        }).execute()
-
-        return jsonify({
-            "status": "success",
-            "message": "Onboarding successful!",
-            "account_number": acct_no,
-            "bank_name": bank_name
-        }), 201
-    except Exception:
-        return jsonify({"status": "error", "message": "Onboarding failed. Please try again later."}), 500
-
-@app.route('/onboarding', methods=['GET'])
-def onboarding_form():
-    """Serve the onboarding form."""
-    return render_template("onboarding_form.html")
-
-@app.route('/simple_onboarding_form')
-def simple_onboarding_form():
-    return render_template('simple_onboarding_form.html')
-
-def generate_pos_style_receipt(sender_name, amount, recipient_name, recipient_account, recipient_bank, balance, transaction_id):
-    return f"""
-    Transaction Receipt
-    --------------------
-    Sender: {sender_name}
-    Amount: ₦{amount:.2f}
-    Recipient: {recipient_name}
-    Account: {recipient_account}
-    Bank: {recipient_bank}
-    Balance: ₦{balance:.2f}
-    Transaction ID: {transaction_id}
-    --------------------
-    Thank you for using Sofi AI!
-    """
-
-def send_money(chat_id, amount, recipient_name, account_number, bank_name):
-    """Simulate sending money."""
-    # Log the transaction (mocked for now)
-    logger.info(f"Sending ₦{amount} to {recipient_name} at {bank_name}, {account_number}.")
-    return {"status": "success", "message": "Transfer completed successfully."}
-
-def save_user_memory(chat_id, key, value):
-    try:
-        supabase.table("memory").insert({
-            "telegram_chat_id": str(chat_id),
-            "key": key,
-            "value": value
-        }).execute()
-        logger.info(f"Memory saved for {chat_id}: {key} = {value}")
-    except Exception as e:
-        logger.error(f"Error saving memory: {e}")
-        logger.debug(f"Failed data: chat_id={chat_id}, key={key}, value={value}")
-
-def get_user_memory(chat_id, key):
-    try:
-        result = supabase.table("memory").select("value").eq("telegram_chat_id", str(chat_id)).eq("key", key).execute()
-        if result.data and len(result.data) > 0:
-            logger.info(f"Memory retrieved for {chat_id}: {key} = {result.data[0]['value']}")
-            return result.data[0]["value"]
-        logger.info(f"No memory found for {chat_id} with key: {key}")
-        return None
-    except Exception as e:
-        logger.error(f"Error retrieving memory: {e}")
-        logger.debug(f"Failed retrieval: chat_id={chat_id}, key={key}")
-        return None
-
-@app.route('/onboard', methods=['POST'])
-def onboard():
-    data = request.form
-    chat_id = data.get('chat_id')
-    if not chat_id:
-        return "Missing chat_id", 400
-
-    first_name = data.get('first_name')
-    last_name = data.get('last_name')
-    bvn = data.get('bvn')
-
-    if not bvn or len(bvn) != 11 or not bvn.isdigit():
-        return "Invalid BVN", 400
-
-    print("Raw request data:", request.data)  # Log raw request data for debugging
-    print("Form data:", request.form)  # Log parsed form data
-
-    logger.info(f"Creating virtual account with payload: {{'first_name': first_name, 'last_name': last_name, 'bvn': bvn}}")
-    # Call your Monnify Virtual Account creation function here
-    result = create_virtual_account(first_name, last_name, bvn)
-
-    logger.info(f"Monnify API response: {result}")
-
-    if result:
-        return jsonify({"message": "Account creation logic ran successfully!", "data": result})
-    else:
-        return jsonify({"message": "Failed to create virtual account."}), 500
 
 @app.route('/transfer', methods=['POST'])
 def transfer_money():
@@ -595,6 +417,17 @@ def query_transaction():
 def log_request_info():
     logger.info(f"Headers: {request.headers}")
     logger.info(f"Body: {request.get_data()}")
+
+# Clear memory logic for webhook
+@app.route("/clear_memory", methods=["POST"])
+def clear_memory():
+    chat_id = request.json.get("chat_id")
+    if not chat_id:
+        return jsonify({"error": "chat_id is required"}), 400
+
+    # Clear memory for the specific chat_id using utils.memory
+    save_memory(chat_id, None)  # Assuming None clears memory
+    return jsonify({"status": "success", "message": f"Memory cleared for chat_id: {chat_id}"})
 
 if __name__ == "__main__":
     app.run(debug=True)
