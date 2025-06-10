@@ -99,14 +99,17 @@ def test_monnify_direct():
                 # Create virtual account
                 create_url = f"{os.getenv('MONNIFY_BASE_URL')}/api/v2/bank-transfer/reserved-accounts"
                 
+                # Generate unique reference using timestamp
+                import time
+                timestamp = int(time.time())
+                
                 payload = {
-                    "accountReference": f"Test_User_{12345}",
-                    "accountName": "Test User",
-                    "currencyCode": "NGN",
+                    "accountReference": f"Test_User_{timestamp}",
+                    "accountName": "Test User",                    "currencyCode": "NGN",
                     "contractCode": os.getenv("MONNIFY_CONTRACT_CODE"),
-                    "customerEmail": "test.user@example.com",
+                    "customerEmail": f"test.user.{timestamp}@example.com",
                     "customerName": "Test User",
-                    "getAllAvailableBanks": False
+                    "getAllAvailableBanks": True
                 }
                 
                 headers = {
