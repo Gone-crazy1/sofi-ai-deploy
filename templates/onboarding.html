@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sofi AI - Onboarding</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+            line-height: 1.6;
+            margin: 0;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            text-align: center;
+            color: #1a73e8;
+            margin-bottom: 30px;
+        }
+        .intro-text {
+            text-align: center;
+            margin-bottom: 30px;
+            color: #666;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 500;
+        }
+        input[type="text"],
+        input[type="tel"] {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            box-sizing: border-box;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+        input[type="text"]:focus,
+        input[type="tel"]:focus {
+            border-color: #1a73e8;
+            outline: none;
+        }
+        button {
+            background: #1a73e8;
+            color: white;
+            padding: 14px 20px;
+            border: none;
+            border-radius: 5px;
+            width: 100%;
+            font-size: 16px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        button:hover {
+            background: #1557b0;
+        }
+        .error {
+            color: #d93025;
+            font-size: 14px;
+            margin-top: 5px;
+            display: none;
+        }
+        .loading {
+            display: none;
+            text-align: center;
+            margin-top: 20px;
+        }
+        .benefits {
+            margin-top: 30px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 5px;
+        }
+        .benefits h3 {
+            color: #1a73e8;
+            margin-top: 0;
+        }
+        .benefits ul {
+            list-style-type: none;
+            padding: 0;
+        }
+        .benefits li {
+            margin-bottom: 10px;
+            padding-left: 25px;
+            position: relative;
+        }
+        .benefits li:before {
+            content: "✓";
+            color: #34a853;
+            position: absolute;
+            left: 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Welcome to Sofi AI</h1>
+        <p class="intro-text">Create your virtual account in minutes and unlock a world of digital banking possibilities</p>
+        
+        <form id="onboardingForm" method="POST">
+            <div class="form-group">
+                <label for="firstName">First Name</label>
+                <input type="text" id="firstName" name="firstName" required>
+                <div class="error" id="firstNameError"></div>
+            </div>
+            
+            <div class="form-group">
+                <label for="lastName">Last Name</label>
+                <input type="text" id="lastName" name="lastName" required>
+                <div class="error" id="lastNameError"></div>
+            </div>
+            
+            <div class="form-group">
+                <label for="bvn">BVN (Bank Verification Number)</label>
+                <input type="tel" id="bvn" name="bvn" maxlength="11" pattern="\d{11}" title="Please enter a valid 11-digit BVN" required>
+                <div class="error" id="bvnError"></div>
+            </div>
+            
+            <div class="form-group">
+                <label for="phone">Phone Number</label>
+                <input type="tel" id="phone" name="phone" maxlength="11" pattern="\d{11}" title="Please enter a valid 11-digit phone number" required>
+                <div class="error" id="phoneError"></div>
+            </div>
+            
+            <button type="submit" id="submitBtn">Create Your Virtual Account</button>
+            <div class="loading" id="loadingIndicator">Creating your account...</div>
+        </form>
+
+        <div class="benefits">
+            <h3>What You Get:</h3>
+            <ul>
+                <li>Free virtual bank account</li>
+                <li>Zero transfer fees</li>
+                <li>Discounted airtime & data rates</li>
+                <li>24/7 AI banking assistant</li>
+                <li>Real-time transaction alerts</li>
+                <li>Secure banking experience</li>
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        function showError(elementId, message) {
+            const errorElement = document.getElementById(elementId);
+            errorElement.textContent = message;
+            errorElement.style.display = message ? 'block' : 'none';
+        }
+
+        function validateField(field) {
+            const value = field.value.trim();
+            switch(field.id) {
+                case 'firstName':
+                case 'lastName':
+                    if (!value) {
+                        showError(field.id + 'Error', 'This field is required');
+                        return false;
+                    }
+                    if (!/^[a-zA-Z\s]+$/.test(value)) {
+                        showError(field.id + 'Error', 'Please enter valid name (letters only)');
+                        return false;
+                    }
+                    break;
+                    
+                case 'bvn':
+                    if (!value) {
+                        showError('bvnError', 'BVN is required');
+                        return false;
+                    }
+                    if (!/^\d{11}$/.test(value)) {
+                        showError('bvnError', 'BVN must be exactly 11 digits');
+                        return false;
+                    }
+                    break;
+                    
+                case 'phone':
+                    if (!value) {
+                        showError('phoneError', 'Phone number is required');
+                        return false;
+                    }
+                    if (!/^\d{11}$/.test(value)) {
+                        showError('phoneError', 'Phone number must be exactly 11 digits');
+                        return false;
+                    }
+                    break;
+            }
+            showError(field.id + 'Error', '');
+            return true;
+        }
+
+        // Add input event listeners for real-time validation
+        ['firstName', 'lastName', 'bvn', 'phone'].forEach(id => {
+            const field = document.getElementById(id);
+            field.addEventListener('input', () => validateField(field));
+        });
+
+        document.getElementById('onboardingForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            // Validate all fields
+            const fields = ['firstName', 'lastName', 'bvn', 'phone'];
+            const isValid = fields.every(id => validateField(document.getElementById(id)));
+            
+            if (!isValid) {
+                return;
+            }
+
+            const submitBtn = document.getElementById('submitBtn');
+            const loadingIndicator = document.getElementById('loadingIndicator');
+            
+            submitBtn.disabled = true;
+            loadingIndicator.style.display = 'block';
+            
+            const formData = new FormData(e.target);
+            const data = Object.fromEntries(formData.entries());
+
+            try {
+                const response = await fetch('/api/create_virtual_account', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(data)
+                });
+
+                const result = await response.json();
+                
+                if (response.ok) {
+                    alert('Virtual account created successfully! Check your Telegram for account details.');
+                    window.location.href = 'https://t.me/getsofi_bot';
+                } else {
+                    alert(result.message || 'Failed to create virtual account. Please try again.');
+                }
+            } catch (error) {
+                alert('An error occurred. Please try again later.');
+                console.error('Error:', error);
+            } finally {
+                submitBtn.disabled = false;
+                loadingIndicator.style.display = 'none';
+            }
+        });
+    </script>
+</body>
+</html>

@@ -302,3 +302,365 @@ Response: {
   "system_fingerprint": null
 }
 
+Message: Hello Sofi!
+Response: {
+  "id": "chatcmpl-BglnFw395N9fOQ3m4YRmFT3EeTjN4",
+  "object": "chat.completion",
+  "created": 1749533193,
+  "model": "gpt-3.5-turbo-0125",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "greeting",
+        "refusal": null,
+        "annotations": []
+      },
+      "logprobs": null,
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 52,
+    "completion_tokens": 2,
+    "total_tokens": 54,
+    "prompt_tokens_details": {
+      "cached_tokens": 0,
+      "audio_tokens": 0
+    },
+    "completion_tokens_details": {
+      "reasoning_tokens": 0,
+      "audio_tokens": 0,
+      "accepted_prediction_tokens": 0,
+      "rejected_prediction_tokens": 0
+    }
+  },
+  "service_tier": "default",
+  "system_fingerprint": null
+}
+
+Message: What is the weather?
+Response: {
+  "id": "chatcmpl-BglnGjXEsWYC8dzHcEGshTy9Hh69I",
+  "object": "chat.completion",
+  "created": 1749533194,
+  "model": "gpt-3.5-turbo-0125",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "'inquiry'",
+        "refusal": null,
+        "annotations": []
+      },
+      "logprobs": null,
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 53,
+    "completion_tokens": 3,
+    "total_tokens": 56,
+    "prompt_tokens_details": {
+      "cached_tokens": 0,
+      "audio_tokens": 0
+    },
+    "completion_tokens_details": {
+      "reasoning_tokens": 0,
+      "audio_tokens": 0,
+      "accepted_prediction_tokens": 0,
+      "rejected_prediction_tokens": 0
+    }
+  },
+  "service_tier": "default",
+  "system_fingerprint": null
+}
+
+Message: Hello Sofi!
+Response: <MagicMock name='create()' id='2573262099632'>
+
+Message: Yes, proceed with the transfer
+Response: <MagicMock name='create()' id='2573262493856'>
+
+Message: Hello
+Response: <MagicMock name='create()' id='2573263387904'>
+
+Message: Hello
+Response: <MagicMock name='create()' id='2573263402800'>
+
+Message: Hello Sofi!
+Response: <MagicMock name='create()' id='2527968895296'>
+
+Message: Yes, proceed with the transfer
+Response: <MagicMock name='create()' id='2527969171616'>
+
+Message: Hello
+Response: <MagicMock name='create()' id='2527970278512'>
+
+Message: Hello
+Response: <MagicMock name='create()' id='2527970293456'>
+
+Message: Hello Sofi!
+Response: <MagicMock name='create()' id='1477861457248'>
+
+Message: Send 500 to John at Access Bank, 0123456789
+Response: <MagicMock name='create()' id='1477862691392'>
+
+Message: Yes, proceed with the transfer
+Response: <MagicMock name='create()' id='1477862855760'>
+
+Message: Hello
+Response: <MagicMock name='create()' id='1477862726944'>
+
+Message: Hello
+Response: <MagicMock name='create()' id='1477862844608'>
+
+Message: Hello Sofi!
+Response: <MagicMock name='create()' id='1477865845808'>
+
+Message: Hello Sofi!
+Response: <MagicMock name='create()' id='1664291195008'>
+
+Message: Send 500 to John at Access Bank, 0123456789
+Response: <MagicMock name='create()' id='1664292060896'>
+
+Message: Yes, proceed with the transfer
+Response: <MagicMock name='create()' id='1664292361344'>
+
+Message: Hello
+Response: <MagicMock name='create()' id='1664291483760'>
+
+Message: Hello
+Response: <MagicMock name='create()' id='1664291476176'>
+
+Message: Hello Sofi!
+Response: <MagicMock name='create()' id='1664296926416'>
+
+Message: Hello Sofi!
+Response: <MagicMock name='create()' id='1382218811520'>
+
+Message: Send 500 to John at Access Bank, 0123456789
+Response: <MagicMock name='create()' id='1382219638304'>
+
+Message: Yes, proceed with the transfer
+Response: <MagicMock name='create()' id='1382219945040'>
+
+Message: Hello
+Response: <MagicMock name='create()' id='1382219629712'>
+
+Message: Hello
+Response: <MagicMock name='create()' id='1382218997216'>
+
+Message: Hello Sofi!
+Response: <MagicMock name='create()' id='1382224071120'>
+
+Message: Hello Sofi!
+Response: <MagicMock name='create()' id='2597981276048'>
+
+Message: Send 500 to John at Access Bank, 0123456789
+Response: <MagicMock name='create()' id='2597982140928'>
+
+Message: Yes, proceed with the transfer
+Response: <MagicMock name='create()' id='2597982475440'>
+
+Message: Hello
+Response: <MagicMock name='create()' id='2597982285120'>
+
+Message: Hello
+Response: <MagicMock name='create()' id='2597982282288'>
+
+Message: Hello Sofi!
+Response: <MagicMock name='create()' id='2597986353008'>
+
+Message: 
+Response: {
+  "id": "chatcmpl-BgqwOBJg4tS6bLMiZLqIDIllQxFRW",
+  "object": "chat.completion",
+  "created": 1749552980,
+  "model": "gpt-3.5-turbo-0125",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "{\n  \"intent\": \"general_chat\"\n}",
+        "refusal": null,
+        "annotations": []
+      },
+      "logprobs": null,
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 580,
+    "completion_tokens": 10,
+    "total_tokens": 590,
+    "prompt_tokens_details": {
+      "cached_tokens": 0,
+      "audio_tokens": 0
+    },
+    "completion_tokens_details": {
+      "reasoning_tokens": 0,
+      "audio_tokens": 0,
+      "accepted_prediction_tokens": 0,
+      "rejected_prediction_tokens": 0
+    }
+  },
+  "service_tier": "default",
+  "system_fingerprint": null
+}
+
+Message: Hello Sofi!
+Response: {
+  "id": "chatcmpl-BgqwPorOomsXbKkUoNPOQ4EUYdcHf",
+  "object": "chat.completion",
+  "created": 1749552981,
+  "model": "gpt-3.5-turbo-0125",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "{\n  \"intent\": \"greeting\"\n}",
+        "refusal": null,
+        "annotations": []
+      },
+      "logprobs": null,
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 584,
+    "completion_tokens": 10,
+    "total_tokens": 594,
+    "prompt_tokens_details": {
+      "cached_tokens": 0,
+      "audio_tokens": 0
+    },
+    "completion_tokens_details": {
+      "reasoning_tokens": 0,
+      "audio_tokens": 0,
+      "accepted_prediction_tokens": 0,
+      "rejected_prediction_tokens": 0
+    }
+  },
+  "service_tier": "default",
+  "system_fingerprint": null
+}
+
+Message: 
+Response: {
+  "id": "chatcmpl-BgqzYioRYPQl4ghFOnlkBfaJh2psk",
+  "object": "chat.completion",
+  "created": 1749553176,
+  "model": "gpt-3.5-turbo-0125",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "{\n  \"intent\": \"general_chat\"\n}",
+        "refusal": null,
+        "annotations": []
+      },
+      "logprobs": null,
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 580,
+    "completion_tokens": 10,
+    "total_tokens": 590,
+    "prompt_tokens_details": {
+      "cached_tokens": 0,
+      "audio_tokens": 0
+    },
+    "completion_tokens_details": {
+      "reasoning_tokens": 0,
+      "audio_tokens": 0,
+      "accepted_prediction_tokens": 0,
+      "rejected_prediction_tokens": 0
+    }
+  },
+  "service_tier": "default",
+  "system_fingerprint": null
+}
+
+Message: Hello Sofi!
+Response: {
+  "id": "chatcmpl-BgqzZMMywBUdkb3x1UOHA86D7Pcag",
+  "object": "chat.completion",
+  "created": 1749553177,
+  "model": "gpt-3.5-turbo-0125",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "{\n  \"intent\": \"greeting\"\n}",
+        "refusal": null,
+        "annotations": []
+      },
+      "logprobs": null,
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 584,
+    "completion_tokens": 10,
+    "total_tokens": 594,
+    "prompt_tokens_details": {
+      "cached_tokens": 0,
+      "audio_tokens": 0
+    },
+    "completion_tokens_details": {
+      "reasoning_tokens": 0,
+      "audio_tokens": 0,
+      "accepted_prediction_tokens": 0,
+      "rejected_prediction_tokens": 0
+    }
+  },
+  "service_tier": "default",
+  "system_fingerprint": null
+}
+
+Message: Hello Sofi!
+Response: {
+  "id": "chatcmpl-Bgr1sIxzYx0TTC7LHWM2p4nNGFfEH",
+  "object": "chat.completion",
+  "created": 1749553320,
+  "model": "gpt-3.5-turbo-0125",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "{\n  \"intent\": \"greeting\"\n}",
+        "refusal": null,
+        "annotations": []
+      },
+      "logprobs": null,
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 584,
+    "completion_tokens": 10,
+    "total_tokens": 594,
+    "prompt_tokens_details": {
+      "cached_tokens": 0,
+      "audio_tokens": 0
+    },
+    "completion_tokens_details": {
+      "reasoning_tokens": 0,
+      "audio_tokens": 0,
+      "accepted_prediction_tokens": 0,
+      "rejected_prediction_tokens": 0
+    }
+  },
+  "service_tier": "default",
+  "system_fingerprint": null
+}
+

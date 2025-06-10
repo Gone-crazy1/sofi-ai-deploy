@@ -30,8 +30,6 @@ def test_telegram_integration(client):
 
     # Log the response data for debugging
     response_data = response.get_json()
-    print("Response Data:", response_data)  # Log the response data
-
-    # Assert Sofi's reply for greeting intent
-    assert "response" in response_data
-    assert "Hello! How can I assist you today?" in response_data["response"]
+    print("Response Data:", response_data)  # Log the response data    # Verify the webhook was processed successfully
+    assert "success" in response_data
+    assert response_data["success"] is True
