@@ -102,13 +102,12 @@ def test_monnify_direct():
                 # Generate unique reference using timestamp
                 import time
                 timestamp = int(time.time())
-                
-                payload = {
+                  payload = {
                     "accountReference": f"Test_User_{timestamp}",
                     "accountName": "Test User",
                     "currencyCode": "NGN",
                     "contractCode": os.getenv("MONNIFY_CONTRACT_CODE"),
-                    "customerEmail": "test.user@example.com",
+                    "customerEmail": f"test.user.{timestamp}@example.com",
                     "customerName": "Test User",
                     "getAllAvailableBanks": True  # Changed to True
                 }
@@ -117,15 +116,23 @@ def test_monnify_direct():
                     "Authorization": f"Bearer {access_token}",
                     "Content-Type": "application/json"
                 }
-                
-                print(f"Creating virtual account with payload: {payload}")
+                  print(f"Creating virtual account with payload: {payload}")
                 create_response = requests.post(create_url, json=payload, headers=headers)
                 print(f"Create response status: {create_response.status_code}")
                 print(f"Create response: {create_response.text}")
                 
-                if create_response.status_code == 201:  # Monnify returns 201 for creation
-                    print("[SUCCESS] Monnify direct API test successful!")
-                    return True
+                if create_response.status_code == 200:  # Monnify returns 200 for success
+                    response_data = create_response.json()
+                    if response_data.get("requestSuccessful"):
+                        print("[SUCCESS] Monnify direct API test successful!")
+                        # Show created accounts
+                        accounts = response_data.get("responseBody", {}).get("accounts", [])
+                        for account in accounts:
+                            print(f"Created account: {account['bankName']} - {account['accountNumber']}")
+                        return True
+                    else:
+                        print("[ERROR] Monnify API returned unsuccessful response")
+                        return False
                 else:
                     print("[ERROR] Monnify direct API test failed")
                     return False

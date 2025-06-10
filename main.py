@@ -205,7 +205,9 @@ def create_virtual_account(first_name, last_name, bvn, chat_id=None):
     auth_token = auth_response.json().get("responseBody", {}).get("accessToken")
     if not auth_token:
         logger.error("Authentication token not found in Monnify response.")
-        return {}    # Create virtual account
+        return {}
+    
+    # Create virtual account
     create_account_url = f"{monnify_base_url}/api/v2/bank-transfer/reserved-accounts"
     headers = {
         "Authorization": f"Bearer {auth_token}",
@@ -908,8 +910,7 @@ def create_virtual_account_api():
         for field in required_fields:
             if not data.get(field):
                 return jsonify({"success": False, "message": f"{field} is required"}), 400
-        
-        # Create virtual account
+          # Create virtual account
         account_result = create_virtual_account(
             first_name=data['firstName'],
             last_name=data['lastName'],
@@ -917,7 +918,7 @@ def create_virtual_account_api():
         )
         
         if account_result:
-            # Save user data to Supabase
+            # Save user data to Supabase users table
             user_data = {
                 "first_name": data['firstName'],
                 "last_name": data['lastName'],
@@ -926,10 +927,31 @@ def create_virtual_account_api():
                 "created_at": datetime.now().isoformat()
             }
             
+            # Save virtual account data to Supabase virtual_accounts table
+            virtual_account_data = {
+                "accountNumber": account_result.get("accountNumber"),
+                "accountName": account_result.get("accountName"),
+                "bankName": account_result.get("bankName"),
+                "accountReference": account_result.get("accountReference"),
+                "first_name": data['firstName'],
+                "last_name": data['lastName'],
+                "phone": data['phone'],
+                "bvn": data['bvn'],
+                "created_at": datetime.now().isoformat()
+            }
+            
             try:
+                # Insert user data
                 supabase.table("users").insert(user_data).execute()
+                logger.info("User data saved successfully")
+                
+                # Insert virtual account data
+                supabase.table("virtual_accounts").insert(virtual_account_data).execute()
+                logger.info("Virtual account data saved successfully")
+                
             except Exception as e:
-                logger.error(f"Error saving user data: {e}")
+                logger.error(f"Error saving data to Supabase: {e}")
+                # Even if saving fails, we still return success since the account was created
             
             return jsonify({
                 "success": True,

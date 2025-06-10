@@ -111,8 +111,7 @@ def test_monnify_direct():
                     "customerName": "Test User",
                     "getAllAvailableBanks": True
                 }
-                
-                headers = {
+                  headers = {
                     "Authorization": f"Bearer {access_token}",
                     "Content-Type": "application/json"
                 }
@@ -122,9 +121,17 @@ def test_monnify_direct():
                 print(f"Create response status: {create_response.status_code}")
                 print(f"Create response: {create_response.text}")
                 
-                if create_response.status_code == 201:  # Monnify returns 201 for creation
-                    print("✅ Monnify direct API test successful!")
-                    return True
+                if create_response.status_code == 200:  # Monnify returns 200 for success
+                    response_data = create_response.json()
+                    if response_data.get("requestSuccessful"):
+                        print("✅ Monnify direct API test successful!")
+                        print(f"✅ Created virtual accounts:")
+                        for account in response_data.get("responseBody", {}).get("accounts", []):
+                            print(f"  - {account['bankName']}: {account['accountNumber']}")
+                        return True
+                    else:
+                        print("❌ Monnify API returned unsuccessful response")
+                        return False
                 else:
                     print("❌ Monnify direct API test failed")
                     return False
