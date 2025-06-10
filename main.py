@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, url_for, render_template
+from flask import Flask, request, jsonify, url_for, render_template, redirect
 from flask_cors import CORS
 import os, requests, hashlib, logging, json, asyncio, tempfile
 from datetime import datetime
@@ -830,5 +830,66 @@ def health_check():
         "service": "sofi-ai-bot"
     }), 200
 
-if __name__ == "__main__":
-    app.run(debug=False, host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+@app.route("/", methods=["GET"])
+def home():
+    """Home page redirect to onboarding"""
+    return redirect(url_for('onboarding'))
+
+@app.route("/onboarding", methods=["GET"])
+def onboarding():
+    """Serve the onboarding page"""
+    return render_template('onboarding.html')
+
+@app.route("/api/create_virtual_account", methods=["POST"])
+def create_virtual_account_api():
+    """API endpoint to create virtual account from onboarding form"""
+    try:
+        data = request.get_json()
+        
+        # Validate required fields
+        required_fields = ['firstName', 'lastName', 'bvn', 'phone']
+        for field in required_fields:
+            if not data.get(field):
+                return jsonify({"success": False, "message": f"{field} is required"}), 400
+        
+        # Create virtual account
+        account_result = create_virtual_account(
+            first_name=data['firstName'],
+            last_name=data['lastName'],
+            bvn=data['bvn']
+        )
+        
+        if account_result:
+            # Save user data to Supabase
+            user_data = {
+                "first_name": data['firstName'],
+                "last_name": data['lastName'],
+                "phone": data['phone'],
+                "bvn": data['bvn'],
+                "created_at": datetime.now().isoformat()
+            }
+            
+            try:
+                supabase.table("users").insert(user_data).execute()
+            except Exception as e:
+                logger.error(f"Error saving user data: {e}")
+            
+            return jsonify({
+                "success": True,
+                "message": "Virtual account created successfully!",
+                "account": account_result
+            }), 201
+        else:
+            return jsonify({
+                "success": False,
+                "message": "Failed to create virtual account. Please try again."
+            }), 500
+            
+    except Exception as e:
+        logger.error(f"Error creating virtual account: {e}")
+        return jsonify({
+            "success": False,
+            "message": "An error occurred. Please try again later."
+        }), 500
+
+# ...existing code...
