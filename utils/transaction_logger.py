@@ -7,7 +7,8 @@ import logging
 load_dotenv()
 
 supabase_url = os.getenv("SUPABASE_URL")
-supabase_key = os.getenv("SUPABASE_KEY")
+# Use service role key for server-side operations to bypass RLS
+supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_KEY")
 supabase = create_client(supabase_url, supabase_key)
 
 openai.api_key = os.getenv("OPENAI_API_KEY")

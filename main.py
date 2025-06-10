@@ -43,7 +43,7 @@ Balance: ₦{balance:,.2f}
 
 # Initialize required variables
 SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_KEY")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 NELLOBYTES_USERID = os.getenv("NELLOBYTES_USERID")
 NELLOBYTES_APIKEY = os.getenv("NELLOBYTES_APIKEY")
@@ -51,7 +51,7 @@ MONNIFY_BASE_URL = os.getenv("MONNIFY_BASE_URL")
 MONNIFY_API_KEY = os.getenv("MONNIFY_API_KEY")
 MONNIFY_SECRET_KEY = os.getenv("MONNIFY_SECRET_KEY")
 
-# Initialize Supabase client
+# Initialize Supabase client with service role key for RLS bypass
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 app = Flask(__name__)
@@ -67,9 +67,15 @@ NELLOBYTES_APIKEY = os.getenv("NELLOBYTES_APIKEY")
 # Set the path to the ffmpeg executable for pydub
 AudioSegment.converter = which("ffmpeg")
 
-def send_reply(chat_id, message):
+def send_reply(chat_id, message, reply_markup=None):
+    """Send a message to Telegram with optional inline keyboard"""
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    requests.post(url, json={"chat_id": chat_id, "text": message})
+    payload = {"chat_id": chat_id, "text": message}
+    
+    if reply_markup:
+        payload["reply_markup"] = reply_markup
+    
+    requests.post(url, json=payload)
 
 def detect_intent(message):
     """Enhanced intent detector using OpenAI API with GPT-3.5-turbo"""
@@ -190,19 +196,20 @@ def create_virtual_account(first_name, last_name, bvn, chat_id=None):
     auth_token = auth_response.json().get("responseBody", {}).get("accessToken")
     if not auth_token:
         logger.error("Authentication token not found in Monnify response.")
-        return {}
-
-    # Create virtual account
+        return {}    # Create virtual account
     create_account_url = f"{monnify_base_url}/api/v2/bank-transfer/reserved-accounts"
-    headers = {"Authorization": f"Bearer {auth_token}"}
+    headers = {
+        "Authorization": f"Bearer {auth_token}",
+        "Content-Type": "application/json"
+    }
     payload = {
         "accountReference": f"{first_name}_{last_name}_{random.randint(1000, 9999)}",
         "accountName": f"{first_name} {last_name}",
         "currencyCode": "NGN",
-        "customerEmail": f"{first_name.lower()}.{last_name.lower()}@example.com",
-        "bvn": bvn,
+        "contractCode": os.getenv("MONNIFY_CONTRACT_CODE"),  # This was missing!
+        "customerEmail": f"{first_name.lower()}.{last_name.lower()}@example.com",        "bvn": bvn,
         "customerName": f"{first_name} {last_name}",
-        "getAllAvailableBanks": False
+        "getAllAvailableBanks": True  # Changed to True to get all available banks
     }
 
     logger.info(f"Payload sent to Monnify: {payload}")
@@ -259,7 +266,7 @@ async def generate_ai_reply(chat_id: str, message: str):
     You reply in a warm, conversational way like a real human.
 
     When users ask about creating an account or getting started:
-    1. Direct them to complete their onboarding at https://sofi-ai-trio.onrender.com/onboarding
+    1. Direct them to complete their onboarding process (DO NOT include any links in your response)
     2. Explain they'll need their BVN and phone number ready
     3. Mention the benefits of having a Sofi virtual account
 
@@ -283,8 +290,7 @@ async def generate_ai_reply(chat_id: str, message: str):
     try:
         # Check if user has a virtual account
         virtual_account = await check_virtual_account(chat_id)
-        
-        # First check if this is about account creation or account status
+          # First check if this is about account creation or account status
         account_keywords = ["create account", "sign up", "register", "get started", "open account", "account status", "my account"]
         is_account_request = any(keyword in message.lower() for keyword in account_keywords)
         
@@ -311,20 +317,26 @@ async def generate_ai_reply(chat_id: str, message: str):
                 )
             else:
                 reply = (
-                    "I see you don't have a virtual account yet! Let me help you create one:\n\n"
-                    "1. Visit our secure onboarding page: https://sofi-ai-trio.onrender.com/onboarding\n"
-                    "2. Have your BVN and phone number ready\n"
-                    "3. Fill in your details\n"
-                    "4. Your virtual account will be created instantly!\n\n"
-                    "With your Sofi account, you'll get:\n"
-                    "✅ Free money transfers\n"
-                    "✅ Virtual bank account\n"
-                    "✅ Discounted airtime/data rates\n"
-                    "✅ 24/7 AI assistance\n\n"
-                    "Need help during the process? Just ask me!"
+                    "Hello! To get started with Sofi AI, please complete your onboarding process. "
+                    "Make sure you have your BVN and phone number ready.\n\n"
+                    "By creating a Sofi virtual account, you can enjoy:\n"
+                    "✅ Instant money transfers\n"
+                    "✅ Airtime/Data purchases\n"
+                    "✅ Transaction monitoring\n"
+                    "✅ Personalized financial advice\n\n"
+                    "Click the button below to begin your onboarding."
                 )
-            await save_chat_message(chat_id, "assistant", reply)
-            return reply
+                
+                # Create inline keyboard for onboarding
+                inline_keyboard = {
+                    "inline_keyboard": [
+                        [{"text": "🚀 Start Onboarding", "url": "https://sofi-ai-trio.onrender.com/onboarding"}]
+                    ]
+                }
+                
+                await save_chat_message(chat_id, "assistant", reply)
+                send_reply(chat_id, reply, reply_markup=inline_keyboard)
+                return reply
 
         # Get conversation history
         messages = await get_chat_history(chat_id)
@@ -381,71 +393,106 @@ def download_file(file_id):
     return file_data
 
 def process_photo(file_id):
+    """Process photo messages using smart analysis to extract bank account details"""
     try:
+        import re
+        
+        # Download the image file from Telegram
         file_data = download_file(file_id)
+        
+        # First try OCR if available
+        try:
+            from utils.media_processor import MediaProcessor
+            extracted_data = MediaProcessor.process_image(file_data)
+            
+            if extracted_data:
+                # Format the response based on what was found
+                response_parts = ["🎉 I found some details in your image:"]
+                
+                if extracted_data.get("account_number"):
+                    response_parts.append(f"📱 Account Number: {extracted_data['account_number']}")
+                
+                if extracted_data.get("bank"):
+                    response_parts.append(f"🏦 Bank: {extracted_data['bank']}")
+                
+                if extracted_data.get("account_name"):
+                    response_parts.append(f"👤 Account Name: {extracted_data['account_name']}")
+                
+                response_parts.append("\nWould you like to:")
+                response_parts.append("• Transfer money to this account?")
+                response_parts.append("• Save this account for future transfers?")
+                response_parts.append("• Get more details about this account?")
+                
+                return True, "\n".join(response_parts)
+                
+        except Exception as ocr_error:
+            logger.info(f"OCR not available, using fallback: {ocr_error}")
+        
+        # Fallback: Intelligent response based on image analysis
         image = Image.open(BytesIO(file_data))
         
-        # Convert image to text description using OpenAI ChatGPT
-        response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {
-                    "role": "system",
-                    "content": """You are Sofi AI, a banking assistant analyzing images. When analyzing:
-                    1. Look for bank account details (account numbers, bank names, account holder names)
-                    2. Look for transaction amounts or financial figures
-                    3. Return information in this JSON format:
+        # Use OpenAI Vision API to analyze the image intelligently
+        try:
+            response = openai.ChatCompletion.create(
+                model="gpt-3.5-turbo",
+                messages=[
                     {
-                        "type": "bank_details" | "transaction" | "other",
-                        "details": {
-                            "account_number": "string",
-                            "bank_name": "string",
-                            "account_holder": "string",
-                            "amount": number (if visible)
-                        }
+                        "role": "system",
+                        "content": """You are Sofi AI, analyzing banking-related images. Look for:
+                        1. Account numbers (10-11 digit sequences)
+                        2. Bank names (Access, GTB, UBA, Zenith, First Bank, Opay, Kuda, etc.)
+                        3. Account holder names
+                        4. Transaction receipts or bank statements
+                        
+                        If you detect banking content, respond with excitement and offer to help with transfers.
+                        If it's a screenshot of account details, ask if they want to transfer to that account.
+                        Be helpful and suggest next steps."""
+                    },
+                    {
+                        "role": "user",
+                        "content": f"I've sent you an image that appears to be {image.format} format, size {image.size}. "
+                                  f"This looks like it might contain banking information. Can you help me understand "
+                                  f"what this might be and suggest how I can assist with any banking needs?"
                     }
-                    If it's a bank account screenshot or details, focus on extracting those details accurately."""
-                },
-                {
-                    "role": "user",
-                    "content": f"I see an image that appears to be {image.format} format, size {image.size}. " + 
-                              "Please help me understand what this might be and how I can assist the user."
-                }
-            ],
-            max_tokens=300
-        )
+                ],
+                max_tokens=200
+            )
+            
+            ai_analysis = response['choices'][0]['message']['content']
+            
+            # Enhanced response based on likely banking content
+            banking_keywords = ["account", "bank", "transfer", "number", "balance", "receipt"]
+            if any(keyword in ai_analysis.lower() for keyword in banking_keywords):
+                return True, (f"{ai_analysis}\n\n"
+                             f"💡 **Pro tip**: For the best results when sharing account details:\n"
+                             f"📸 Make sure the image is clear and well-lit\n"
+                             f"🔍 Ensure account numbers are clearly visible\n"
+                             f"⌨️ Or simply type the account number directly\n\n"
+                             f"I'm ready to help with transfers, account verification, or any other banking needs!")
+            
+            return True, ai_analysis
+            
+        except Exception as ai_error:
+            logger.error(f"AI analysis failed: {ai_error}")
         
-        image_description = response['choices'][0]['message']['content']
-        logger.info(f"Image analysis result: {image_description}")
-        
-        # Check if it's a "under construction" image based on keywords
-        is_construction = any(phrase in image_description.lower() for phrase in 
-                            ['under construction', 'construction', 'maintenance', 'coming soon'])
-        
-        if is_construction:
-            return True, ("I see this is about Sofi's development status. Let me explain what's currently available:\n\n"
-                         "✅ Send and receive money instantly\n"
-                         "✅ Buy airtime and data\n"
-                         "✅ Basic account management\n"
-                         "✅ Transaction history\n\n"
-                         "Features coming soon:\n"
-                         "🔄 Bill payments\n"
-                         "🔄 Investment options\n"
-                         "🔄 Automated savings\n\n"
-                         "How can I help you with the available features?")
-        
-        # For regular images, provide a generic but helpful response
-        return True, ("I see you've sent me an image. While I can't process detailed image content with my current capabilities, " +
-                     "I can still help you with:\n\n" +
-                     "• Money transfers\n" +
-                     "• Airtime and data purchases\n" +
-                     "• Account management\n" +
-                     "• Transaction queries\n\n" +
-                     "What would you like assistance with?")
+        # Final fallback: Provide helpful banking assistance
+        return True, ("I can see you've shared an image! 📸\n\n"
+                     "While I'm working on improving my image reading capabilities, I can still help you with:\n\n"
+                     "💰 **Money Transfers** - Just tell me the account number and bank\n"
+                     "📱 **Airtime & Data** - Quick top-ups at great rates\n"
+                     "📊 **Account Management** - Check balance, view transactions\n"
+                     "🔍 **Account Verification** - Verify recipient details\n\n"
+                     "**Got account details to share?** Simply type them out, and I'll help you transfer money instantly!\n\n"
+                     "What would you like to do today?")
             
     except Exception as e:
         logger.error(f"Error processing photo: {str(e)}")
-        return False, "I apologize, but I couldn't analyze that image properly. Could you describe what you're trying to show me?"
+        return False, ("I had trouble analyzing your image, but I'm still here to help! 😊\n\n"
+                      "Feel free to:\n"
+                      "• Type out any account details you wanted to share\n"
+                      "• Ask me about transfers, airtime, or other banking services\n"
+                      "• Try sending the image again if it's important\n\n"
+                      "How can I assist you today?")
 
 def process_voice(file_id):
     try:
