@@ -755,7 +755,7 @@ async def handle_transfer_flow(chat_id: str, message: str, user_data: dict = Non
     return "Sorry, I couldn't process your request. Please try again."
     
 @app.route("/webhook_incoming", methods=["POST"])
-async def handle_incoming_message():
+def handle_incoming_message():
     """Handle incoming Telegram messages with conversation memory"""
     try:
         data = request.get_json()
@@ -780,7 +780,7 @@ async def handle_incoming_message():
             file_id = data["message"]["photo"][-1]["file_id"]  # Get the highest quality photo
             success, response = process_photo(file_id)
             if success:
-                ai_response = await generate_ai_reply(chat_id, response)
+                ai_response = asyncio.run(generate_ai_reply(chat_id, response))
                 send_reply(chat_id, ai_response)
             else:
                 send_reply(chat_id, response)
@@ -795,7 +795,7 @@ async def handle_incoming_message():
             if not isinstance(response, str):
                 response = str(response)
             if success:
-                ai_response = await generate_ai_reply(chat_id, response)
+                ai_response = asyncio.run(generate_ai_reply(chat_id, response))
                 send_reply(chat_id, ai_response)
             else:
                 send_reply(chat_id, response)
@@ -809,7 +809,7 @@ async def handle_incoming_message():
 
             try:
                 # Generate AI reply with conversation context
-                ai_response = await generate_ai_reply(chat_id, user_message)
+                ai_response = asyncio.run(generate_ai_reply(chat_id, user_message))
                 send_reply(chat_id, ai_response)
             except Exception as e:
                 logger.error(f"Error in AI reply: {str(e)}")
