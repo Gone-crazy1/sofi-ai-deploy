@@ -74,9 +74,8 @@ def test_virtual_account_creation():
 
 def test_monnify_direct():
     """Test Monnify API directly"""
-    
-    print("\n3. Testing Monnify API directly...")
-      try:
+    try:
+        print("\n3. Testing Monnify API directly...")
         # Get Monnify token first (using Basic Auth)
         auth_url = f"{os.getenv('MONNIFY_BASE_URL')}/api/v1/auth/login"
         

@@ -1,0 +1,5 @@
+[33m5e83dc8[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m)[m Deploy v2.0: Enhanced Sofi AI with inline keyboards, OCR image processing, and RLS fixes
+[33m031e08f[m Fix Supabase RLS issue: Use service role key for chat_history operations
+[33mfdcbd10[m Fix Flask async support and webhook handler
+[33m787ca2c[m Add onboarding routes and API endpoints
+[33m9601662[m Add health endpoint and prepare for deployment

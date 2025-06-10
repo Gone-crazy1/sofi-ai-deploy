@@ -37,9 +37,9 @@ def test_virtual_account_creation():
             print(f"Local response status: {response.status_code}")
             print(f"Local response: {response.text}")
         except requests.exceptions.ConnectionError:
-            print("❌ Local server not running")
+            print("[ERROR] Local server not running")
         except Exception as e:
-            print(f"❌ Local test error: {e}")
+            print(f"[ERROR] Local test error: {e}")
         
         # Test with deployed Render endpoint
         render_url = "https://sofi-ai-trio.onrender.com/api/create_virtual_account"
@@ -52,24 +52,24 @@ def test_virtual_account_creation():
             
             if response.status_code == 200:
                 data = response.json()
-                print("✅ Virtual account created successfully!")
+                print("[SUCCESS] Virtual account created successfully!")
                 if "accountNumber" in data:
-                    print(f"📱 Account Number: {data['accountNumber']}")
+                    print(f"Account Number: {data['accountNumber']}")
                 if "bankName" in data:
-                    print(f"🏦 Bank: {data['bankName']}")
+                    print(f"Bank: {data['bankName']}")
                 if "accountName" in data:
-                    print(f"👤 Account Name: {data['accountName']}")
+                    print(f"Account Name: {data['accountName']}")
                 return True
             else:
-                print(f"❌ Failed to create virtual account: {response.text}")
+                print(f"[ERROR] Failed to create virtual account: {response.text}")
                 return False
                 
         except Exception as e:
-            print(f"❌ Deployed test error: {e}")
+            print(f"[ERROR] Deployed test error: {e}")
             return False
             
     except Exception as e:
-        print(f"❌ Error testing virtual account creation: {e}")
+        print(f"[ERROR] Error testing virtual account creation: {e}")
         return False
 
 def test_monnify_direct():
@@ -96,12 +96,15 @@ def test_monnify_direct():
             token_data = auth_response.json()
             if token_data.get("requestSuccessful"):
                 access_token = token_data["responseBody"]["accessToken"]
-                print("✅ Successfully got Monnify auth token")
-                  # Create virtual account
+                print("[SUCCESS] Successfully got Monnify auth token")                # Create virtual account
                 create_url = f"{os.getenv('MONNIFY_BASE_URL')}/api/v2/bank-transfer/reserved-accounts"
                 
+                # Generate unique reference using timestamp
+                import time
+                timestamp = int(time.time())
+                
                 payload = {
-                    "accountReference": f"Test_User_{12345}",
+                    "accountReference": f"Test_User_{timestamp}",
                     "accountName": "Test User",
                     "currencyCode": "NGN",
                     "contractCode": os.getenv("MONNIFY_CONTRACT_CODE"),
@@ -121,29 +124,29 @@ def test_monnify_direct():
                 print(f"Create response: {create_response.text}")
                 
                 if create_response.status_code == 201:  # Monnify returns 201 for creation
-                    print("✅ Monnify direct API test successful!")
+                    print("[SUCCESS] Monnify direct API test successful!")
                     return True
                 else:
-                    print("❌ Monnify direct API test failed")
+                    print("[ERROR] Monnify direct API test failed")
                     return False
             else:
-                print(f"❌ Auth failed: {token_data}")
+                print(f"[ERROR] Auth failed: {token_data}")
                 return False
         else:
-            print(f"❌ Auth request failed: {auth_response.text}")
+            print(f"[ERROR] Auth request failed: {auth_response.text}")
             return False
             
     except Exception as e:
-        print(f"❌ Direct Monnify test error: {e}")
+        print(f"[ERROR] Direct Monnify test error: {e}")
         return False
 
 if __name__ == "__main__":
-    print("🚀 Starting Virtual Account Creation Tests...")
+    print(">>> Starting Virtual Account Creation Tests...")
     
     success1 = test_virtual_account_creation()
     success2 = test_monnify_direct()
     
     if success1 or success2:
-        print("\n🎉 At least one test passed!")
+        print("\n[SUCCESS] At least one test passed!")
     else:
-        print("\n💥 All tests failed!")
+        print("\n[ERROR] All tests failed!")

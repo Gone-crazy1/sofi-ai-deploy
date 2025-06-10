@@ -181,6 +181,14 @@ async def save_virtual_account(chat_id: str, account_data: Dict) -> bool:
 
 def create_virtual_account(first_name, last_name, bvn, chat_id=None):
     """Create a virtual account using Monnify API."""
+    # Sanitize input data to ensure valid email format
+    first_name = first_name.strip()
+    last_name = last_name.strip()
+    
+    # Remove any spaces and special characters from names for email generation
+    clean_first_name = ''.join(c for c in first_name if c.isalpha()).lower()
+    clean_last_name = ''.join(c for c in last_name if c.isalpha()).lower()
+    
     monnify_base_url = os.getenv("MONNIFY_BASE_URL")
     monnify_api_key = os.getenv("MONNIFY_API_KEY")
     monnify_secret_key = os.getenv("MONNIFY_SECRET_KEY")
@@ -207,7 +215,8 @@ def create_virtual_account(first_name, last_name, bvn, chat_id=None):
         "accountName": f"{first_name} {last_name}",
         "currencyCode": "NGN",
         "contractCode": os.getenv("MONNIFY_CONTRACT_CODE"),  # This was missing!
-        "customerEmail": f"{first_name.lower()}.{last_name.lower()}@example.com",        "bvn": bvn,
+        "customerEmail": f"{clean_first_name}.{clean_last_name}@example.com",
+        "bvn": bvn,
         "customerName": f"{first_name} {last_name}",
         "getAllAvailableBanks": True  # Changed to True to get all available banks
     }
