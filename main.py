@@ -82,31 +82,21 @@ def send_reply(chat_id, message, reply_markup=None):
 def send_onboarding_completion_message(chat_id, first_name, account_name, account_number, bank_name):
     """Send personalized onboarding completion message via Telegram"""
     try:
-        completion_message = f"""🎉 Congratulations {first_name}! Your Sofi Wallet is ready!
+        completion_message = f"""Hey {first_name}! 👋 I'm Sofi AI, your personal financial assistant powered by Sofi Technologies.
 
-✅ Your virtual account has been successfully created:
+🎉 Congratulations on successfully completing your onboarding!
 
-💳 Account Name: {account_name}
-💰 Account Number: {account_number}
-🏦 Bank: {bank_name}
+Your personal virtual account is now ready to receive deposits:
 
-Here's what you can do now:
+Account Name: {account_name}  
+Account Number: {account_number}  
+Bank: Monnify Partner Bank  
 
-🔄 Receive money from any Nigerian bank account instantly
-💸 Send money to friends and family across all banks
-📱 Buy airtime and data at discounted rates
-💹 Trade cryptocurrencies with ease
-📊 Track all your transactions in one place
+💡 Tip: Save or pin this chat to easily access your account details anytime you want to fund your wallet.
 
-💡 Pro tip: Share your account number with friends and family so they can send you money instantly!
+With Sofi AI, you can transfer money, check your wallet balance, buy airtime & data, and even handle crypto transactions — all from right here.
 
-Ready to start your financial journey? Send me any of these:
-• "Send money" - to transfer funds
-• "Buy airtime" - to top up your phone
-• "My balance" - to check your wallet
-• "Transaction history" - to see your activity
-
-Welcome to the future of banking! 🚀"""
+If you ever need anything, just type or speak — I'm always here to help!"""
 
         # Send the completion message
         send_reply(chat_id, completion_message)
@@ -411,22 +401,42 @@ async def generate_ai_reply(chat_id: str, message: str):
         # Fetch user data from users table
         user_resp = supabase.table("users").select("*").eq("telegram_chat_id", str(chat_id)).execute()
         user_data = user_resp.data[0] if user_resp.data else None
-        
-        # 🚫 ONBOARDING WALL: Block ALL features until onboarding is complete
-        # Only allow account creation/status requests if user is not onboarded
+          # 🚫 ONBOARDING WALL: Block ALL features until onboarding is complete
+        # Smart onboarding responses based on user messages
         if not virtual_account and not user_data:
-            # User has NO virtual account and NO user record - completely new user
-            reply = (
-                "🔒 Welcome to Sofi AI! Before I can assist you with anything, please complete your Sofi Wallet onboarding.\n\n"
-                "Once you're onboarded, you'll unlock:\n"
-                "✅ Instant money transfers\n"
-                "✅ Virtual account for receiving funds\n"
-                "✅ Airtime/Data purchases\n"
-                "✅ Balance inquiries\n"
-                "✅ Crypto trading\n"
-                "✅ Full AI assistance\n\n"
-                "Ready to get started?"
-            )
+            # Check conversation history to see if we've sent onboarding message before
+            messages = await get_chat_history(chat_id)
+            onboarding_sent_count = sum(1 for msg in messages if msg.get('role') == 'assistant' and 'onboarding' in msg.get('content', '').lower())
+            
+            # Generate contextual response based on user's message and history
+            if onboarding_sent_count == 0:
+                # First time - send welcome message
+                reply = (
+                    "🔒 Welcome to Sofi AI! Before I can assist you with anything, please complete your Sofi Wallet onboarding.\n\n"
+                    "Once you're onboarded, you'll unlock:\n"
+                    "✅ Instant money transfers\n"
+                    "✅ Virtual account for receiving funds\n"
+                    "✅ Airtime/Data purchases\n"
+                    "✅ Balance inquiries\n"
+                    "✅ Crypto trading\n"
+                    "✅ Full AI assistance\n\n"
+                    "Ready to get started?"
+                )
+            else:
+                # Smart contextual response based on user's message
+                message_lower = message.lower()
+                if any(word in message_lower for word in ['send', 'transfer', 'money', 'pay']):
+                    reply = "I understand you want to send money! 💸 That's exactly what I can help you with once you complete your registration. Please kindly complete your onboarding registration for us to proceed further."
+                elif any(word in message_lower for word in ['balance', 'account', 'wallet']):
+                    reply = "I see you're asking about your account balance! 💰 I'll be able to show you all your account details once you're registered. Please kindly complete your onboarding registration for us to proceed further."
+                elif any(word in message_lower for word in ['airtime', 'data', 'recharge']):
+                    reply = "Perfect! I can help you buy airtime and data at discounted rates! 📱 Just need you to register first. Please kindly complete your onboarding registration for us to proceed further."
+                elif any(word in message_lower for word in ['hello', 'hi', 'hey', 'good morning', 'good evening']):
+                    reply = "Hello there! 👋 Great to see you back! I'm excited to help you with all your financial needs. Please kindly complete your onboarding registration for us to proceed further."
+                elif any(word in message_lower for word in ['help', 'what can you do', 'features']):
+                    reply = "I can do so much for you! 🚀 Money transfers, balance checks, airtime purchases, crypto trading, and more. Please kindly complete your onboarding registration for us to proceed further."
+                else:
+                    reply = "I hear you! 😊 I'm ready to assist you with whatever you need. Please kindly complete your onboarding registration for us to proceed further."
             
             # Create inline keyboard for onboarding
             inline_keyboard = {
@@ -1156,16 +1166,15 @@ def create_virtual_account_api():
         # Validate BVN format
         bvn = data.get('bvn', '').strip()
         if not bvn.isdigit() or len(bvn) != 11:
-            return jsonify({"success": False, "message": "BVN must be exactly 11 digits"}), 400
-        
-        # Create virtual account
+            return jsonify({"success": False, "message": "BVN must be exactly 11 digits"}), 400        # Create virtual account
         account_result = create_virtual_account(
             first_name=data['firstName'],
             last_name=data['lastName'],
             bvn=data['bvn']
         )
         
-        if account_result:            # Hash the PIN for security
+        if account_result and account_result.get("accountNumber"):
+            # Hash the PIN for security
             import hashlib
             hashed_pin = hashlib.sha256(data['pin'].encode()).hexdigest()
             
@@ -1180,6 +1189,7 @@ def create_virtual_account_api():
                 "city": data['city'],
                 "state": data['state'],
                 "country": data['country'],
+                "account_number": account_result.get("accountNumber"),  # Only add if valid
                 "created_at": datetime.now().isoformat()
             }
             
@@ -1202,20 +1212,37 @@ def create_virtual_account_api():
                 "bankname": account_result.get("bankName"),
                 "accountreference": account_result.get("accountReference"),
                 "created_at": datetime.now().isoformat()
-            }
-            
-            # Add telegram_chat_id as string if provided (virtual_accounts table expects string)
+            }            # Add telegram_chat_id as string if provided (virtual_accounts table expects string)
             if data.get('telegram_chat_id'):
                 virtual_account_data["telegram_chat_id"] = str(data['telegram_chat_id'])
             
             try:
-                # Insert user data
-                supabase.table("users").insert(user_data).execute()
-                logger.info("User data saved successfully with all fields")
+                # Use upsert for users table to handle duplicates gracefully
+                if data.get('telegram_chat_id'):
+                    # Try to upsert user data using telegram_chat_id as unique identifier
+                    result = supabase.table("users").upsert(user_data, on_conflict="telegram_chat_id").execute()
+                    logger.info("User data upserted successfully")
+                else:
+                    # If no telegram_chat_id, just insert (might fail on duplicates)
+                    supabase.table("users").insert(user_data).execute()
+                    logger.info("User data inserted successfully")
                 
-                # Insert virtual account data
-                supabase.table("virtual_accounts").insert(virtual_account_data).execute()
-                logger.info("Virtual account data saved successfully")
+                # For virtual accounts, check if one already exists for this chat_id
+                if data.get('telegram_chat_id'):
+                    existing_va = supabase.table("virtual_accounts").select("id").eq("telegram_chat_id", str(data['telegram_chat_id'])).execute()
+                    if existing_va.data:
+                        # Update existing virtual account
+                        va_id = existing_va.data[0]['id']
+                        supabase.table("virtual_accounts").update(virtual_account_data).eq("id", va_id).execute()
+                        logger.info("Virtual account data updated successfully")
+                    else:
+                        # Insert new virtual account
+                        supabase.table("virtual_accounts").insert(virtual_account_data).execute()
+                        logger.info("Virtual account data saved successfully")
+                else:
+                    # Insert virtual account without chat_id check
+                    supabase.table("virtual_accounts").insert(virtual_account_data).execute()
+                    logger.info("Virtual account data saved successfully")
                 
             except Exception as e:
                 logger.error(f"Error saving data to Supabase: {e}")
