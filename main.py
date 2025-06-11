@@ -79,7 +79,7 @@ def send_reply(chat_id, message, reply_markup=None):
     
     requests.post(url, json=payload)
 
-def send_onboarding_completion_message(chat_id, first_name, account_name, account_number):
+def send_onboarding_completion_message(chat_id, first_name, account_name, account_number, bank_name):
     """Send personalized onboarding completion message via Telegram"""
     try:
         completion_message = f"""🎉 Congratulations {first_name}! Your Sofi Wallet is ready!
@@ -88,7 +88,7 @@ def send_onboarding_completion_message(chat_id, first_name, account_name, accoun
 
 💳 Account Name: {account_name}
 💰 Account Number: {account_number}
-🏦 Bank: Moniepoint MFB
+🏦 Bank: {bank_name}
 
 Here's what you can do now:
 
@@ -366,25 +366,28 @@ async def generate_ai_reply(chat_id: str, message: str):
        - Provide programming help (Python, JavaScript, web development)
        - Answer general questions about technology, AI, and digital services
        - Troubleshoot technical issues and provide step-by-step guidance
-       - Adapt communication style from casual to technical as needed
-
-    BEHAVIORAL GUIDELINES:
+       - Adapt communication style from casual to technical as needed    BEHAVIORAL GUIDELINES:
     
     ✅ ALWAYS DO:
     - Interpret user intent even with casual phrasing, typos, or Pidgin expressions
     - Confirm onboarding completion before processing financial transactions
     - Use warm, conversational Nigerian-friendly English with light Pidgin when appropriate
-    - Present links through inline keyboards/buttons, never raw URLs in messages
+    - Present ALL links through inline keyboards/buttons with descriptive button text
     - Maintain professional competence while being approachable and relatable
     - Switch seamlessly between fintech mode and general assistant mode
     - Save important user information to memory for future reference
+    - Use clean, professional messaging without exposing technical URLs
     
     ❌ NEVER DO:
-    - Include raw links or URLs directly in response messages
+    - Include raw links, URLs, or web addresses directly in response text messages
+    - Send messages containing "http://", "https://", "www.", or ".com" links
     - Break character or mention you're an AI assistant
     - Be overly formal or robotic in communication
     - Process financial transactions without proper account verification
     - Ignore context from previous messages in the conversation
+    
+    🎯 URL HANDLING RULE:
+    If you need to direct users to a webpage (onboarding, support, etc.), ALWAYS use an inline keyboard button with clear, action-oriented text like "🚀 Start Onboarding" or "📋 Complete Setup" - NEVER include the actual URL in your message text.
     
     ONBOARDING & ACCOUNT MANAGEMENT:
     When users ask about creating accounts or getting started:
@@ -394,24 +397,55 @@ async def generate_ai_reply(chat_id: str, message: str):
     4. Check account status before processing any financial requests
     
     COMMUNICATION STYLE:
-    - Tone: Professional yet friendly, culturally aware, slightly playful when appropriate
-    - Language: Clear Nigerian English with occasional light Pidgin for warmth
+    - Tone: Professional yet friendly, culturally aware, slightly playful when appropriate    - Language: Clear Nigerian English with occasional light Pidgin for warmth
     - Approach: Solution-focused, patient, and genuinely helpful
     - Personality: Trustworthy financial advisor + capable personal assistant + tech support expert
-    
-    GOAL: Be the ultimate Nigerian digital companion that bridges fintech excellence, daily life assistance, and technical expertise for every user interaction.
+      GOAL: Be the ultimate Nigerian digital companion that bridges fintech excellence, daily life assistance, and technical expertise for every user interaction.
     """
-
-    try:        # Check if user has a virtual account
+    
+    try:
+        # 🔒 STRICT ONBOARDING GATE - Check if user has completed onboarding FIRST
+        # Check if user has a virtual account
         virtual_account = await check_virtual_account(chat_id)
         
-        # First check if this is about account creation or account status
-        account_keywords = ["create account", "sign up", "register", "get started", "open account", "account status", "my account"]
-        is_account_request = any(keyword in message.lower() for keyword in account_keywords)
+        # Fetch user data from users table
+        user_resp = supabase.table("users").select("*").eq("telegram_chat_id", str(chat_id)).execute()
+        user_data = user_resp.data[0] if user_resp.data else None
         
+        # 🚫 ONBOARDING WALL: Block ALL features until onboarding is complete
+        # Only allow account creation/status requests if user is not onboarded
+        if not virtual_account and not user_data:
+            # User has NO virtual account and NO user record - completely new user
+            reply = (
+                "🔒 Welcome to Sofi AI! Before I can assist you with anything, please complete your Sofi Wallet onboarding.\n\n"
+                "Once you're onboarded, you'll unlock:\n"
+                "✅ Instant money transfers\n"
+                "✅ Virtual account for receiving funds\n"
+                "✅ Airtime/Data purchases\n"
+                "✅ Balance inquiries\n"
+                "✅ Crypto trading\n"
+                "✅ Full AI assistance\n\n"
+                "Ready to get started?"
+            )
+            
+            # Create inline keyboard for onboarding
+            inline_keyboard = {
+                "inline_keyboard": [
+                    [{"text": "🚀 Complete Onboarding Now", "url": f"https://sofi-ai-trio.onrender.com/onboarding?chat_id={chat_id}"}]
+                ]
+            }
+            
+            await save_chat_message(chat_id, "user", message)
+            await save_chat_message(chat_id, "assistant", reply)
+            send_reply(chat_id, reply, reply_markup=inline_keyboard)
+            return reply
+        
+        # Check for account creation/status requests (allowed for onboarded users)
+        account_keywords = ["create account", "sign up", "register", "get started", "open account", "account status", "my account"]
+        is_account_request = any(keyword in message.lower() for keyword in account_keywords)        
         if is_account_request:
             if virtual_account:
-                # Debug info
+                # User is onboarded - show account details
                 logger.info(f"DEBUG: Virtual account data = {virtual_account}")
                 
                 # Safe access to account details with fallbacks
@@ -420,82 +454,67 @@ async def generate_ai_reply(chat_id: str, message: str):
                 account_name = virtual_account.get("accountname") or virtual_account.get("accountName", "Not available")
                 
                 reply = (
-                    f"Hi! You already have a virtual account with us:\n\n"
-                    f"Account Number: {account_number}\n"
-                    f"Bank: {bank_name}\n"
-                    f"Account Name: {account_name}\n\n"
+                    f"✅ Here are your Sofi Wallet details:\n\n"
+                    f"💳 Account Name: {account_name}\n"
+                    f"💰 Account Number: {account_number}\n"
+                    f"🏦 Bank: {bank_name}\n\n"
                     f"You can use this account to:\n"
-                    f"✅ Receive money from any bank\n"
-                    f"✅ Send money instantly\n"
-                    f"✅ Buy airtime/data at discounted rates\n\n"
-                    f"What would you like to do?"
+                    f"🔄 Receive money from any Nigerian bank\n"
+                    f"💸 Send money instantly\n"
+                    f"📱 Buy airtime/data at discounted rates\n"
+                    f"💹 Trade cryptocurrencies\n\n"
+                    f"What would you like to do next?"
                 )
-            else:
-                reply = (
-                    "Hello! To get started with Sofi AI, please complete your onboarding process. "
-                    "Make sure you have your BVN and phone number ready.\n\n"
-                    "By creating a Sofi virtual account, you can enjoy:\n"
-                    "✅ Instant money transfers\n"
-                    "✅ Airtime/Data purchases\n"
-                    "✅ Transaction monitoring\n"
-                    "✅ Personalized financial advice\n\n"
-                    "Click the button below to begin your onboarding."                )
                 
-                # Create inline keyboard for onboarding
-                inline_keyboard = {
-                    "inline_keyboard": [
-                        [{"text": "🚀 Start Onboarding", "url": f"https://sofi-ai-trio.onrender.com/onboarding?chat_id={chat_id}"}]
-                    ]
-                }
-                
-                await save_chat_message(chat_id, "assistant", reply)
-                send_reply(chat_id, reply, reply_markup=inline_keyboard)
-                return reply
-
-        # Check if this is about transfers before proceeding
-        transfer_keywords = ["send money", "transfer", "pay", "send cash", "transfer money", "make payment", "send funds"]
-        is_transfer_request = any(keyword in message.lower() for keyword in transfer_keywords)
-        
-        if is_transfer_request:
-            if not virtual_account:
-                # User wants to transfer but hasn't completed onboarding
-                reply = (
-                    "You haven't completed your Sofi Wallet onboarding yet. "
-                    "To create your virtual account and enable transfers, please complete onboarding first.\n\n"
-                    "Once done, I'll handle all your transfers easily! 💰\n\n"
-                    "Benefits of completing onboarding:\n"
-                    "✅ Instant money transfers\n"
-                    "✅ Virtual account for receiving funds\n"
-                    "✅ Airtime/Data purchases\n"
-                    "✅ Transaction history tracking"
-                )
-                  # Create inline keyboard for onboarding
-                inline_keyboard = {
-                    "inline_keyboard": [
-                        [{"text": "🚀 Complete Onboarding", "url": f"https://sofi-ai-trio.onrender.com/onboarding?chat_id={chat_id}"}]
-                    ]
-                }
-                
-                await save_chat_message(chat_id, "user", message)
-                await save_chat_message(chat_id, "assistant", reply)
-                send_reply(chat_id, reply, reply_markup=inline_keyboard)
-                return reply
-            else:
-                # User has virtual account, can proceed with transfer
-                reply = (
-                    "Great! You can transfer funds now. 🏦\n\n"
-                    "Please provide:\n"
-                    "• Recipient's bank name\n"
-                    "• Account number\n"
-                    "• Amount you wish to send\n\n"
-                    "Example: 'Send 5000 to Access Bank account 0123456789'"
-                )
                 await save_chat_message(chat_id, "user", message)
                 await save_chat_message(chat_id, "assistant", reply)
                 send_reply(chat_id, reply)
                 return reply
-
-        # Get conversation history
+            else:
+                # This case should not happen due to the onboarding gate above
+                # But keeping as fallback
+                reply = (
+                    "🔒 You haven't completed your Sofi Wallet onboarding yet.\n\n"
+                    "To create your virtual account and unlock all features:"
+                )
+                
+                inline_keyboard = {
+                    "inline_keyboard": [
+                        [{"text": "🚀 Complete Onboarding Now", "url": f"https://sofi-ai-trio.onrender.com/onboarding?chat_id={chat_id}"}]
+                    ]
+                }
+                
+                await save_chat_message(chat_id, "user", message)
+                await save_chat_message(chat_id, "assistant", reply)
+                send_reply(chat_id, reply, reply_markup=inline_keyboard)
+                return reply        # 🔒 All users reaching this point are onboarded (passed the gate above)
+        # Check if this is about transfers
+        transfer_keywords = ["send money", "transfer", "pay", "send cash", "transfer money", "make payment", "send funds"]
+        is_transfer_request = any(keyword in message.lower() for keyword in transfer_keywords)
+          
+        # Check for beneficiary commands first (only for onboarded users)
+        beneficiary_response = await handle_beneficiary_commands(chat_id, message, user_data)
+        if beneficiary_response:
+            await save_chat_message(chat_id, "user", message)
+            await save_chat_message(chat_id, "assistant", beneficiary_response)
+            send_reply(chat_id, beneficiary_response)
+            return beneficiary_response
+        
+        if is_transfer_request:
+            # User is onboarded and wants to transfer - proceed with transfer flow
+            reply = (
+                "Great! You can transfer funds now. 🏦\n\n"
+                "Please provide:\n"
+                "• Recipient's bank name\n"
+                "• Account number\n"
+                "• Amount you wish to send\n\n"
+                "Example: 'Send 5000 to Access Bank account 0123456789'"
+            )
+            await save_chat_message(chat_id, "user", message)
+            await save_chat_message(chat_id, "assistant", reply)
+            send_reply(chat_id, reply)
+            return reply        # 🎯 ONBOARDED USER PROCESSING: All users reaching this point have passed the onboarding gate
+        # Get conversation history for full AI assistance
         messages = await get_chat_history(chat_id)
         
         # Add system prompt and current message
@@ -503,7 +522,9 @@ async def generate_ai_reply(chat_id: str, message: str):
             {"role": "system", "content": system_prompt},
             *messages,  # Previous messages
             {"role": "user", "content": message}  # Current message
-        ]        # If user has virtual account, append account context
+        ]
+        
+        # Add virtual account context to system prompt (user is guaranteed to have one)
         if virtual_account:
             # Safe access to account details with fallbacks  
             account_number = virtual_account.get("accountnumber") or virtual_account.get("accountNumber", "Unknown")
@@ -749,10 +770,10 @@ async def handle_transfer_flow(chat_id: str, message: str, user_data: dict = Non
                         'recipient_name': image_result.get('account_name'),
                         'account_number': image_result.get('account_number', ''),
                         'bank': image_result.get('bank', ''),
-                        'narration': '',
-                        'transfer_type': 'image'
+                        'narration': '',                        'transfer_type': 'image'
                     }
                 }
+    
     async def verify_account_name(acc_num: str, bank: str) -> Dict:
         """Verify bank account using the Bank API"""
         try:
@@ -786,8 +807,19 @@ async def handle_transfer_flow(chat_id: str, message: str, user_data: dict = Non
         intent_data = detect_intent(message)
         if intent_data.get('intent') != 'transfer':
             return None
-            
         details = intent_data.get('details', {})
+        
+        # Check for beneficiaries if recipient name is provided but no account details
+        recipient_name = details.get('recipient_name')
+        if recipient_name and not details.get('account_number') and user_data and user_data.get('id'):
+            beneficiary = find_beneficiary_by_name(user_data['id'], recipient_name)
+            if beneficiary:
+                # Use beneficiary details
+                details['account_number'] = beneficiary['account_number']
+                details['bank'] = beneficiary['bank_name']
+                details['recipient_name'] = beneficiary['name']
+                logger.info(f"Found beneficiary {beneficiary['name']} for user {user_data['id']}")
+        
         state = {
             'transfer': {
                 'amount': details.get('amount'),
@@ -930,8 +962,7 @@ async def handle_transfer_flow(chat_id: str, message: str, user_data: dict = Non
                 'recipient_account': transfer['account_number'],
                 'recipient_bank': transfer['bank'],
                 'recipient_name': transfer['recipient_name'],
-                'narration': transfer.get('narration', 'Transfer via Sofi AI')
-            })
+                'narration': transfer.get('narration', 'Transfer via Sofi AI')            })
             
             if transfer_result.get('success'):
                 receipt = generate_pos_style_receipt(
@@ -943,8 +974,21 @@ async def handle_transfer_flow(chat_id: str, message: str, user_data: dict = Non
                     balance=user_data.get('balance', 0),
                     transaction_id=transfer_result.get('transaction_id', f"TRF{datetime.now().strftime('%Y%m%d%H%M%S')}")
                 )
-                conversation_state.clear_state(chat_id)
-                return f"Transfer successful! Here's your receipt:\n\n{receipt}"
+                
+                # Store pending beneficiary data for potential saving
+                conversation_state.set_state(chat_id, {
+                    'step': 'save_beneficiary_prompt',
+                    'pending_beneficiary': {
+                        'name': transfer['recipient_name'],
+                        'account_number': transfer['account_number'],
+                        'bank_name': transfer['bank']
+                    }
+                })
+                
+                success_message = f"✅ Transfer successful! Here's your receipt:\n\n{receipt}\n\n"
+                success_message += f"💾 Would you like to save {transfer['recipient_name']} as a beneficiary for easy future transfers? (Yes/No)"
+                
+                return success_message
             else:
                 conversation_state.clear_state(chat_id)
                 error_msg = transfer_result.get('error', 'Unknown error occurred')
@@ -956,6 +1000,40 @@ async def handle_transfer_flow(chat_id: str, message: str, user_data: dict = Non
             conversation_state.clear_state(chat_id)
             return "Sorry, an error occurred while processing your transfer. Please try again later."
             
+    elif current_step == 'save_beneficiary_prompt':
+        # Handle beneficiary saving response
+        response = message.lower().strip()
+        
+        if response in ['yes', 'y', 'save', 'ok']:
+            # Save the beneficiary
+            pending_beneficiary = state.get('pending_beneficiary')
+            if pending_beneficiary:
+                # Get user ID from user_data
+                user_id = user_data.get('id') if user_data else None
+                if user_id:
+                    success = save_beneficiary_to_supabase(user_id, pending_beneficiary)
+                    if success:
+                        conversation_state.clear_state(chat_id)
+                        return f"✅ Great! {pending_beneficiary['name']} has been saved as a beneficiary. Next time you can simply say 'Send 5k to {pending_beneficiary['name']}' for quick transfers!"
+                    else:
+                        conversation_state.clear_state(chat_id)
+                        return "❌ Sorry, I couldn't save the beneficiary. But your transfer was successful!"
+                else:
+                    conversation_state.clear_state(chat_id)
+                    return "❌ Sorry, I couldn't save the beneficiary due to user identification issues. But your transfer was successful!"
+            else:
+                conversation_state.clear_state(chat_id)
+                return "❌ Sorry, I couldn't find the beneficiary information to save."
+                
+        elif response in ['no', 'n', 'skip', 'dont', "don't"]:
+            # Don't save beneficiary
+            conversation_state.clear_state(chat_id)
+            return "👍 No problem! I won't save this beneficiary. Is there anything else I can help you with?"
+            
+        else:
+            # Invalid response
+            return "Please respond with 'Yes' to save the beneficiary or 'No' to skip:"
+
     return "Sorry, I couldn't process your request. Please try again."
     
 @app.route("/webhook_incoming", methods=["POST"])
@@ -1020,9 +1098,10 @@ def handle_incoming_message():
                 send_reply(chat_id, "Sorry, I encountered an error processing your request. Please try again.")
 
         return jsonify({"success": True}), 200
-
     except Exception as e:
+        import traceback
         logger.error(f"Error processing webhook: {str(e)}")
+        logger.error(f"Full traceback: {traceback.format_exc()}")
         return jsonify({"error": "Internal server error", "response": None}), 500
 
 @app.route("/health", methods=["GET"])
@@ -1046,14 +1125,38 @@ def onboarding():
 
 @app.route("/api/create_virtual_account", methods=["POST"])
 def create_virtual_account_api():
-    """API endpoint to create virtual account from onboarding form"""
+    """API endpoint to create virtual account from enhanced onboarding form"""
     try:
         data = request.get_json()
-        # Validate required fields (now including phone since column exists)
-        required_fields = ['firstName', 'lastName', 'bvn', 'phone']
+        
+        # Validate required fields
+        required_fields = ['firstName', 'lastName', 'bvn', 'phone', 'pin', 'address', 'city', 'state', 'country']
         for field in required_fields:
             if not data.get(field):
                 return jsonify({"success": False, "message": f"{field} is required"}), 400
+        
+        # Validate PIN format (4 digits)
+        pin = data.get('pin', '').strip()
+        if not pin.isdigit() or len(pin) != 4:
+            return jsonify({"success": False, "message": "PIN must be exactly 4 digits"}), 400
+        
+        # Validate email format if provided
+        email = data.get('email', '').strip()
+        if email:
+            import re
+            email_pattern = r'^[^\s@]+@[^\s@]+\.[^\s@]+$'
+            if not re.match(email_pattern, email):
+                return jsonify({"success": False, "message": "Invalid email format"}), 400
+        
+        # Validate phone number format
+        phone = data.get('phone', '').strip()
+        if not phone.isdigit() or len(phone) != 11:
+            return jsonify({"success": False, "message": "Phone number must be exactly 11 digits"}), 400
+        
+        # Validate BVN format
+        bvn = data.get('bvn', '').strip()
+        if not bvn.isdigit() or len(bvn) != 11:
+            return jsonify({"success": False, "message": "BVN must be exactly 11 digits"}), 400
         
         # Create virtual account
         account_result = create_virtual_account(
@@ -1062,14 +1165,27 @@ def create_virtual_account_api():
             bvn=data['bvn']
         )
         
-        if account_result:            # Save user data to Supabase users table
+        if account_result:            # Hash the PIN for security
+            import hashlib
+            hashed_pin = hashlib.sha256(data['pin'].encode()).hexdigest()
+            
+            # Save user data to Supabase users table with all fields
             user_data = {
                 "first_name": data['firstName'],
                 "last_name": data['lastName'],
                 "bvn": data['bvn'],
                 "phone": data['phone'],
+                "pin": hashed_pin,  # Store hashed PIN for security
+                "address": data['address'],
+                "city": data['city'],
+                "state": data['state'],
+                "country": data['country'],
                 "created_at": datetime.now().isoformat()
             }
+            
+            # Add email if provided
+            if email:
+                user_data["email"] = email
             
             # Add telegram_chat_id as number if provided
             if data.get('telegram_chat_id'):
@@ -1087,14 +1203,15 @@ def create_virtual_account_api():
                 "accountreference": account_result.get("accountReference"),
                 "created_at": datetime.now().isoformat()
             }
-              # Add telegram_chat_id as string if provided (virtual_accounts table expects string)
+            
+            # Add telegram_chat_id as string if provided (virtual_accounts table expects string)
             if data.get('telegram_chat_id'):
                 virtual_account_data["telegram_chat_id"] = str(data['telegram_chat_id'])
             
             try:
                 # Insert user data
                 supabase.table("users").insert(user_data).execute()
-                logger.info("User data saved successfully")
+                logger.info("User data saved successfully with all fields")
                 
                 # Insert virtual account data
                 supabase.table("virtual_accounts").insert(virtual_account_data).execute()
@@ -1103,20 +1220,26 @@ def create_virtual_account_api():
             except Exception as e:
                 logger.error(f"Error saving data to Supabase: {e}")
                 # Even if saving fails, we still return success since the account was created
-                
-            # Send personalized completion message via Telegram if chat_id provided
+                  # Send personalized completion message via Telegram if chat_id provided
             if data.get('telegram_chat_id'):
                 send_onboarding_completion_message(
                     chat_id=data['telegram_chat_id'],
                     first_name=data['firstName'],
                     account_name=account_result.get("accountName"),
-                    account_number=account_result.get("accountNumber")
+                    account_number=account_result.get("accountNumber"),
+                    bank_name=account_result.get("bankName")
                 )
             
             return jsonify({
                 "success": True,
                 "message": "Virtual account created successfully!",
-                "account": account_result
+                "account": account_result,
+                "user_data": {
+                    "name": f"{data['firstName']} {data['lastName']}",
+                    "phone": data['phone'],
+                    "email": email if email else None,
+                    "address": f"{data['address']}, {data['city']}, {data['state']}, {data['country']}"
+                }
             }), 201
         else:
             return jsonify({
@@ -1131,5 +1254,104 @@ def create_virtual_account_api():
             "message": "An error occurred. Please try again later."
         }), 500
 
-if __name__ == "__main__":
-    app.run(debug=True, host="0.0.0.0", port=5000)
+# Beneficiary Management Functions
+def save_beneficiary_to_supabase(user_id: str, beneficiary_data: dict) -> bool:
+    """Save a beneficiary to the database"""
+    try:
+        response = supabase.table("beneficiaries").insert({
+            "user_id": user_id,
+            "name": beneficiary_data['name'],
+            "account_number": beneficiary_data['account_number'],
+            "bank_name": beneficiary_data['bank_name']
+        }).execute()
+        
+        if response.data:
+            logger.info(f"Beneficiary saved successfully for user {user_id}")
+            return True
+        else:
+            logger.error(f"Failed to save beneficiary: {response}")
+            return False
+            
+    except Exception as e:
+        logger.error(f"Error saving beneficiary: {str(e)}")
+        return False
+
+def get_user_beneficiaries(user_id: str) -> list:
+    """Get all beneficiaries for a user"""
+    try:
+        response = supabase.table("beneficiaries").select("*").eq("user_id", user_id).execute()
+        return response.data if response.data else []
+    except Exception as e:
+        logger.error(f"Error fetching beneficiaries: {str(e)}")
+        return []
+
+def find_beneficiary_by_name(user_id: str, name: str) -> dict:
+    """Find a beneficiary by name (case-insensitive)"""
+    try:
+        response = supabase.table("beneficiaries").select("*").eq("user_id", user_id).ilike("name", f"%{name}%").execute()
+        if response.data:
+            return response.data[0]  # Return first match
+        return None
+    except Exception as e:
+        logger.error(f"Error finding beneficiary: {str(e)}")
+        return None
+
+def delete_beneficiary(user_id: str, beneficiary_id: str) -> bool:
+    """Delete a beneficiary"""
+    try:
+        response = supabase.table("beneficiaries").delete().eq("user_id", user_id).eq("id", beneficiary_id).execute()
+        return bool(response.data)
+    except Exception as e:
+        logger.error(f"Error deleting beneficiary: {str(e)}")
+        return False
+
+async def handle_beneficiary_commands(chat_id: str, message: str, user_data: dict = None) -> str:
+    """Handle beneficiary-related commands"""
+    if not user_data or not user_data.get('id'):
+        return "Please complete onboarding first to manage beneficiaries."
+    
+    message_lower = message.lower().strip()
+    user_id = user_data['id']
+    
+    # List beneficiaries command
+    if any(cmd in message_lower for cmd in ['list beneficiaries', 'my beneficiaries', 'show beneficiaries', 'beneficiaries']):
+        beneficiaries = get_user_beneficiaries(user_id)
+        
+        if not beneficiaries:
+            return "You haven't saved any beneficiaries yet. After your next transfer, I'll ask if you want to save the recipient as a beneficiary for quick transfers!"
+        
+        response = "📋 **Your Saved Beneficiaries:**\n\n"
+        for i, beneficiary in enumerate(beneficiaries, 1):
+            response += f"{i}. **{beneficiary['name']}**\n"
+            response += f"   📱 Account: {beneficiary['account_number']}\n"
+            response += f"   🏦 Bank: {beneficiary['bank_name']}\n\n"
+        
+        response += "💡 **Quick Transfer:** Just say 'Send 5k to [Name]' to transfer instantly!"
+        return response
+    
+    # Delete beneficiary command
+    elif any(cmd in message_lower for cmd in ['delete beneficiary', 'remove beneficiary']):
+        beneficiaries = get_user_beneficiaries(user_id)
+        
+        if not beneficiaries:
+            return "You don't have any saved beneficiaries to delete."
+        
+        # Extract name to delete (basic pattern matching)
+        for beneficiary in beneficiaries:
+            if beneficiary['name'].lower() in message_lower:
+                success = delete_beneficiary(user_id, beneficiary['id'])
+                if success:
+                    return f"✅ Successfully removed {beneficiary['name']} from your beneficiaries."
+                else:
+                    return f"❌ Failed to remove {beneficiary['name']}. Please try again."
+        
+        # If no specific name found, show list to choose from
+        response = "Please specify which beneficiary to delete:\n\n"
+        for i, beneficiary in enumerate(beneficiaries, 1):
+            response += f"{i}. {beneficiary['name']} ({beneficiary['bank_name']})\n"
+        response += "\nExample: 'Delete beneficiary John' or 'Remove beneficiary Mary'"
+        return response
+    
+    return None  # Not a beneficiary command
+
+# ...existing code...

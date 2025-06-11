@@ -130,11 +130,52 @@
                 <input type="tel" id="bvn" name="bvn" maxlength="11" pattern="\d{11}" title="Please enter a valid 11-digit BVN" required>
                 <div class="error" id="bvnError"></div>
             </div>
-            
-            <div class="form-group">
+              <div class="form-group">
                 <label for="phone">Phone Number</label>
                 <input type="tel" id="phone" name="phone" maxlength="11" pattern="\d{11}" title="Please enter a valid 11-digit phone number" required>
                 <div class="error" id="phoneError"></div>
+            </div>
+            
+            <div class="form-group">
+                <label for="email">Email Address</label>
+                <input type="email" id="email" name="email" placeholder="your.email@example.com">
+                <div class="error" id="emailError"></div>
+            </div>
+            
+            <div class="form-group">
+                <label for="pin">Transaction PIN (4 digits)</label>
+                <input type="password" id="pin" name="pin" maxlength="4" pattern="\d{4}" title="Please enter a 4-digit PIN" required>
+                <div class="error" id="pinError"></div>
+            </div>
+            
+            <div class="form-group">
+                <label for="address">Street Address</label>
+                <input type="text" id="address" name="address" placeholder="12 Allen Avenue" required>
+                <div class="error" id="addressError"></div>
+            </div>
+            
+            <div class="form-group">
+                <label for="city">City</label>
+                <input type="text" id="city" name="city" placeholder="Lagos" required>
+                <div class="error" id="cityError"></div>
+            </div>
+            
+            <div class="form-group">
+                <label for="state">State</label>
+                <input type="text" id="state" name="state" placeholder="Lagos State" required>
+                <div class="error" id="stateError"></div>
+            </div>
+            
+            <div class="form-group">
+                <label for="country">Country</label>
+                <select id="country" name="country" required>
+                    <option value="">Select Country</option>
+                    <option value="Nigeria" selected>Nigeria</option>
+                    <option value="Ghana">Ghana</option>
+                    <option value="Kenya">Kenya</option>
+                    <option value="South Africa">South Africa</option>
+                </select>
+                <div class="error" id="countryError"></div>
             </div>
             
             <button type="submit" id="submitBtn">Create Your Virtual Account</button>
@@ -170,9 +211,7 @@
             const errorElement = document.getElementById(elementId);
             errorElement.textContent = message;
             errorElement.style.display = message ? 'block' : 'none';
-        }
-
-        function validateField(field) {
+        }        function validateField(field) {
             const value = field.value.trim();
             switch(field.id) {
                 case 'firstName':
@@ -208,13 +247,70 @@
                         return false;
                     }
                     break;
+                    
+                case 'email':
+                    // Email is optional, but if provided, must be valid
+                    if (value && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
+                        showError('emailError', 'Please enter a valid email address');
+                        return false;
+                    }
+                    break;
+                    
+                case 'pin':
+                    if (!value) {
+                        showError('pinError', 'Transaction PIN is required');
+                        return false;
+                    }
+                    if (!/^\d{4}$/.test(value)) {
+                        showError('pinError', 'PIN must be exactly 4 digits');
+                        return false;
+                    }
+                    break;
+                    
+                case 'address':
+                    if (!value) {
+                        showError('addressError', 'Street address is required');
+                        return false;
+                    }
+                    if (value.length < 5) {
+                        showError('addressError', 'Please enter a complete address');
+                        return false;
+                    }
+                    break;
+                    
+                case 'city':
+                    if (!value) {
+                        showError('cityError', 'City is required');
+                        return false;
+                    }
+                    if (!/^[a-zA-Z\s]+$/.test(value)) {
+                        showError('cityError', 'Please enter valid city name (letters only)');
+                        return false;
+                    }
+                    break;
+                    
+                case 'state':
+                    if (!value) {
+                        showError('stateError', 'State is required');
+                        return false;
+                    }
+                    if (!/^[a-zA-Z\s]+$/.test(value)) {
+                        showError('stateError', 'Please enter valid state name (letters only)');
+                        return false;
+                    }
+                    break;
+                    
+                case 'country':
+                    if (!value) {
+                        showError('countryError', 'Country is required');
+                        return false;
+                    }
+                    break;
             }
             showError(field.id + 'Error', '');
             return true;
-        }
-
-        // Add input event listeners for real-time validation
-        ['firstName', 'lastName', 'bvn', 'phone'].forEach(id => {
+        }        // Add input event listeners for real-time validation
+        ['firstName', 'lastName', 'bvn', 'phone', 'email', 'pin', 'address', 'city', 'state', 'country'].forEach(id => {
             const field = document.getElementById(id);
             field.addEventListener('input', () => validateField(field));
         });
@@ -223,7 +319,7 @@
             e.preventDefault();
             
             // Validate all fields
-            const fields = ['firstName', 'lastName', 'bvn', 'phone'];
+            const fields = ['firstName', 'lastName', 'bvn', 'phone', 'email', 'pin', 'address', 'city', 'state', 'country'];
             const isValid = fields.every(id => validateField(document.getElementById(id)));
             
             if (!isValid) {
