@@ -1,5 +1,4 @@
 from flask import Flask, request, jsonify, url_for, render_template, redirect
-from flask import Flask, request, jsonify, url_for, render_template, redirect
 from flask_cors import CORS
 import os, requests, hashlib, logging, json, asyncio, tempfile
 from datetime import datetime
@@ -9,6 +8,8 @@ from typing import Dict, Optional
 from utils.bank_api import BankAPI
 from dotenv import load_dotenv
 import random
+import re
+import time
 from PIL import Image
 from io import BytesIO
 from pydub import AudioSegment
@@ -77,6 +78,42 @@ def send_reply(chat_id, message, reply_markup=None):
         payload["reply_markup"] = reply_markup
     
     requests.post(url, json=payload)
+
+def send_onboarding_completion_message(chat_id, first_name, account_name, account_number):
+    """Send personalized onboarding completion message via Telegram"""
+    try:
+        completion_message = f"""🎉 Congratulations {first_name}! Your Sofi Wallet is ready!
+
+✅ Your virtual account has been successfully created:
+
+💳 Account Name: {account_name}
+💰 Account Number: {account_number}
+🏦 Bank: Moniepoint MFB
+
+Here's what you can do now:
+
+🔄 Receive money from any Nigerian bank account instantly
+💸 Send money to friends and family across all banks
+📱 Buy airtime and data at discounted rates
+💹 Trade cryptocurrencies with ease
+📊 Track all your transactions in one place
+
+💡 Pro tip: Share your account number with friends and family so they can send you money instantly!
+
+Ready to start your financial journey? Send me any of these:
+• "Send money" - to transfer funds
+• "Buy airtime" - to top up your phone
+• "My balance" - to check your wallet
+• "Transaction history" - to see your activity
+
+Welcome to the future of banking! 🚀"""
+
+        # Send the completion message
+        send_reply(chat_id, completion_message)
+        logger.info(f"Onboarding completion message sent to chat_id: {chat_id}")
+        
+    except Exception as e:
+        logger.error(f"Error sending onboarding completion message: {e}")
 
 def detect_intent(message):
     """Enhanced intent detector using OpenAI API with GPT-3.5-turbo"""
@@ -170,11 +207,17 @@ async def save_virtual_account(chat_id: str, account_data: Dict) -> bool:
         bool: True if successful, False otherwise
     """
     try:
-        # Add telegram_chat_id to the account data
-        account_data["telegram_chat_id"] = str(chat_id)
-        account_data["created_at"] = datetime.now().isoformat()
+        # Convert camelCase to lowercase for Supabase table schema
+        supabase_data = {
+            "telegram_chat_id": str(chat_id),
+            "accountnumber": account_data.get("accountNumber"),
+            "accountname": account_data.get("accountName"),
+            "bankname": account_data.get("bankName"),
+            "accountreference": account_data.get("accountReference"),
+            "created_at": datetime.now().isoformat()
+        }
         
-        supabase.table("virtual_accounts").insert(account_data).execute()
+        supabase.table("virtual_accounts").insert(supabase_data).execute()
         return True
     except Exception as e:
         logger.error(f"Error saving virtual account: {e}")
@@ -185,10 +228,14 @@ def create_virtual_account(first_name, last_name, bvn, chat_id=None):
     # Sanitize input data to ensure valid email format
     first_name = first_name.strip()
     last_name = last_name.strip()
-    
-    # Remove any spaces and special characters from names for email generation
+      # Remove any spaces and special characters from names for email generation
     clean_first_name = ''.join(c for c in first_name if c.isalpha()).lower()
     clean_last_name = ''.join(c for c in last_name if c.isalpha()).lower()
+    
+    # Generate unique timestamp for email to avoid duplicates
+    import time
+    timestamp = int(time.time())
+    unique_email = f"{clean_first_name}.{clean_last_name}.{timestamp}@example.com"
     
     monnify_base_url = os.getenv("MONNIFY_BASE_URL")
     monnify_api_key = os.getenv("MONNIFY_API_KEY")
@@ -214,30 +261,49 @@ def create_virtual_account(first_name, last_name, bvn, chat_id=None):
         "Content-Type": "application/json"
     }
     payload = {
-        "accountReference": f"{first_name}_{last_name}_{random.randint(1000, 9999)}",
+        "accountReference": f"{first_name}_{last_name}_{random.randint(1000, 9999)}_{timestamp}",
         "accountName": f"{first_name} {last_name}",
         "currencyCode": "NGN",
-        "contractCode": os.getenv("MONNIFY_CONTRACT_CODE"),  # This was missing!
-        "customerEmail": f"{clean_first_name}.{clean_last_name}@example.com",
+        "contractCode": os.getenv("MONNIFY_CONTRACT_CODE"),
+        "customerEmail": unique_email,
         "bvn": bvn,
         "customerName": f"{first_name} {last_name}",
-        "getAllAvailableBanks": True  # Changed to True to get all available banks
+        "getAllAvailableBanks": True
     }
 
     logger.info(f"Payload sent to Monnify: {payload}")
 
     response = requests.post(create_account_url, json=payload, headers=headers)
 
-    if response.status_code != 201:
+    # Monnify returns 200 for successful account creation, not 201
+    if response.status_code != 200:
         logger.error(f"Failed to create virtual account: {response.text}")
         return {}
 
-    account_data = response.json().get("responseBody", {})
+    response_data = response.json()
+    
+    # Check if the request was successful according to Monnify's response format
+    if not response_data.get("requestSuccessful"):
+        logger.error(f"Monnify API returned unsuccessful response: {response_data}")
+        return {}
+    
+    account_data = response_data.get("responseBody", {})
+    
+    # Extract the first available account from the accounts array
+    accounts = account_data.get("accounts", [])
+    if not accounts:
+        logger.error("No accounts returned in Monnify response")
+        return {}
+    
+    # Use the first account (usually Wema Bank)
+    primary_account = accounts[0]
+    
     result = {
-        "accountNumber": account_data.get("accountNumber"),
-        "accountName": account_data.get("accountName"),
-        "bankName": account_data.get("bankName"),
-        "accountReference": account_data.get("accountReference")
+        "accountNumber": primary_account.get("accountNumber"),
+        "accountName": primary_account.get("accountName"), 
+        "bankName": primary_account.get("bankName"),
+        "accountReference": account_data.get("accountReference"),
+        "allAccounts": accounts  # Include all accounts for reference
     }
     
     # If chat_id is provided, save to Supabase
@@ -271,38 +337,75 @@ async def generate_ai_reply(chat_id: str, message: str):
         message = message.decode('utf-8', errors='ignore')
     elif not isinstance(message, str):
         message = str(message)
-    
     system_prompt = """
-    You are Sofi AI — a friendly, smart, and helpful Nigerian virtual assistant.
-    You help users send and receive money, buy airtime/data, check balance, view transaction history, and do daily banking tasks easily.
-    You reply in a warm, conversational way like a real human.
+    You are Sofi AI — a smart, friendly, and highly capable Nigerian fintech and general-purpose digital assistant. You seamlessly handle banking, virtual accounts, money transfers, airtime/data purchases, crypto trading, personal reminders, and technical support. Your users communicate casually, often using Nigerian Pidgin, slang, abbreviations, and may share screenshots, images, or voice notes.
 
-    When users ask about creating an account or getting started:
-    1. Direct them to complete their onboarding process (DO NOT include any links in your response)
-    2. Explain they'll need their BVN and phone number ready
-    3. Mention the benefits of having a Sofi virtual account
+    CORE CAPABILITIES & INTELLIGENCE:
+    
+    1. FINANCIAL SERVICES:
+       - Virtual account management and onboarding guidance
+       - Instant money transfers between Nigerian banks
+       - Airtime/data purchases at competitive rates
+       - Balance inquiries and transaction history
+       - Crypto trading and digital asset management
+       - Personalized financial advice and budgeting tips
+    
+    2. MEDIA & COMMUNICATION PROCESSING:
+       - Extract text from images/screenshots (account numbers, balances, receipts)
+       - Process voice message transcriptions as natural conversation input
+       - Interpret casual Nigerian expressions, Pidgin, and colloquialisms
+       - Handle typos, abbreviations, and informal language patterns
+    
+    3. MEMORY & CONTEXT AWARENESS:
+       - Remember user details across conversations (names, preferences, bank accounts)
+       - Maintain conversation context and refer to previous messages naturally
+       - Store and recall personal reminders, tasks, and important dates
+       - Track user's onboarding status and account setup progress
+    
+    4. TECHNICAL & GENERAL ASSISTANCE:
+       - Provide programming help (Python, JavaScript, web development)
+       - Answer general questions about technology, AI, and digital services
+       - Troubleshoot technical issues and provide step-by-step guidance
+       - Adapt communication style from casual to technical as needed
 
-    For existing users:
-    - Help with transfers, airtime, data purchases
-    - Provide balance and transaction info
-    - Guide through any banking tasks
-
-    Key capabilities to highlight:
-    - Instant money transfers
-    - Airtime/data purchases
-    - Transaction monitoring
-    - Personalized financial advice
-
-    Important:
-    - Maintain conversation context and refer to previous messages naturally
-    - If the user is asking about code you shared, analyze and explain that specific code
-    - Keep track of the current topic and stay on it unless the user changes it
+    BEHAVIORAL GUIDELINES:
+    
+    ✅ ALWAYS DO:
+    - Interpret user intent even with casual phrasing, typos, or Pidgin expressions
+    - Confirm onboarding completion before processing financial transactions
+    - Use warm, conversational Nigerian-friendly English with light Pidgin when appropriate
+    - Present links through inline keyboards/buttons, never raw URLs in messages
+    - Maintain professional competence while being approachable and relatable
+    - Switch seamlessly between fintech mode and general assistant mode
+    - Save important user information to memory for future reference
+    
+    ❌ NEVER DO:
+    - Include raw links or URLs directly in response messages
+    - Break character or mention you're an AI assistant
+    - Be overly formal or robotic in communication
+    - Process financial transactions without proper account verification
+    - Ignore context from previous messages in the conversation
+    
+    ONBOARDING & ACCOUNT MANAGEMENT:
+    When users ask about creating accounts or getting started:
+    1. Guide them through the onboarding process (present button/keyboard for access)
+    2. Explain BVN and phone number requirements clearly
+    3. Highlight benefits: instant transfers, virtual account, airtime purchases, crypto access
+    4. Check account status before processing any financial requests
+    
+    COMMUNICATION STYLE:
+    - Tone: Professional yet friendly, culturally aware, slightly playful when appropriate
+    - Language: Clear Nigerian English with occasional light Pidgin for warmth
+    - Approach: Solution-focused, patient, and genuinely helpful
+    - Personality: Trustworthy financial advisor + capable personal assistant + tech support expert
+    
+    GOAL: Be the ultimate Nigerian digital companion that bridges fintech excellence, daily life assistance, and technical expertise for every user interaction.
     """
 
-    try:
-        # Check if user has a virtual account
+    try:        # Check if user has a virtual account
         virtual_account = await check_virtual_account(chat_id)
-          # First check if this is about account creation or account status
+        
+        # First check if this is about account creation or account status
         account_keywords = ["create account", "sign up", "register", "get started", "open account", "account status", "my account"]
         is_account_request = any(keyword in message.lower() for keyword in account_keywords)
         
@@ -312,9 +415,9 @@ async def generate_ai_reply(chat_id: str, message: str):
                 logger.info(f"DEBUG: Virtual account data = {virtual_account}")
                 
                 # Safe access to account details with fallbacks
-                account_number = virtual_account.get("accountNumber") or virtual_account.get("account_number", "Not available")
-                bank_name = virtual_account.get("bankName") or virtual_account.get("bank_name", "Not available")
-                account_name = virtual_account.get("accountName") or virtual_account.get("account_name", "Not available")
+                account_number = virtual_account.get("accountnumber") or virtual_account.get("accountNumber", "Not available")
+                bank_name = virtual_account.get("bankname") or virtual_account.get("bankName", "Not available")
+                account_name = virtual_account.get("accountname") or virtual_account.get("accountName", "Not available")
                 
                 reply = (
                     f"Hi! You already have a virtual account with us:\n\n"
@@ -336,18 +439,60 @@ async def generate_ai_reply(chat_id: str, message: str):
                     "✅ Airtime/Data purchases\n"
                     "✅ Transaction monitoring\n"
                     "✅ Personalized financial advice\n\n"
-                    "Click the button below to begin your onboarding."
-                )
+                    "Click the button below to begin your onboarding."                )
                 
                 # Create inline keyboard for onboarding
                 inline_keyboard = {
                     "inline_keyboard": [
-                        [{"text": "🚀 Start Onboarding", "url": "https://sofi-ai-trio.onrender.com/onboarding"}]
+                        [{"text": "🚀 Start Onboarding", "url": f"https://sofi-ai-trio.onrender.com/onboarding?chat_id={chat_id}"}]
                     ]
                 }
                 
                 await save_chat_message(chat_id, "assistant", reply)
                 send_reply(chat_id, reply, reply_markup=inline_keyboard)
+                return reply
+
+        # Check if this is about transfers before proceeding
+        transfer_keywords = ["send money", "transfer", "pay", "send cash", "transfer money", "make payment", "send funds"]
+        is_transfer_request = any(keyword in message.lower() for keyword in transfer_keywords)
+        
+        if is_transfer_request:
+            if not virtual_account:
+                # User wants to transfer but hasn't completed onboarding
+                reply = (
+                    "You haven't completed your Sofi Wallet onboarding yet. "
+                    "To create your virtual account and enable transfers, please complete onboarding first.\n\n"
+                    "Once done, I'll handle all your transfers easily! 💰\n\n"
+                    "Benefits of completing onboarding:\n"
+                    "✅ Instant money transfers\n"
+                    "✅ Virtual account for receiving funds\n"
+                    "✅ Airtime/Data purchases\n"
+                    "✅ Transaction history tracking"
+                )
+                  # Create inline keyboard for onboarding
+                inline_keyboard = {
+                    "inline_keyboard": [
+                        [{"text": "🚀 Complete Onboarding", "url": f"https://sofi-ai-trio.onrender.com/onboarding?chat_id={chat_id}"}]
+                    ]
+                }
+                
+                await save_chat_message(chat_id, "user", message)
+                await save_chat_message(chat_id, "assistant", reply)
+                send_reply(chat_id, reply, reply_markup=inline_keyboard)
+                return reply
+            else:
+                # User has virtual account, can proceed with transfer
+                reply = (
+                    "Great! You can transfer funds now. 🏦\n\n"
+                    "Please provide:\n"
+                    "• Recipient's bank name\n"
+                    "• Account number\n"
+                    "• Amount you wish to send\n\n"
+                    "Example: 'Send 5000 to Access Bank account 0123456789'"
+                )
+                await save_chat_message(chat_id, "user", message)
+                await save_chat_message(chat_id, "assistant", reply)
+                send_reply(chat_id, reply)
                 return reply
 
         # Get conversation history
@@ -361,8 +506,8 @@ async def generate_ai_reply(chat_id: str, message: str):
         ]        # If user has virtual account, append account context
         if virtual_account:
             # Safe access to account details with fallbacks  
-            account_number = virtual_account.get("accountNumber") or virtual_account.get("account_number", "Unknown")
-            bank_name = virtual_account.get("bankName") or virtual_account.get("bank_name", "Unknown")
+            account_number = virtual_account.get("accountnumber") or virtual_account.get("accountNumber", "Unknown")
+            bank_name = virtual_account.get("bankname") or virtual_account.get("bankName", "Unknown")
             account_context = f"\nUser has virtual account: {account_number} at {bank_name}"
             conversation[0]["content"] += account_context
 
@@ -904,41 +1049,47 @@ def create_virtual_account_api():
     """API endpoint to create virtual account from onboarding form"""
     try:
         data = request.get_json()
-        
-        # Validate required fields
+        # Validate required fields (now including phone since column exists)
         required_fields = ['firstName', 'lastName', 'bvn', 'phone']
         for field in required_fields:
             if not data.get(field):
                 return jsonify({"success": False, "message": f"{field} is required"}), 400
-          # Create virtual account
+        
+        # Create virtual account
         account_result = create_virtual_account(
             first_name=data['firstName'],
             last_name=data['lastName'],
             bvn=data['bvn']
         )
         
-        if account_result:
-            # Save user data to Supabase users table
+        if account_result:            # Save user data to Supabase users table
             user_data = {
                 "first_name": data['firstName'],
                 "last_name": data['lastName'],
-                "phone": data['phone'],
                 "bvn": data['bvn'],
+                "phone": data['phone'],
                 "created_at": datetime.now().isoformat()
             }
             
+            # Add telegram_chat_id as number if provided
+            if data.get('telegram_chat_id'):
+                try:
+                    user_data["telegram_chat_id"] = int(data['telegram_chat_id'])
+                except (ValueError, TypeError):
+                    logger.warning(f"Invalid telegram_chat_id format: {data.get('telegram_chat_id')}")
+            
             # Save virtual account data to Supabase virtual_accounts table
+            # Note: Supabase table uses lowercase column names
             virtual_account_data = {
-                "accountNumber": account_result.get("accountNumber"),
-                "accountName": account_result.get("accountName"),
-                "bankName": account_result.get("bankName"),
-                "accountReference": account_result.get("accountReference"),
-                "first_name": data['firstName'],
-                "last_name": data['lastName'],
-                "phone": data['phone'],
-                "bvn": data['bvn'],
+                "accountnumber": account_result.get("accountNumber"),
+                "accountname": account_result.get("accountName"),
+                "bankname": account_result.get("bankName"),
+                "accountreference": account_result.get("accountReference"),
                 "created_at": datetime.now().isoformat()
             }
+              # Add telegram_chat_id as string if provided (virtual_accounts table expects string)
+            if data.get('telegram_chat_id'):
+                virtual_account_data["telegram_chat_id"] = str(data['telegram_chat_id'])
             
             try:
                 # Insert user data
@@ -952,6 +1103,15 @@ def create_virtual_account_api():
             except Exception as e:
                 logger.error(f"Error saving data to Supabase: {e}")
                 # Even if saving fails, we still return success since the account was created
+                
+            # Send personalized completion message via Telegram if chat_id provided
+            if data.get('telegram_chat_id'):
+                send_onboarding_completion_message(
+                    chat_id=data['telegram_chat_id'],
+                    first_name=data['firstName'],
+                    account_name=account_result.get("accountName"),
+                    account_number=account_result.get("accountNumber")
+                )
             
             return jsonify({
                 "success": True,
@@ -971,4 +1131,5 @@ def create_virtual_account_api():
             "message": "An error occurred. Please try again later."
         }), 500
 
-# ...existing code...
+if __name__ == "__main__":
+    app.run(debug=True, host="0.0.0.0", port=5000)

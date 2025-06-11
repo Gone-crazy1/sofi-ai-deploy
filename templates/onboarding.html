@@ -109,8 +109,10 @@
     <div class="container">
         <h1>Welcome to Sofi AI</h1>
         <p class="intro-text">Create your virtual account in minutes and unlock a world of digital banking possibilities</p>
-        
-        <form id="onboardingForm" method="POST">
+          <form id="onboardingForm" method="POST">
+            <!-- Hidden field for Telegram chat ID -->
+            <input type="hidden" id="telegramChatId" name="telegram_chat_id" value="">
+            
             <div class="form-group">
                 <label for="firstName">First Name</label>
                 <input type="text" id="firstName" name="firstName" required>
@@ -150,9 +152,20 @@
                 <li>Secure banking experience</li>
             </ul>
         </div>
-    </div>
-
-    <script>
+    </div>    <script>
+        // Extract chat_id from URL parameters and populate hidden field
+        function getChatIdFromUrl() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const chatId = urlParams.get('chat_id');
+            if (chatId) {
+                document.getElementById('telegramChatId').value = chatId;
+                console.log('Chat ID detected:', chatId);
+            }
+        }
+        
+        // Call on page load
+        getChatIdFromUrl();
+        
         function showError(elementId, message) {
             const errorElement = document.getElementById(elementId);
             errorElement.textContent = message;

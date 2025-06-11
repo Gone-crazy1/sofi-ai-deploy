@@ -102,7 +102,7 @@ def test_monnify_direct():
                 # Generate unique reference using timestamp
                 import time
                 timestamp = int(time.time())
-                  payload = {
+                payload = {
                     "accountReference": f"Test_User_{timestamp}",
                     "accountName": "Test User",
                     "currencyCode": "NGN",
@@ -116,7 +116,7 @@ def test_monnify_direct():
                     "Authorization": f"Bearer {access_token}",
                     "Content-Type": "application/json"
                 }
-                  print(f"Creating virtual account with payload: {payload}")
+                print(f"Creating virtual account with payload: {payload}")
                 create_response = requests.post(create_url, json=payload, headers=headers)
                 print(f"Create response status: {create_response.status_code}")
                 print(f"Create response: {create_response.text}")
