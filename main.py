@@ -90,7 +90,7 @@ Your personal virtual account is now ready to receive deposits:
 
 Account Name: {account_name}  
 Account Number: {account_number}  
-Bank: Monnify Partner Bank  
+Bank: {bank_name}
 
 💡 Tip: Save or pin this chat to easily access your account details anytime you want to fund your wallet.
 
@@ -413,28 +413,42 @@ async def generate_ai_reply(chat_id: str, message: str):
                 # First time - send welcome message
                 reply = (
                     "🔒 Welcome to Sofi AI! Before I can assist you with anything, please complete your Sofi Wallet onboarding.\n\n"
-                    "Once you're onboarded, you'll unlock:\n"
-                    "✅ Instant money transfers\n"
+                    "Once you're onboarded, you'll unlock:\n"                    "✅ Instant money transfers\n"
                     "✅ Virtual account for receiving funds\n"
                     "✅ Airtime/Data purchases\n"
                     "✅ Balance inquiries\n"
-                    "✅ Crypto trading\n"
-                    "✅ Full AI assistance\n\n"
+                    "✅ Crypto trading\n"                    "✅ Full AI assistance\n\n"
                     "Ready to get started?"
                 )
             else:
-                # Smart contextual response based on user's message
+                # Smart contextual understanding of user's intent
                 message_lower = message.lower()
-                if any(word in message_lower for word in ['send', 'transfer', 'money', 'pay']):
+                
+                # Account balance requests
+                if any(word in message_lower for word in ['balance', 'account balance', 'wallet balance', 'check balance', 'my balance']):
+                    reply = "I currently don't have a virtual account set up for you yet. Kindly complete the onboarding form from the link I provided above to create your account and check your balance."
+                
+                # Transfer/send money requests  
+                elif any(word in message_lower for word in ['send', 'transfer', 'money', 'pay', 'send money', 'transfer money']):
                     reply = "I understand you want to send money! 💸 That's exactly what I can help you with once you complete your registration. Please kindly complete your onboarding registration for us to proceed further."
-                elif any(word in message_lower for word in ['balance', 'account', 'wallet']):
-                    reply = "I see you're asking about your account balance! 💰 I'll be able to show you all your account details once you're registered. Please kindly complete your onboarding registration for us to proceed further."
-                elif any(word in message_lower for word in ['airtime', 'data', 'recharge']):
+                
+                # Account creation requests
+                elif any(keyword in message_lower for keyword in ["create account", "sign up", "register", "get started", "open account", "account status", "my account"]):
+                    reply = "Perfect! I can see you want to create your account. 🎉 That's exactly what the onboarding form is for - it will create your virtual account. Please kindly complete your onboarding registration for us to proceed further."
+                
+                # Airtime/data requests
+                elif any(word in message_lower for word in ['airtime', 'data', 'recharge', 'buy airtime', 'top up']):
                     reply = "Perfect! I can help you buy airtime and data at discounted rates! 📱 Just need you to register first. Please kindly complete your onboarding registration for us to proceed further."
+                
+                # General greetings
                 elif any(word in message_lower for word in ['hello', 'hi', 'hey', 'good morning', 'good evening']):
                     reply = "Hello there! 👋 Great to see you back! I'm excited to help you with all your financial needs. Please kindly complete your onboarding registration for us to proceed further."
-                elif any(word in message_lower for word in ['help', 'what can you do', 'features']):
+                
+                # Help/features requests
+                elif any(word in message_lower for word in ['help', 'what can you do', 'features', 'services']):
                     reply = "I can do so much for you! 🚀 Money transfers, balance checks, airtime purchases, crypto trading, and more. Please kindly complete your onboarding registration for us to proceed further."
+                
+                # Default intelligent response for anything else
                 else:
                     reply = "I hear you! 😊 I'm ready to assist you with whatever you need. Please kindly complete your onboarding registration for us to proceed further."
             
@@ -442,62 +456,43 @@ async def generate_ai_reply(chat_id: str, message: str):
             inline_keyboard = {
                 "inline_keyboard": [
                     [{"text": "🚀 Complete Onboarding Now", "url": f"https://sofi-ai-trio.onrender.com/onboarding?chat_id={chat_id}"}]
-                ]
-            }
+                ]            }
             
             await save_chat_message(chat_id, "user", message)
             await save_chat_message(chat_id, "assistant", reply)
             send_reply(chat_id, reply, reply_markup=inline_keyboard)
             return reply
         
-        # Check for account creation/status requests (allowed for onboarded users)
+        # 🔒 All users reaching this point are onboarded (have virtual_account AND user_data)
+        # Check for account creation/status requests (only for onboarded users)
         account_keywords = ["create account", "sign up", "register", "get started", "open account", "account status", "my account"]
         is_account_request = any(keyword in message.lower() for keyword in account_keywords)        
         if is_account_request:
-            if virtual_account:
-                # User is onboarded - show account details
-                logger.info(f"DEBUG: Virtual account data = {virtual_account}")
-                
-                # Safe access to account details with fallbacks
-                account_number = virtual_account.get("accountnumber") or virtual_account.get("accountNumber", "Not available")
-                bank_name = virtual_account.get("bankname") or virtual_account.get("bankName", "Not available")
-                account_name = virtual_account.get("accountname") or virtual_account.get("accountName", "Not available")
-                
-                reply = (
-                    f"✅ Here are your Sofi Wallet details:\n\n"
-                    f"💳 Account Name: {account_name}\n"
-                    f"💰 Account Number: {account_number}\n"
-                    f"🏦 Bank: {bank_name}\n\n"
-                    f"You can use this account to:\n"
-                    f"🔄 Receive money from any Nigerian bank\n"
-                    f"💸 Send money instantly\n"
-                    f"📱 Buy airtime/data at discounted rates\n"
-                    f"💹 Trade cryptocurrencies\n\n"
-                    f"What would you like to do next?"
-                )
-                
-                await save_chat_message(chat_id, "user", message)
-                await save_chat_message(chat_id, "assistant", reply)
-                send_reply(chat_id, reply)
-                return reply
-            else:
-                # This case should not happen due to the onboarding gate above
-                # But keeping as fallback
-                reply = (
-                    "🔒 You haven't completed your Sofi Wallet onboarding yet.\n\n"
-                    "To create your virtual account and unlock all features:"
-                )
-                
-                inline_keyboard = {
-                    "inline_keyboard": [
-                        [{"text": "🚀 Complete Onboarding Now", "url": f"https://sofi-ai-trio.onrender.com/onboarding?chat_id={chat_id}"}]
-                    ]
-                }
-                
-                await save_chat_message(chat_id, "user", message)
-                await save_chat_message(chat_id, "assistant", reply)
-                send_reply(chat_id, reply, reply_markup=inline_keyboard)
-                return reply        # 🔒 All users reaching this point are onboarded (passed the gate above)
+            # User is onboarded - show account details
+            logger.info(f"DEBUG: Virtual account data = {virtual_account}")
+            
+            # Safe access to account details with fallbacks
+            account_number = virtual_account.get("accountnumber") or virtual_account.get("accountNumber", "Not available")
+            bank_name = virtual_account.get("bankname") or virtual_account.get("bankName", "Not available")
+            account_name = virtual_account.get("accountname") or virtual_account.get("accountName", "Not available")
+            
+            reply = (
+                f"✅ Here are your Sofi Wallet details:\n\n"
+                f"💳 Account Name: {account_name}\n"
+                f"💰 Account Number: {account_number}\n"
+                f"🏦 Bank: {bank_name}\n\n"
+                f"You can use this account to:\n"
+                f"🔄 Receive money from any Nigerian bank\n"
+                f"💸 Send money instantly\n"
+                f"📱 Buy airtime/data at discounted rates\n"
+                f"💹 Trade cryptocurrencies\n\n"
+                f"What would you like to do next?"
+            )
+            
+            await save_chat_message(chat_id, "user", message)
+            await save_chat_message(chat_id, "assistant", reply)
+            send_reply(chat_id, reply)
+            return reply
         # Check if this is about transfers
         transfer_keywords = ["send money", "transfer", "pay", "send cash", "transfer money", "make payment", "send funds"]
         is_transfer_request = any(keyword in message.lower() for keyword in transfer_keywords)
@@ -1217,15 +1212,15 @@ def create_virtual_account_api():
                 virtual_account_data["telegram_chat_id"] = str(data['telegram_chat_id'])
             
             try:
-                # Use upsert for users table to handle duplicates gracefully
-                if data.get('telegram_chat_id'):
-                    # Try to upsert user data using telegram_chat_id as unique identifier
-                    result = supabase.table("users").upsert(user_data, on_conflict="telegram_chat_id").execute()
-                    logger.info("User data upserted successfully")
-                else:
-                    # If no telegram_chat_id, just insert (might fail on duplicates)
+                # Insert user data - handle duplicates gracefully
+                try:
                     supabase.table("users").insert(user_data).execute()
                     logger.info("User data inserted successfully")
+                except Exception as user_error:
+                    if "duplicate key" in str(user_error).lower():
+                        logger.info("User already exists, skipping user insert")
+                    else:
+                        logger.error(f"Error inserting user data: {user_error}")
                 
                 # For virtual accounts, check if one already exists for this chat_id
                 if data.get('telegram_chat_id'):
