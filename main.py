@@ -1,4 +1,5 @@
 from flask import Flask, request, jsonify, url_for, render_template, redirect
+from flask import Flask, request, jsonify, url_for, render_template, redirect
 from flask_cors import CORS
 import os, requests, hashlib, logging, json, asyncio, tempfile
 from datetime import datetime
@@ -17,6 +18,11 @@ from pydub.utils import which
 from utils.memory import save_memory, list_memories, save_chat_message, get_chat_history
 from utils.conversation_state import conversation_state
 from unittest.mock import MagicMock
+
+# Import crypto functions
+from crypto.wallet import create_bitnob_wallet, get_user_wallet_addresses, get_user_ngn_balance
+from crypto.rates import get_crypto_to_ngn_rate, get_multiple_crypto_rates, format_crypto_rates_message
+from crypto.webhook import handle_crypto_webhook
 
 # Load environment variables from .env file
 load_dotenv()
@@ -53,8 +59,19 @@ MONNIFY_BASE_URL = os.getenv("MONNIFY_BASE_URL")
 MONNIFY_API_KEY = os.getenv("MONNIFY_API_KEY")
 MONNIFY_SECRET_KEY = os.getenv("MONNIFY_SECRET_KEY")
 
+# Crypto-related environment variables
+BITNOB_SECRET_KEY = os.getenv("BITNOB_SECRET_KEY")
+
 # Initialize Supabase client with service role key for RLS bypass
-supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+# Lazy initialization to prevent hanging during import
+supabase = None
+
+def get_supabase_client():
+    """Get or create supabase client"""
+    global supabase
+    if supabase is None:
+        supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+    return supabase
 
 app = Flask(__name__)
 CORS(app)  # CSRF Disabled globally
@@ -68,6 +85,7 @@ NELLOBYTES_APIKEY = os.getenv("NELLOBYTES_APIKEY")
 
 # Set the path to the ffmpeg executable for pydub
 AudioSegment.converter = which("ffmpeg")
+AudioSegment.ffmpeg = which("ffmpeg")
 
 def send_reply(chat_id, message, reply_markup=None):
     """Send a message to Telegram with optional inline keyboard"""
@@ -169,12 +187,12 @@ async def check_virtual_account(chat_id: str) -> Dict:
     
     Args:
         chat_id: The Telegram chat ID
-        
-    Returns:
+          Returns:
         Dict containing account details if exists, empty dict if not
     """
     try:
-        result = supabase.table("virtual_accounts") \
+        client = get_supabase_client()
+        result = client.table("virtual_accounts") \
             .select("*") \
             .eq("telegram_chat_id", str(chat_id)) \
             .execute()
@@ -204,10 +222,10 @@ async def save_virtual_account(chat_id: str, account_data: Dict) -> bool:
             "accountname": account_data.get("accountName"),
             "bankname": account_data.get("bankName"),
             "accountreference": account_data.get("accountReference"),
-            "created_at": datetime.now().isoformat()
-        }
+            "created_at": datetime.now().isoformat()        }
         
-        supabase.table("virtual_accounts").insert(supabase_data).execute()
+        client = get_supabase_client()
+        client.table("virtual_accounts").insert(supabase_data).execute()
         return True
     except Exception as e:
         logger.error(f"Error saving virtual account: {e}")
@@ -397,9 +415,9 @@ async def generate_ai_reply(chat_id: str, message: str):
         # 🔒 STRICT ONBOARDING GATE - Check if user has completed onboarding FIRST
         # Check if user has a virtual account
         virtual_account = await check_virtual_account(chat_id)
-        
-        # Fetch user data from users table
-        user_resp = supabase.table("users").select("*").eq("telegram_chat_id", str(chat_id)).execute()
+          # Fetch user data from users table
+        client = get_supabase_client()
+        user_resp = client.table("users").select("*").eq("telegram_chat_id", str(chat_id)).execute()
         user_data = user_resp.data[0] if user_resp.data else None
           # 🚫 ONBOARDING WALL: Block ALL features until onboarding is complete
         # Smart onboarding responses based on user messages
@@ -451,12 +469,12 @@ async def generate_ai_reply(chat_id: str, message: str):
                 # Default intelligent response for anything else
                 else:
                     reply = "I hear you! 😊 I'm ready to assist you with whatever you need. Please kindly complete your onboarding registration for us to proceed further."
-            
-            # Create inline keyboard for onboarding
+              # Create inline keyboard for onboarding
             inline_keyboard = {
                 "inline_keyboard": [
                     [{"text": "🚀 Complete Onboarding Now", "url": f"https://sofi-ai-trio.onrender.com/onboarding?chat_id={chat_id}"}]
-                ]            }
+                ]
+            }
             
             await save_chat_message(chat_id, "user", message)
             await save_chat_message(chat_id, "assistant", reply)
@@ -496,14 +514,21 @@ async def generate_ai_reply(chat_id: str, message: str):
         # Check if this is about transfers
         transfer_keywords = ["send money", "transfer", "pay", "send cash", "transfer money", "make payment", "send funds"]
         is_transfer_request = any(keyword in message.lower() for keyword in transfer_keywords)
-          
-        # Check for beneficiary commands first (only for onboarded users)
+            # Check for beneficiary commands first (only for onboarded users)
         beneficiary_response = await handle_beneficiary_commands(chat_id, message, user_data)
         if beneficiary_response:
             await save_chat_message(chat_id, "user", message)
             await save_chat_message(chat_id, "assistant", beneficiary_response)
             send_reply(chat_id, beneficiary_response)
             return beneficiary_response
+        
+        # Check for crypto commands (only for onboarded users)
+        crypto_response = handle_crypto_commands(chat_id, message, user_data)
+        if crypto_response:
+            await save_chat_message(chat_id, "user", message)
+            await save_chat_message(chat_id, "assistant", crypto_response)
+            send_reply(chat_id, crypto_response)
+            return crypto_response
         
         if is_transfer_request:
             # User is onboarded and wants to transfer - proceed with transfer flow
@@ -898,9 +923,9 @@ async def handle_transfer_flow(chat_id: str, message: str, user_data: dict = Non
             else:
                 return f"Could not verify account: {verification_result.get('error')}. Please try again:"
         else:
-            state['step'] = 'get_bank'
-            msg = "Great! Now, which bank is this account with?"
-            
+                    state['step'] = 'get_bank'
+        msg = "Great! Now, which bank is this account with?"
+        
         conversation_state.set_state(chat_id, state)
         return msg
         
@@ -933,6 +958,17 @@ async def handle_transfer_flow(chat_id: str, message: str, user_data: dict = Non
                 return "Please enter a valid amount greater than 0:"
                 
             transfer['amount'] = amount
+            
+            # Check if user has sufficient balance
+            virtual_account = await check_virtual_account(chat_id)
+            balance_check = await check_insufficient_balance(chat_id, amount, virtual_account)
+            
+            if balance_check:
+                # Insufficient balance - show funding options
+                conversation_state.clear_state(chat_id)
+                return balance_check
+            
+            # Sufficient balance - proceed with confirmation
             state['step'] = 'confirm_transfer'
             
             msg = (
@@ -1057,9 +1093,9 @@ def handle_incoming_message():
             msg = "I can only handle text messages, voice notes and images right now. For documents, please send me the content as text or tell me what you'd like to do."
             send_reply(chat_id, msg)
             return jsonify({"success": True}), 200
-        
-        # Check if user exists in Supabase
-        user_resp = supabase.table("users").select("*").eq("telegram_chat_id", str(chat_id)).execute()
+          # Check if user exists in Supabase
+        client = get_supabase_client()
+        user_resp = client.table("users").select("*").eq("telegram_chat_id", str(chat_id)).execute()
         is_new_user = not user_resp.data
 
         # Handle photo messages
@@ -1211,32 +1247,31 @@ def create_virtual_account_api():
             if data.get('telegram_chat_id'):
                 virtual_account_data["telegram_chat_id"] = str(data['telegram_chat_id'])
             
-            try:
-                # Insert user data - handle duplicates gracefully
+            try:                # Insert user data - handle duplicates gracefully
                 try:
-                    supabase.table("users").insert(user_data).execute()
+                    client = get_supabase_client()
+                    client.table("users").insert(user_data).execute()
                     logger.info("User data inserted successfully")
                 except Exception as user_error:
                     if "duplicate key" in str(user_error).lower():
                         logger.info("User already exists, skipping user insert")
                     else:
                         logger.error(f"Error inserting user data: {user_error}")
-                
-                # For virtual accounts, check if one already exists for this chat_id
+                  # For virtual accounts, check if one already exists for this chat_id
                 if data.get('telegram_chat_id'):
-                    existing_va = supabase.table("virtual_accounts").select("id").eq("telegram_chat_id", str(data['telegram_chat_id'])).execute()
+                    existing_va = client.table("virtual_accounts").select("id").eq("telegram_chat_id", str(data['telegram_chat_id'])).execute()
                     if existing_va.data:
                         # Update existing virtual account
                         va_id = existing_va.data[0]['id']
-                        supabase.table("virtual_accounts").update(virtual_account_data).eq("id", va_id).execute()
+                        client.table("virtual_accounts").update(virtual_account_data).eq("id", va_id).execute()
                         logger.info("Virtual account data updated successfully")
                     else:
                         # Insert new virtual account
-                        supabase.table("virtual_accounts").insert(virtual_account_data).execute()
+                        client.table("virtual_accounts").insert(virtual_account_data).execute()
                         logger.info("Virtual account data saved successfully")
                 else:
                     # Insert virtual account without chat_id check
-                    supabase.table("virtual_accounts").insert(virtual_account_data).execute()
+                    client.table("virtual_accounts").insert(virtual_account_data).execute()
                     logger.info("Virtual account data saved successfully")
                 
             except Exception as e:
@@ -1280,7 +1315,8 @@ def create_virtual_account_api():
 def save_beneficiary_to_supabase(user_id: str, beneficiary_data: dict) -> bool:
     """Save a beneficiary to the database"""
     try:
-        response = supabase.table("beneficiaries").insert({
+        client = get_supabase_client()
+        response = client.table("beneficiaries").insert({
             "user_id": user_id,
             "name": beneficiary_data['name'],
             "account_number": beneficiary_data['account_number'],
@@ -1301,7 +1337,8 @@ def save_beneficiary_to_supabase(user_id: str, beneficiary_data: dict) -> bool:
 def get_user_beneficiaries(user_id: str) -> list:
     """Get all beneficiaries for a user"""
     try:
-        response = supabase.table("beneficiaries").select("*").eq("user_id", user_id).execute()
+        client = get_supabase_client()
+        response = client.table("beneficiaries").select("*").eq("user_id", user_id).execute()
         return response.data if response.data else []
     except Exception as e:
         logger.error(f"Error fetching beneficiaries: {str(e)}")
@@ -1310,7 +1347,8 @@ def get_user_beneficiaries(user_id: str) -> list:
 def find_beneficiary_by_name(user_id: str, name: str) -> dict:
     """Find a beneficiary by name (case-insensitive)"""
     try:
-        response = supabase.table("beneficiaries").select("*").eq("user_id", user_id).ilike("name", f"%{name}%").execute()
+        client = get_supabase_client()
+        response = client.table("beneficiaries").select("*").eq("user_id", user_id).ilike("name", f"%{name}%").execute()
         if response.data:
             return response.data[0]  # Return first match
         return None
@@ -1321,7 +1359,8 @@ def find_beneficiary_by_name(user_id: str, name: str) -> dict:
 def delete_beneficiary(user_id: str, beneficiary_id: str) -> bool:
     """Delete a beneficiary"""
     try:
-        response = supabase.table("beneficiaries").delete().eq("user_id", user_id).eq("id", beneficiary_id).execute()
+        client = get_supabase_client()
+        response = client.table("beneficiaries").delete().eq("user_id", user_id).eq("id", beneficiary_id).execute()
         return bool(response.data)
     except Exception as e:
         logger.error(f"Error deleting beneficiary: {str(e)}")
@@ -1371,9 +1410,409 @@ async def handle_beneficiary_commands(chat_id: str, message: str, user_data: dic
         response = "Please specify which beneficiary to delete:\n\n"
         for i, beneficiary in enumerate(beneficiaries, 1):
             response += f"{i}. {beneficiary['name']} ({beneficiary['bank_name']})\n"
-        response += "\nExample: 'Delete beneficiary John' or 'Remove beneficiary Mary'"
+        response += "\nExample: 'Delete beneficiary John Doe'"
         return response
     
-    return None  # Not a beneficiary command
+    return None  # No beneficiary command matched
 
-# ...existing code...
+# Crypto Integration Functions
+def handle_crypto_commands(chat_id: str, message: str, user_data: dict = None):
+    """Handle crypto-related commands in Telegram chat"""
+    if not user_data:
+        return "Please complete onboarding first to access crypto features."
+    
+    message_lower = message.lower().strip()
+    user_id = str(user_data.get('id', chat_id))
+    first_name = user_data.get('first_name', 'User')
+    
+    # Specific wallet creation commands (BTC, ETH, USDT)
+    if any(cmd in message_lower for cmd in ['create btc wallet', 'btc wallet', 'bitcoin wallet']):
+        return handle_specific_wallet_creation(user_id, first_name, 'BTC')
+    
+    elif any(cmd in message_lower for cmd in ['create eth wallet', 'eth wallet', 'ethereum wallet']):
+        return handle_specific_wallet_creation(user_id, first_name, 'ETH')
+    
+    elif any(cmd in message_lower for cmd in ['create usdt wallet', 'usdt wallet', 'tether wallet']):
+        return handle_specific_wallet_creation(user_id, first_name, 'USDT')
+    
+    # Send/show specific wallet addresses
+    elif any(cmd in message_lower for cmd in ['send my btc wallet', 'my btc address', 'btc address', 'show btc wallet']):
+        return show_specific_wallet_address(user_id, first_name, 'BTC')
+    
+    elif any(cmd in message_lower for cmd in ['send my eth wallet', 'my eth address', 'eth address', 'show eth wallet']):
+        return show_specific_wallet_address(user_id, first_name, 'ETH')
+    
+    elif any(cmd in message_lower for cmd in ['send my usdt wallet', 'my usdt address', 'usdt address', 'show usdt wallet']):
+        return show_specific_wallet_address(user_id, first_name, 'USDT')
+    
+    # General crypto wallet command (creates all wallets)
+    elif any(cmd in message_lower for cmd in ['create wallet', 'crypto wallet', 'create crypto wallet']):
+        result = create_bitnob_wallet(user_id, user_data.get('email'))
+        
+        if result.get('error'):
+            return f"❌ Failed to create crypto wallet: {result['error']}"
+        
+        # Extract wallet info from Bitnob response
+        wallet_data = result.get('data', result)
+        
+        return f"""🎉 **Complete Crypto Wallet Created Successfully!**
+
+Hey {first_name}! Your Sofi crypto wallet is now ready:
+
+🪙 **Wallet ID**: {wallet_data.get('id', 'N/A')}
+📧 **Email**: {wallet_data.get('customerEmail', 'N/A')}
+
+💰 **Supported Cryptocurrencies:**
+• Bitcoin (BTC) ₿
+• Ethereum (ETH) Ξ  
+• Tether (USDT) ₮
+
+💡 **How it works:**
+✅ Send crypto to your wallet addresses
+✅ **Instant NGN conversion** at live rates
+✅ Automatic credit to your Sofi balance
+✅ Use NGN for transfers, airtime, etc.
+
+Type 'my wallet addresses' to see all your deposit addresses! 🚀"""
+
+    # Get all wallet addresses command
+    elif any(cmd in message_lower for cmd in ['wallet address', 'my wallet', 'crypto address', 'deposit address', 'wallet addresses', 'my addresses']):
+        addresses = get_user_wallet_addresses(user_id)
+        
+        if addresses.get('error'):
+            return f"❌ {addresses['error']}\n\nTry creating a wallet first with: 'create wallet'"
+        
+        wallet_addresses = addresses.get('addresses', {})
+        
+        if not wallet_addresses:
+            return "No wallet addresses found. Create a crypto wallet first with: 'create wallet'"
+        
+        response = f"💰 **{first_name}'s Crypto Deposit Addresses:**\n\n"
+        
+        for currency, wallet_info in wallet_addresses.items():
+            response += f"🪙 **{currency}**\n"
+            response += f"📍 Address: `{wallet_info['address']}`\n"
+            response += f"💵 Status: Instant NGN conversion enabled\n\n"
+        
+        response += "⚡ **Send crypto to any address above and it will be instantly converted to NGN in your Sofi balance!**\n\n"
+        response += "💡 **Live rates** • **No delays** • **Automatic credit**"
+        return response
+    
+    # Check NGN balance (crypto-aware)
+    elif any(cmd in message_lower for cmd in ['my balance', 'ngn balance', 'crypto balance', 'wallet balance']):
+        from crypto.wallet import get_user_ngn_balance
+        from crypto.webhook import get_crypto_stats
+        
+        balance_info = get_user_ngn_balance(user_id)
+        crypto_stats = get_crypto_stats(user_id)
+        
+        if balance_info.get('error'):
+            return f"❌ {balance_info['error']}"
+        
+        response = f"""💰 **{first_name}'s Sofi Wallet Balance**
+
+💵 **Current Balance**: ₦{balance_info['balance_naira']:,.2f}
+
+📊 **Crypto Stats:**
+🪙 Total Deposits: {crypto_stats['total_deposits']}
+💸 Total from Crypto: ₦{crypto_stats['total_ngn_earned']:,.2f}
+🏆 Favorite Crypto: {crypto_stats['favorite_crypto'] or 'None yet'}
+
+💡 Send more crypto for instant NGN conversion!"""
+        
+        return response
+    
+    # Get crypto transaction history
+    elif any(cmd in message_lower for cmd in ['crypto history', 'transaction history', 'my deposits', 'crypto transactions']):
+        from crypto.webhook import get_user_crypto_transactions
+        
+        transactions = get_user_crypto_transactions(user_id, limit=5)
+        
+        if not transactions:
+            return f"📭 **No crypto transactions yet, {first_name}!**\n\nSend some crypto to your wallet addresses to get started. Type 'my wallet addresses' to see them!"
+        
+        response = f"📋 **{first_name}'s Recent Crypto Transactions:**\n\n"
+        
+        for i, tx in enumerate(transactions, 1):
+            crypto_amount = tx.get('amount_crypto', 0)
+            crypto_type = tx.get('crypto_type', 'CRYPTO')
+            ngn_amount = tx.get('amount_naira', 0)
+            date = tx.get('created_at', '')[:10]  # YYYY-MM-DD format
+            
+            response += f"{i}. **{crypto_amount} {crypto_type}** → ₦{ngn_amount:,.2f}\n"
+            response += f"   📅 {date}\n\n"
+        
+        response += "Type 'my balance' to see your current balance! 💰"
+        return response
+    
+    # Get crypto rates command
+    elif any(cmd in message_lower for cmd in ['crypto rates', 'btc price', 'eth price', 'crypto price']):
+        rates = get_multiple_crypto_rates(['BTC', 'ETH', 'USDT', 'USDC'])
+        return format_crypto_rates_message(rates)
+    
+    return None  # No crypto command matched
+
+def handle_specific_wallet_creation(user_id: str, first_name: str, crypto_type: str):
+    """Handle creation of specific cryptocurrency wallet (BTC, ETH, USDT)"""
+    try:
+        # Check if user already has this specific wallet
+        addresses = get_user_wallet_addresses(user_id)
+        
+        if addresses.get('success') and addresses.get('addresses', {}).get(crypto_type):
+            # Wallet already exists, return the address
+            wallet_info = addresses['addresses'][crypto_type]
+            crypto_symbols = {'BTC': '₿', 'ETH': 'Ξ', 'USDT': '₮'}
+            symbol = crypto_symbols.get(crypto_type, '🪙')
+            
+            return f"""✅ **{crypto_type} Wallet Already Exists!**
+
+Hey {first_name}! You already have a {crypto_type} wallet:
+
+{symbol} **{crypto_type} Address:**
+`{wallet_info['address']}`
+
+💡 **How to use:**
+• Send {crypto_type} to this address
+• **Instant NGN conversion** at live rates  
+• Automatic credit to your Sofi balance
+
+Current {crypto_type} rate: ₦{get_crypto_to_ngn_rate(crypto_type):,.2f} per {crypto_type}
+
+Ready to receive your {crypto_type}! 🚀"""
+        
+        # Create new wallet if doesn't exist
+        result = create_bitnob_wallet(user_id)
+        
+        if result.get('error'):
+            return f"❌ Failed to create {crypto_type} wallet: {result['error']}"
+        
+        # Get the newly created addresses
+        new_addresses = get_user_wallet_addresses(user_id)
+        
+        if new_addresses.get('success') and new_addresses.get('addresses', {}).get(crypto_type):
+            wallet_info = new_addresses['addresses'][crypto_type]
+            crypto_symbols = {'BTC': '₿', 'ETH': 'Ξ', 'USDT': '₮'}
+            symbol = crypto_symbols.get(crypto_type, '🪙')
+            
+            return f"""🎉 **{crypto_type} Wallet Created Successfully!**
+
+Hey {first_name}! Your {crypto_type} wallet is ready:
+
+{symbol} **{crypto_type} Address:**
+`{wallet_info['address']}`
+
+💡 **How it works:**
+✅ Send {crypto_type} to this address
+✅ **Instant NGN conversion** at live rates
+✅ Automatic credit to your Sofi balance
+✅ Use NGN for transfers, airtime, etc.
+
+Current {crypto_type} rate: ₦{get_crypto_to_ngn_rate(crypto_type):,.2f} per {crypto_type}
+
+Send any amount of {crypto_type} and watch it appear as NGN instantly! 🚀"""
+        
+        else:
+            return f"❌ {crypto_type} wallet created but address not available. Please try again."
+            
+    except Exception as e:
+        logger.error(f"Error creating {crypto_type} wallet: {str(e)}")
+        return f"❌ Error creating {crypto_type} wallet. Please try again later."
+
+def show_specific_wallet_address(user_id: str, first_name: str, crypto_type: str):
+    """Show specific cryptocurrency wallet address"""
+    try:
+        addresses = get_user_wallet_addresses(user_id)
+        
+        if addresses.get('error'):
+            return f"❌ {addresses['error']}\n\nCreate a {crypto_type} wallet first with: 'create {crypto_type} wallet'"
+        
+        wallet_addresses = addresses.get('addresses', {})
+        
+        if not wallet_addresses.get(crypto_type):
+            return f"""💰 **No {crypto_type} Wallet Found**
+
+Hey {first_name}! You don't have a {crypto_type} wallet yet.
+
+Create one now by saying: **"create {crypto_type} wallet"**
+
+Once created, you can:
+✅ Receive {crypto_type} deposits
+✅ Get instant NGN conversion  
+✅ Use the NGN for transfers & airtime
+
+Ready to get started? 🚀"""
+        
+        wallet_info = wallet_addresses[crypto_type]
+        crypto_symbols = {'BTC': '₿', 'ETH': 'Ξ', 'USDT': '₮'}
+        symbol = crypto_symbols.get(crypto_type, '🪙')
+        
+        return f"""💰 **{first_name}'s {crypto_type} Wallet**
+
+{symbol} **{crypto_type} Address:**
+`{wallet_info['address']}`
+
+💡 **How to use:**
+• Send {crypto_type} to this address
+• **Instant NGN conversion** at live rates
+• Automatic credit to your Sofi balance
+
+📊 **Current Rate:** ₦{get_crypto_to_ngn_rate(crypto_type):,.2f} per {crypto_type}
+
+⚡ **Send crypto and watch it appear as NGN instantly!** 🚀"""
+        
+    except Exception as e:
+        logger.error(f"Error showing {crypto_type} wallet: {str(e)}")
+        return f"❌ Error retrieving {crypto_type} wallet. Please try again later."
+
+@app.route('/crypto/webhook', methods=['POST'])
+def crypto_webhook():
+    """Handle Bitnob crypto deposit webhooks"""
+    return handle_crypto_webhook()
+
+@app.route('/create_crypto_wallet/<user_id>', methods=['GET'])
+def create_wallet_endpoint(user_id):
+    """API endpoint to create crypto wallet"""
+    try:
+        result = create_bitnob_wallet(user_id)
+        return jsonify(result)
+    except Exception as e:
+        logger.error(f"Error creating crypto wallet: {str(e)}")
+        return jsonify({"error": "Internal server error"}), 500
+
+@app.route('/crypto/rates', methods=['GET'])
+def get_crypto_rates():
+    """API endpoint to get current crypto rates"""
+    try:
+        cryptos = request.args.getlist('crypto') or ['BTC', 'ETH', 'USDT', 'USDC']
+        rates = get_multiple_crypto_rates(cryptos)
+        return jsonify({"success": True, "rates": rates})
+    except Exception as e:
+        logger.error(f"Error fetching crypto rates: {str(e)}")
+        return jsonify({"error": "Internal server error"}), 500
+
+@app.route('/user/<user_id>/wallet', methods=['GET'])
+def get_user_wallet(user_id):
+    """API endpoint to get user's wallet addresses"""
+    try:
+        addresses = get_user_wallet_addresses(user_id)
+        return jsonify(addresses)
+    except Exception as e:
+        logger.error(f"Error fetching wallet addresses: {str(e)}")
+        return jsonify({"error": "Internal server error"}), 500
+
+async def show_funding_account_details(chat_id: str, virtual_account: dict, amount_needed: float = None) -> str:
+    """
+    Show user their account details for funding their wallet
+    
+    Args:
+        chat_id: Telegram chat ID
+        virtual_account: User's virtual account data from Supabase
+        amount_needed: Amount needed for the transaction (optional)
+    
+    Returns:
+        str: Formatted message with account details and funding options
+    """
+    try:
+        # Get account details safely
+        account_number = virtual_account.get("accountnumber") or virtual_account.get("accountNumber", "Not available")
+        bank_name = virtual_account.get("bankname") or virtual_account.get("bankName", "Not available")
+        account_name = virtual_account.get("accountname") or virtual_account.get("accountName", "Not available")
+        
+        # Build funding message
+        if amount_needed:
+            funding_message = f"💰 **You need ₦{amount_needed:,.2f} to complete this transaction.**\n\n"
+        else:
+            funding_message = "💰 **Here are your Sofi Wallet funding details:**\n\n"
+        
+        funding_message += f"**📋 Your Virtual Account Details:**\n"
+        funding_message += f"💳 **Account Name:** {account_name}\n"
+        funding_message += f"💰 **Account Number:** {account_number}\n"
+        funding_message += f"🏦 **Bank:** {bank_name}\n\n"
+        
+        funding_message += f"**💡 To fund your wallet:**\n"
+        funding_message += f"• Transfer money to your Sofi virtual account\n"
+        funding_message += f"• Send crypto (BTC/ETH/USDT) for instant NGN conversion\n"
+        funding_message += f"• Ask someone to send money to your account\n\n"
+        
+        funding_message += f"**🚀 Crypto Funding (Instant NGN Conversion):**\n"
+        funding_message += f"• Type 'create BTC wallet' for Bitcoin address\n"
+        funding_message += f"• Type 'create USDT wallet' for USDT address\n"
+        funding_message += f"• Type 'create ETH wallet' for Ethereum address\n\n"
+        
+        funding_message += f"**💬 After funding, you can:**\n"
+        funding_message += f"• Type 'balance' to check your updated balance\n"
+        funding_message += f"• Retry your transfer once funds are available\n"
+        funding_message += f"• Ask me for help with anything else\n\n"
+        
+        funding_message += f"**⚡ Need help?** Just ask me 'how to fund wallet' or 'crypto rates' for current exchange rates!"
+        
+        return funding_message
+        
+    except Exception as e:
+        logger.error(f"Error showing funding account details: {e}")
+        return "I can help you fund your wallet! Type 'my account' to see your account details."
+
+async def get_user_balance(chat_id: str) -> float:
+    """
+    Get user's current NGN balance from Supabase
+    
+    Args:
+        chat_id: Telegram chat ID
+    
+    Returns:
+        float: User's current balance in NGN
+    """
+    try:
+        # First try to get from crypto wallet_balances table
+        from crypto.wallet import get_user_ngn_balance
+          # Get user ID from users table
+        client = get_supabase_client()
+        user_resp = client.table("users").select("id").eq("telegram_chat_id", str(chat_id)).execute()
+        if not user_resp.data:
+            return 0.0
+            
+        user_id = user_resp.data[0]["id"]
+        balance_info = get_user_ngn_balance(user_id)
+        
+        if balance_info.get("success"):
+            return float(balance_info.get("balance_naira", 0))
+        else:
+            return 0.0
+            
+    except Exception as e:
+        logger.error(f"Error getting user balance: {e}")
+        return 0.0
+
+async def check_insufficient_balance(chat_id: str, amount: float, virtual_account: dict) -> str:
+    """
+    Check if user has sufficient balance and return appropriate message
+    
+    Args:
+        chat_id: Telegram chat ID
+        amount: Amount needed for transaction
+        virtual_account: User's virtual account data
+    
+    Returns:
+        str: Empty string if sufficient balance, otherwise funding message
+    """
+    try:
+        current_balance = await get_user_balance(chat_id)
+        
+        if current_balance < amount:
+            shortage = amount - current_balance
+            insufficient_message = f"❌ **Insufficient Balance**\n\n"
+            insufficient_message += f"💰 **Current Balance:** ₦{current_balance:,.2f}\n"
+            insufficient_message += f"💸 **Amount Needed:** ₦{amount:,.2f}\n"
+            insufficient_message += f"📉 **Shortage:** ₦{shortage:,.2f}\n\n"
+            
+            # Show funding options
+            funding_details = await show_funding_account_details(chat_id, virtual_account, shortage)
+            insufficient_message += funding_details
+            
+            return insufficient_message
+        
+        return ""  # Sufficient balance
+        
+    except Exception as e:
+        logger.error(f"Error checking insufficient balance: {e}")
+        return f"Unable to check balance. Please try again or type 'balance' to check your current balance."

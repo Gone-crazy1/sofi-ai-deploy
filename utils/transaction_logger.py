@@ -9,7 +9,13 @@ load_dotenv()
 supabase_url = os.getenv("SUPABASE_URL")
 # Use service role key for server-side operations to bypass RLS
 supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_KEY")
-supabase = create_client(supabase_url, supabase_key)
+supabase = None
+
+def get_supabase_client():
+    global supabase
+    if supabase is None:
+        supabase = create_client(supabase_url, supabase_key)
+    return supabase
 
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
@@ -39,14 +45,15 @@ async def save_transaction(user_id, amount, type, narration):
         category = categorize_expense(narration)
 
         # Save to Supabase
-        supabase.table("transactions").insert({
+        client = get_supabase_client()
+        client.table("transactions").insert({
             "user_id": user_id,
             "amount": amount,
             "type": type,
             "narration": narration,
             "category": category
         }).execute()
-    except supabase.exceptions.SupabaseException as e:
-        logger.error("Error with Supabase operation: %s", e)
+    except Exception as e:
+        logger.error("Error saving transaction: %s", e)
     except Exception as e:
         logger.error("Unexpected error occurred while saving transaction: %s", e)

@@ -664,3 +664,79 @@ Response: {
   "system_fingerprint": null
 }
 
+Message: transfer 5000 to my wife
+Response: {
+  "id": "chatcmpl-BhPEcJ97YmRVgr2gN2R7CRHxoloxT",
+  "object": "chat.completion",
+  "created": 1749684806,
+  "model": "gpt-3.5-turbo-0125",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "{\n  \"intent\": \"transfer\",\n  \"confidence\": 0.95,\n  \"details\": {\n    \"amount\": 5000,\n    \"recipient_name\": \"my wife\",\n    \"account_number\": null,\n    \"bank\": null,\n    \"transfer_type\": \"text\",\n    \"narration\": \"Transfer to my wife\",\n    \"currency\": \"NGN\"\n  }\n}",
+        "refusal": null,
+        "annotations": []
+      },
+      "logprobs": null,
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 1105,
+    "completion_tokens": 83,
+    "total_tokens": 1188,
+    "prompt_tokens_details": {
+      "cached_tokens": 0,
+      "audio_tokens": 0
+    },
+    "completion_tokens_details": {
+      "reasoning_tokens": 0,
+      "audio_tokens": 0,
+      "accepted_prediction_tokens": 0,
+      "rejected_prediction_tokens": 0
+    }
+  },
+  "service_tier": "default",
+  "system_fingerprint": null
+}
+
+Message: transfer 5000 to my wife
+Response: {
+  "id": "chatcmpl-BhPFuoMusMl8jTrBK6qNkB20axRVc",
+  "object": "chat.completion",
+  "created": 1749684886,
+  "model": "gpt-3.5-turbo-0125",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "{\n  \"intent\": \"transfer\",\n  \"confidence\": 0.95,\n  \"details\": {\n    \"amount\": 5000,\n    \"recipient_name\": \"my wife\",\n    \"account_number\": null,\n    \"bank\": null,\n    \"transfer_type\": \"text\",\n    \"narration\": \"Transfer to my wife\",\n    \"currency\": \"NGN\"\n  }\n}",
+        "refusal": null,
+        "annotations": []
+      },
+      "logprobs": null,
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 1105,
+    "completion_tokens": 83,
+    "total_tokens": 1188,
+    "prompt_tokens_details": {
+      "cached_tokens": 0,
+      "audio_tokens": 0
+    },
+    "completion_tokens_details": {
+      "reasoning_tokens": 0,
+      "audio_tokens": 0,
+      "accepted_prediction_tokens": 0,
+      "rejected_prediction_tokens": 0
+    }
+  },
+  "service_tier": "default",
+  "system_fingerprint": null
+}
+

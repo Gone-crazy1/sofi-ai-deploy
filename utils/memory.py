@@ -13,14 +13,23 @@ supabase_url = os.getenv("SUPABASE_URL")
 supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_KEY")
 
 if not supabase_url or not supabase_key:
-    raise ValueError("SUPABASE_URL and SUPABASE_KEY must be set in environment variables")
+    print("Warning: SUPABASE_URL and SUPABASE_KEY must be set in environment variables")
+    print("Some functionality may not work without proper Supabase configuration")
 
 # Check if we have a valid key (not placeholder)
 if supabase_key == "your_service_role_key_here":
     print("Warning: Using placeholder service role key. Please set SUPABASE_SERVICE_ROLE_KEY to your actual service role key.")
     supabase_key = os.getenv("SUPABASE_KEY")
 
-supabase = create_client(supabase_url, supabase_key)
+# Lazy initialization of supabase client
+supabase = None
+
+def get_supabase_client():
+    """Get or create supabase client"""
+    global supabase
+    if supabase is None:
+        supabase = create_client(supabase_url, supabase_key)
+    return supabase
 
 async def save_chat_message(chat_id: str, role: str, content: str) -> bool:
     """Save a chat message to the conversation history.
@@ -29,12 +38,12 @@ async def save_chat_message(chat_id: str, role: str, content: str) -> bool:
         chat_id: The Telegram chat ID
         role: Either 'user' or 'assistant'
         content: The message content
-        
-    Returns:
+          Returns:
         bool: True if successful, False otherwise
     """
     try:
-        supabase.table("chat_history").insert({
+        client = get_supabase_client()
+        client.table("chat_history").insert({
             "chat_id": str(chat_id),
             "role": role,
             "content": content,
@@ -51,12 +60,12 @@ async def get_chat_history(chat_id: str, limit: int = 10) -> List[Dict]:
     Args:
         chat_id: The Telegram chat ID
         limit: Number of recent messages to retrieve
-        
-    Returns:
+          Returns:
         List of message dictionaries in OpenAI chat format
     """
     try:
-        result = supabase.table("chat_history") \
+        client = get_supabase_client()
+        result = client.table("chat_history") \
             .select("*") \
             .eq("chat_id", str(chat_id)) \
             .order("timestamp", desc=True) \
@@ -79,12 +88,12 @@ async def clear_chat_history(chat_id: str) -> bool:
     
     Args:
         chat_id: The Telegram chat ID
-        
-    Returns:
+          Returns:
         bool: True if successful, False otherwise
     """
     try:
-        supabase.table("chat_history") \
+        client = get_supabase_client()
+        client.table("chat_history") \
             .delete() \
             .eq("chat_id", str(chat_id)) \
             .execute()
