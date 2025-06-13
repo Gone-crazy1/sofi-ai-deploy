@@ -506,7 +506,7 @@ async def generate_ai_reply(chat_id: str, message: str):
                 f"You can use this account to:\n"
                 f"🔄 Receive money from any Nigerian bank\n"
                 f"💸 Send money instantly\n"
-                f"📱 Buy airtime/data at discounted rates\n"
+                f"📱 Buy airtime and data\n"
                 f"💹 Trade cryptocurrencies\n\n"
                 f"What would you like to do next?"            )
             
@@ -562,9 +562,8 @@ async def generate_ai_reply(chat_id: str, message: str):
             await save_chat_message(chat_id, "user", message)
             await save_chat_message(chat_id, "assistant", beneficiary_response)
             # Return response - webhook handler will send it
-            return beneficiary_response
-          # Check for crypto commands (only for onboarded users)
-        crypto_response = handle_crypto_commands(chat_id, message, user_data)
+            return beneficiary_response        # Check for crypto commands (only for onboarded users)
+        crypto_response = await handle_crypto_commands(chat_id, message, user_data)
         if crypto_response:
             await save_chat_message(chat_id, "user", message)
             await save_chat_message(chat_id, "assistant", crypto_response)
@@ -1122,7 +1121,14 @@ async def handle_transfer_flow(chat_id: str, message: str, user_data: dict = Non
     
 @app.route("/webhook", methods=["POST"])
 def handle_webhook():
-    """Webhook endpoint for Telegram - redirects to main handler"""
+    """Main webhook endpoint for Telegram bot"""
+    logger.info("Webhook endpoint called - processing request")
+    return handle_incoming_message()
+
+# CRITICAL FIX: Add /webhook endpoint to fix 404 errors
+@app.route("/webhook_backup", methods=["POST"])
+def handle_webhook_backup():
+    """Backup webhook endpoint for Telegram - redirects to main handler"""
     return handle_incoming_message()
 
 @app.route("/webhook_incoming", methods=["POST"])
@@ -1478,7 +1484,7 @@ async def handle_beneficiary_commands(chat_id: str, message: str, user_data: dic
     return None  # No beneficiary command matched
 
 # Crypto Integration Functions
-def handle_crypto_commands(chat_id: str, message: str, user_data: dict = None):
+async def handle_crypto_commands(chat_id: str, message: str, user_data: dict = None):
     """Handle crypto-related commands in Telegram chat"""
     if not user_data:
         return "Please complete onboarding first to access crypto features."
