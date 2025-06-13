@@ -1120,15 +1120,10 @@ async def handle_transfer_flow(chat_id: str, message: str, user_data: dict = Non
     return "Sorry, I couldn't process your request. Please try again."
     
 @app.route("/webhook", methods=["POST"])
-def handle_webhook():
-    """Main webhook endpoint for Telegram bot"""
-    logger.info("Webhook endpoint called - processing request")
-    return handle_incoming_message()
-
-# CRITICAL FIX: Add /webhook endpoint to fix 404 errors
 @app.route("/webhook_backup", methods=["POST"])
-def handle_webhook_backup():
-    """Backup webhook endpoint for Telegram - redirects to main handler"""
+def handle_webhook():
+    """Main webhook endpoint for Telegram - handles both /webhook and /webhook_backup"""
+    logger.info("Webhook endpoint called successfully - processing request")
     return handle_incoming_message()
 
 @app.route("/webhook_incoming", methods=["POST"])
