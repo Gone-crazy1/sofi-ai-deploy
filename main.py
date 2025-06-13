@@ -24,6 +24,9 @@ from crypto.wallet import create_bitnob_wallet, get_user_wallet_addresses, get_u
 from crypto.rates import get_crypto_to_ngn_rate, get_multiple_crypto_rates, format_crypto_rates_message
 from crypto.webhook import handle_crypto_webhook
 
+# Import airtime/data functions
+from utils.airtime_api import AirtimeAPI
+
 # Load environment variables from .env file
 load_dotenv()
 
@@ -466,10 +469,10 @@ async def generate_ai_reply(chat_id: str, message: str):
                 elif any(word in message_lower for word in ['help', 'what can you do', 'features', 'services']):
                     reply = "I can do so much for you! 🚀 Money transfers, balance checks, airtime purchases, crypto trading, and more. Please kindly complete your onboarding registration for us to proceed further."
                 
-                # Default intelligent response for anything else
-                else:
+                # Default intelligent response for anything else                else:
                     reply = "I hear you! 😊 I'm ready to assist you with whatever you need. Please kindly complete your onboarding registration for us to proceed further."
-              # Create inline keyboard for onboarding
+            
+            # Create inline keyboard for onboarding
             inline_keyboard = {
                 "inline_keyboard": [
                     [{"text": "🚀 Complete Onboarding Now", "url": f"https://sofi-ai-trio.onrender.com/onboarding?chat_id={chat_id}"}]
@@ -478,13 +481,14 @@ async def generate_ai_reply(chat_id: str, message: str):
             
             await save_chat_message(chat_id, "user", message)
             await save_chat_message(chat_id, "assistant", reply)
-            send_reply(chat_id, reply, reply_markup=inline_keyboard)
-            return reply
+            # Return reply with inline keyboard - webhook handler will send it
+            return {"text": reply, "reply_markup": inline_keyboard}
         
         # 🔒 All users reaching this point are onboarded (have virtual_account AND user_data)
         # Check for account creation/status requests (only for onboarded users)
         account_keywords = ["create account", "sign up", "register", "get started", "open account", "account status", "my account"]
-        is_account_request = any(keyword in message.lower() for keyword in account_keywords)        
+        is_account_request = any(keyword in message.lower() for keyword in account_keywords)
+        
         if is_account_request:
             # User is onboarded - show account details
             logger.info(f"DEBUG: Virtual account data = {virtual_account}")
@@ -504,30 +508,67 @@ async def generate_ai_reply(chat_id: str, message: str):
                 f"💸 Send money instantly\n"
                 f"📱 Buy airtime/data at discounted rates\n"
                 f"💹 Trade cryptocurrencies\n\n"
-                f"What would you like to do next?"
-            )
+                f"What would you like to do next?"            )
             
             await save_chat_message(chat_id, "user", message)
             await save_chat_message(chat_id, "assistant", reply)
-            send_reply(chat_id, reply)
             return reply
+        
         # Check if this is about transfers
         transfer_keywords = ["send money", "transfer", "pay", "send cash", "transfer money", "make payment", "send funds"]
         is_transfer_request = any(keyword in message.lower() for keyword in transfer_keywords)
-            # Check for beneficiary commands first (only for onboarded users)
+          # Check for balance inquiry requests (only for onboarded users)
+        balance_keywords = ["balance", "my balance", "wallet balance", "check balance", "account balance", "current balance", "how much money"]
+        is_balance_request = any(keyword in message.lower() for keyword in balance_keywords)
+        
+        if is_balance_request:
+            try:
+                current_balance = await get_user_balance(chat_id)
+                reply = f"💰 **Your Current Balance**\n\n"
+                reply += f"₦{current_balance:,.2f}\n\n"
+                
+                if current_balance > 0:
+                    reply += f"💡 **What you can do:**\n"
+                    reply += f"• Send money to any Nigerian bank\n"
+                    reply += f"• Buy airtime and data\n"
+                    reply += f"• Trade cryptocurrencies\n\n"
+                    reply += f"Just tell me what you'd like to do! 😊"
+                else:
+                    reply += f"**💡 Fund your wallet:**\n"
+                    funding_details = await show_funding_account_details(chat_id, virtual_account)
+                    reply += funding_details
+                
+                await save_chat_message(chat_id, "user", message)
+                await save_chat_message(chat_id, "assistant", reply)
+                return reply
+            except Exception as e:
+                logger.error(f"Error checking balance: {e}")
+                reply = "Sorry, I couldn't check your balance right now. Please try again later."
+                await save_chat_message(chat_id, "user", message)
+                await save_chat_message(chat_id, "assistant", reply)
+                return reply
+        
+        # Check for airtime/data purchase requests (only for onboarded users)
+        airtime_response = await handle_airtime_purchase(chat_id, message, user_data)
+        if airtime_response:
+            await save_chat_message(chat_id, "user", message)
+            await save_chat_message(chat_id, "assistant", airtime_response)
+            # Return response - webhook handler will send it
+            return airtime_response
+        
+        # Check for beneficiary commands first (only for onboarded users)
         beneficiary_response = await handle_beneficiary_commands(chat_id, message, user_data)
         if beneficiary_response:
             await save_chat_message(chat_id, "user", message)
             await save_chat_message(chat_id, "assistant", beneficiary_response)
-            send_reply(chat_id, beneficiary_response)
+            # Return response - webhook handler will send it
             return beneficiary_response
-        
-        # Check for crypto commands (only for onboarded users)
+          # Check for crypto commands (only for onboarded users)
         crypto_response = handle_crypto_commands(chat_id, message, user_data)
         if crypto_response:
             await save_chat_message(chat_id, "user", message)
             await save_chat_message(chat_id, "assistant", crypto_response)
-            send_reply(chat_id, crypto_response)
+            # Return response - webhook handler will send it
             return crypto_response
         
         if is_transfer_request:
@@ -542,8 +583,10 @@ async def generate_ai_reply(chat_id: str, message: str):
             )
             await save_chat_message(chat_id, "user", message)
             await save_chat_message(chat_id, "assistant", reply)
-            send_reply(chat_id, reply)
-            return reply        # 🎯 ONBOARDED USER PROCESSING: All users reaching this point have passed the onboarding gate
+            # Return response - webhook handler will send it
+            return reply
+        
+        # 🎯 ONBOARDED USER PROCESSING: All users reaching this point have passed the onboarding gate
         # Get conversation history for full AI assistance
         messages = await get_chat_history(chat_id)
         
@@ -1077,6 +1120,11 @@ async def handle_transfer_flow(chat_id: str, message: str, user_data: dict = Non
 
     return "Sorry, I couldn't process your request. Please try again."
     
+@app.route("/webhook", methods=["POST"])
+def handle_webhook():
+    """Webhook endpoint for Telegram - redirects to main handler"""
+    return handle_incoming_message()
+
 @app.route("/webhook_incoming", methods=["POST"])
 def handle_incoming_message():
     """Handle incoming Telegram messages with conversation memory"""
@@ -1096,15 +1144,18 @@ def handle_incoming_message():
           # Check if user exists in Supabase
         client = get_supabase_client()
         user_resp = client.table("users").select("*").eq("telegram_chat_id", str(chat_id)).execute()
-        is_new_user = not user_resp.data
-
-        # Handle photo messages
+        is_new_user = not user_resp.data        # Handle photo messages
         if "photo" in data["message"]:
             file_id = data["message"]["photo"][-1]["file_id"]  # Get the highest quality photo
             success, response = process_photo(file_id)
             if success:
                 ai_response = asyncio.run(generate_ai_reply(chat_id, response))
-                send_reply(chat_id, ai_response)
+                
+                # Handle both string and dict responses
+                if isinstance(ai_response, dict):
+                    send_reply(chat_id, ai_response["text"], reply_markup=ai_response.get("reply_markup"))
+                else:
+                    send_reply(chat_id, ai_response)
             else:
                 send_reply(chat_id, response)
               # Handle voice messages
@@ -1119,11 +1170,15 @@ def handle_incoming_message():
                 response = str(response)
             if success:
                 ai_response = asyncio.run(generate_ai_reply(chat_id, response))
-                send_reply(chat_id, ai_response)
+                
+                # Handle both string and dict responses
+                if isinstance(ai_response, dict):
+                    send_reply(chat_id, ai_response["text"], reply_markup=ai_response.get("reply_markup"))
+                else:
+                    send_reply(chat_id, ai_response)
             else:
                 send_reply(chat_id, response)
-            
-        # Handle text messages
+              # Handle text messages
         else:
             user_message = data["message"].get("text", "").strip()
             if not user_message:
@@ -1133,7 +1188,14 @@ def handle_incoming_message():
             try:
                 # Generate AI reply with conversation context
                 ai_response = asyncio.run(generate_ai_reply(chat_id, user_message))
-                send_reply(chat_id, ai_response)
+                
+                # Handle both string and dict responses
+                if isinstance(ai_response, dict):
+                    # Response includes reply_markup
+                    send_reply(chat_id, ai_response["text"], reply_markup=ai_response.get("reply_markup"))
+                else:
+                    # Simple string response
+                    send_reply(chat_id, ai_response)
             except Exception as e:
                 logger.error(f"Error in AI reply: {str(e)}")
                 send_reply(chat_id, "Sorry, I encountered an error processing your request. Please try again.")
@@ -1497,28 +1559,26 @@ Type 'my wallet addresses' to see all your deposit addresses! 🚀"""
         response += "⚡ **Send crypto to any address above and it will be instantly converted to NGN in your Sofi balance!**\n\n"
         response += "💡 **Live rates** • **No delays** • **Automatic credit**"
         return response
-    
-    # Check NGN balance (crypto-aware)
+      # Check NGN balance (from virtual account, not crypto wallet)
     elif any(cmd in message_lower for cmd in ['my balance', 'ngn balance', 'crypto balance', 'wallet balance']):
-        from crypto.wallet import get_user_ngn_balance
+        # Get balance from virtual account (main wallet for all users)
+        current_balance = await get_user_balance(chat_id)
+        
+        # Get crypto funding stats for informational purposes
         from crypto.webhook import get_crypto_stats
-        
-        balance_info = get_user_ngn_balance(user_id)
         crypto_stats = get_crypto_stats(user_id)
-        
-        if balance_info.get('error'):
-            return f"❌ {balance_info['error']}"
         
         response = f"""💰 **{first_name}'s Sofi Wallet Balance**
 
-💵 **Current Balance**: ₦{balance_info['balance_naira']:,.2f}
+💵 **Current Balance**: ₦{current_balance:,.2f}
+🏦 **Source**: Virtual Account (Main Wallet)
 
-📊 **Crypto Stats:**
-🪙 Total Deposits: {crypto_stats['total_deposits']}
-💸 Total from Crypto: ₦{crypto_stats['total_ngn_earned']:,.2f}
-🏆 Favorite Crypto: {crypto_stats['favorite_crypto'] or 'None yet'}
+📊 **Crypto Funding Stats:**
+🪙 Total Crypto Deposits: {crypto_stats.get('total_deposits', 0)}
+💸 Total NGN from Crypto: ₦{crypto_stats.get('total_ngn_earned', 0):,.2f}
+🏆 Favorite Crypto: {crypto_stats.get('favorite_crypto', 'None yet')}
 
-💡 Send more crypto for instant NGN conversion!"""
+💡 **Note**: All funds (crypto & bank transfers) go to your main virtual account balance shown above."""
         
         return response
     
@@ -1754,33 +1814,47 @@ async def show_funding_account_details(chat_id: str, virtual_account: dict, amou
 
 async def get_user_balance(chat_id: str) -> float:
     """
-    Get user's current NGN balance from Supabase
+    Get user's current NGN balance from virtual account (Monnify system)
     
     Args:
         chat_id: Telegram chat ID
     
     Returns:
-        float: User's current balance in NGN
+        float: User's current balance in NGN from virtual account
     """
     try:
-        # First try to get from crypto wallet_balances table
-        from crypto.wallet import get_user_ngn_balance
-          # Get user ID from users table
-        client = get_supabase_client()
-        user_resp = client.table("users").select("id").eq("telegram_chat_id", str(chat_id)).execute()
-        if not user_resp.data:
-            return 0.0
-            
-        user_id = user_resp.data[0]["id"]
-        balance_info = get_user_ngn_balance(user_id)
+        # Get balance from virtual account (the main wallet for all users)
+        virtual_account = await check_virtual_account(chat_id)
         
-        if balance_info.get("success"):
-            return float(balance_info.get("balance_naira", 0))
-        else:
+        if not virtual_account:
             return 0.0
+        
+        # In a real implementation, you would call Monnify API to get current balance
+        # For now, we'll use a placeholder method or check if there's a balance field
+        # in the virtual account data from Supabase
+        
+        # Check if balance is stored in virtual_accounts table
+        client = get_supabase_client()
+        account_resp = client.table("virtual_accounts").select("balance").eq("telegram_chat_id", str(chat_id)).execute()
+        
+        if account_resp.data and account_resp.data[0].get("balance") is not None:
+            return float(account_resp.data[0]["balance"])
+        
+        # If no balance field, call Monnify API to get current balance
+        # This would be the real implementation in production
+        account_number = virtual_account.get("accountnumber") or virtual_account.get("accountNumber")
+        
+        if account_number:
+            # TODO: Implement actual Monnify balance API call here
+            # For now, return 0.0 as placeholder
+            # balance = await get_monnify_account_balance(account_number)
+            # return balance
+            pass
+        
+        return 0.0
             
     except Exception as e:
-        logger.error(f"Error getting user balance: {e}")
+        logger.error(f"Error getting user balance from virtual account: {e}")
         return 0.0
 
 async def check_insufficient_balance(chat_id: str, amount: float, virtual_account: dict) -> str:
@@ -1816,3 +1890,170 @@ async def check_insufficient_balance(chat_id: str, amount: float, virtual_accoun
     except Exception as e:
         logger.error(f"Error checking insufficient balance: {e}")
         return f"Unable to check balance. Please try again or type 'balance' to check your current balance."
+        
+async def handle_airtime_purchase(chat_id: str, message: str, user_data: dict = None) -> str:
+    """Handle airtime and data purchase requests for onboarded users"""
+    if not user_data or not user_data.get('id'):
+        return None  # Not an airtime request or user not onboarded
+    
+    message_lower = message.lower().strip()
+    
+    # Check for airtime/data keywords
+    airtime_keywords = [
+        'airtime', 'recharge', 'buy airtime', 'top up', 'credit', 
+        'data', 'buy data', 'data bundle', 'internet'
+    ]
+    
+    # Check if this is an airtime/data request
+    is_airtime_request = any(keyword in message_lower for keyword in airtime_keywords)
+    
+    if not is_airtime_request:
+        return None  # Not an airtime request
+    
+    # Initialize airtime API
+    airtime_api = AirtimeAPI()
+    
+    # Extract amount, phone number, and network from message
+    import re
+    
+    # Look for phone numbers (Nigerian format)
+    phone_patterns = [
+        r'\b0[789][01]\d{8}\b',  # 11-digit starting with 080, 081, 070, 090, 091
+        r'\b\+234[789][01]\d{8}\b',  # International format
+        r'\b234[789][01]\d{8}\b'  # Without +
+    ]
+    
+    phone_number = None
+    for pattern in phone_patterns:
+        match = re.search(pattern, message)
+        if match:
+            phone_number = match.group()
+            break    # Look for amounts (₦100, 100, 1000, etc.) - strict patterns to avoid phone number conflicts
+    amount_patterns = [
+        r'₦\s*(\d+(?:,\d{3})*)',  # ₦100, ₦1,000
+        r'\b(\d+(?:,\d{3})*)\s*naira\b',  # 100 naira
+        r'\b(\d+(?:,\d{3})*)\s*(?:ngn|₦)\b',  # 100 NGN
+        r'(?:buy|purchase|get|recharge).*?₦(\d{3,4})\b',  # Buy ₦500 (with currency symbol)
+        r'\bwith\s*₦(\d{3,4})\b',  # with ₦500 (with currency symbol)
+        r'(?:buy|purchase|get|recharge)\s+(\d{3,4})\s+(?:naira|ngn)',  # Buy 500 naira
+    ]
+    
+    amount = None
+    for pattern in amount_patterns:
+        match = re.search(pattern, message, re.IGNORECASE)
+        if match:
+            amount_str = match.group(1).replace(',', '')
+            # Additional validation to avoid phone numbers
+            potential_amount = float(amount_str)
+            if 50 <= potential_amount <= 20000:  # Reasonable airtime range
+                amount = potential_amount
+                break
+    
+    # Detect network from message
+    network_keywords = {
+        'mtn': ['mtn', 'mtn nigeria', 'mtn ng'],
+        'airtel': ['airtel', 'airtel nigeria', 'airtel ng'],
+        'glo': ['glo', 'globacom', 'glo nigeria'],
+        '9mobile': ['9mobile', 'etisalat', '9mobile nigeria']
+    }
+    
+    detected_network = None
+    for network, keywords in network_keywords.items():
+        if any(keyword in message_lower for keyword in keywords):
+            detected_network = network
+            break
+    
+    # Check if this is a data request
+    is_data_request = any(word in message_lower for word in ['data', 'internet', 'bundle', 'mb', 'gb'])
+    
+    # If we have all required information, process the request
+    if phone_number and amount and detected_network:
+        try:
+            if is_data_request:
+                # For data purchases, we need to map amount to data plan
+                # Get available data plans for the network
+                plans_result = airtime_api.get_data_plans(detected_network)
+                
+                if plans_result.get('success'):
+                    plans = plans_result['plans']
+                    # Find the closest data plan by amount
+                    best_plan = None
+                    for plan_id, plan_info in plans.items():
+                        if plan_info['amount'] <= amount:
+                            best_plan = plan_id
+                    
+                    if best_plan:
+                        # Purchase data
+                        result = airtime_api.buy_data(best_plan, phone_number, detected_network)
+                        
+                        if result.get('success'):
+                            return (
+                                f"✅ **Data Purchase Successful!**\n\n"
+                                f"📱 Phone: {phone_number}\n"
+                                f"🌐 Network: {detected_network.upper()}\n"
+                                f"💰 Amount: ₦{amount:,.2f}\n"
+                                f"📦 Plan: {plans[best_plan]['name']}\n\n"
+                                f"🎉 Your data has been delivered successfully!"
+                            )
+                        else:
+                            return (
+                                f"❌ Data purchase failed: {result.get('message', 'Unknown error')}\n\n"
+                                f"Please try again later or contact support if the issue persists."
+                            )
+                    else:
+                        return (
+                            f"❌ No suitable data plan found for ₦{amount:,.2f} on {detected_network.upper()}\n\n"
+                            f"Available plans:\n" + 
+                            "\n".join([f"• {plan['name']} - ₦{plan['amount']}" 
+                                     for plan in plans.values()])
+                        )
+                else:
+                    return f"❌ Unable to get data plans for {detected_network.upper()}. Please try again later."
+            
+            else:
+                # Purchase airtime
+                result = airtime_api.buy_airtime(amount, phone_number, detected_network)
+                
+                if result.get('success'):
+                    return (
+                        f"✅ **Airtime Purchase Successful!**\n\n"
+                        f"📱 Phone: {phone_number}\n"
+                        f"🌐 Network: {detected_network.upper()}\n"
+                        f"💰 Amount: ₦{amount:,.2f}\n\n"
+                        f"🎉 Your airtime has been delivered successfully!"
+                    )
+                else:
+                    return (
+                        f"❌ Airtime purchase failed: {result.get('message', 'Unknown error')}\n\n"
+                        f"Please try again later or contact support if the issue persists."
+                    )
+        
+        except Exception as e:
+            logger.error(f"Error processing airtime purchase: {str(e)}")
+            return (
+                f"❌ An error occurred while processing your request.\n\n"
+                f"Please try again later or contact support."
+            )
+    
+    # If we're missing information, provide helpful guidance
+    missing_info = []
+    if not phone_number:
+        missing_info.append("phone number")
+    if not amount:
+        missing_info.append("amount")
+    if not detected_network:
+        missing_info.append("network (MTN, Airtel, Glo, 9mobile)")
+    
+    if missing_info:
+        return (
+            f"📱 **Airtime/Data Purchase**\n\n"
+            f"I can help you buy airtime or data! I need the following information:\n\n"
+            f"{'• ' + ', '.join(missing_info)}\n\n"
+            f"**Example:**\n"
+            f"• 'Buy ₦100 MTN airtime for 08012345678'\n"
+            f"• 'Buy 1GB data for 08012345678 on Airtel'\n"
+            f"• 'Recharge 08012345678 with ₦500 on Glo'\n\n"
+            f"**Supported Networks:** MTN, Airtel, Glo, 9mobile"
+        )
+    
+    return None  # Should not reach here
