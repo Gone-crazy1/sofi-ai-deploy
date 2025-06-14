@@ -1191,15 +1191,13 @@ async def handle_message(chat_id: str, message: str, user_data: dict = None, vir
     try:
         # SHARP AI: Get intelligent greeting with memory
         smart_greeting = await get_smart_greeting(chat_id)
-        
-        # SHARP AI: Save conversation context
-        await save_conversation_context(chat_id, 'command', message)
+          # SHARP AI: Save conversation context
+        await save_conversation_context(chat_id, f"User message: {message}")
           # SHARP AI: Handle with intelligent processing
         ai_response = await handle_smart_message(chat_id, message, user_data)
         
-        if ai_response:
-            # SHARP AI: Remember user action
-            await remember_user_action(chat_id, message, ai_response)
+        if ai_response:            # SHARP AI: Remember user action
+            await remember_user_action(chat_id, f"processed_message: {message[:50]}...")
             return ai_response
         
         # Fallback to existing AI response system

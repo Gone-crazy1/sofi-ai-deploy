@@ -6,6 +6,7 @@ This module handles all incoming messages with advanced memory and context aware
 import asyncio
 import json
 import re
+import openai
 from datetime import datetime
 from typing import Dict, Optional, List
 from utils.sharp_memory import (
@@ -35,9 +36,8 @@ class SharpSofiAI:
         
         # Save the conversation context
         await save_conversation_context(chat_id, f"User: {message}")
-        
-        # Update user profile with current interaction
-        await remember_user_action(chat_id, "sent_message", last_message=message)
+          # Update user profile with current interaction
+        await remember_user_action(chat_id, "sent_message")
         
         # Check for specific commands first
         response = await self._handle_special_commands(chat_id, message, user_data)
