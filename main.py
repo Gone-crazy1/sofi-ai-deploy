@@ -269,91 +269,132 @@ async def save_virtual_account(chat_id: str, account_data: Dict) -> bool:
 def create_virtual_account(first_name, last_name, bvn, chat_id=None):
     """Create a virtual account using Monnify API."""
     # Sanitize input data to ensure valid email format
-    first_name = first_name.strip()
-    last_name = last_name.strip()
-      # Remove any spaces and special characters from names for email generation
-    clean_first_name = ''.join(c for c in first_name if c.isalpha()).lower()
-    clean_last_name = ''.join(c for c in last_name if c.isalpha()).lower()
+    first_name = first_name.strip() if first_name else "User"
+    last_name = last_name.strip() if last_name else "Default"
+    bvn = bvn.strip() if bvn else "22222222222"  # Default BVN for testing
+    
+    # Remove any spaces and special characters from names for email generation
+    clean_first_name = ''.join(c for c in first_name if c.isalpha()).lower() or "user"
+    clean_last_name = ''.join(c for c in last_name if c.isalpha()).lower() or "default"
     
     # Generate unique timestamp for email to avoid duplicates
     import time
     timestamp = int(time.time())
     unique_email = f"{clean_first_name}.{clean_last_name}.{timestamp}@example.com"
     
+    # Get Monnify configuration
     monnify_base_url = os.getenv("MONNIFY_BASE_URL")
     monnify_api_key = os.getenv("MONNIFY_API_KEY")
     monnify_secret_key = os.getenv("MONNIFY_SECRET_KEY")
+    monnify_contract_code = os.getenv("MONNIFY_CONTRACT_CODE")
+    
+    # Validate required environment variables
+    if not all([monnify_base_url, monnify_api_key, monnify_secret_key, monnify_contract_code]):
+        logger.error("Missing required Monnify environment variables")
+        logger.error(f"Base URL: {bool(monnify_base_url)}, API Key: {bool(monnify_api_key)}, Secret: {bool(monnify_secret_key)}, Contract: {bool(monnify_contract_code)}")
+        return {"status": "error", "message": "Monnify configuration incomplete"}
 
     # Generate authentication token
     auth_url = f"{monnify_base_url}/api/v1/auth/login"
-    auth_response = requests.post(auth_url, auth=(monnify_api_key, monnify_secret_key))
+    
+    try:
+        auth_response = requests.post(auth_url, auth=(monnify_api_key, monnify_secret_key), timeout=30)
 
-    if auth_response.status_code != 200:
-        logger.error("Failed to authenticate with Monnify API.")
-        return {}
+        if auth_response.status_code != 200:
+            logger.error(f"Failed to authenticate with Monnify API: {auth_response.text}")
+            return {"status": "error", "message": "Authentication failed"}
 
-    auth_token = auth_response.json().get("responseBody", {}).get("accessToken")
-    if not auth_token:
-        logger.error("Authentication token not found in Monnify response.")
-        return {}
-    
-    # Create virtual account
-    create_account_url = f"{monnify_base_url}/api/v2/bank-transfer/reserved-accounts"
-    headers = {
-        "Authorization": f"Bearer {auth_token}",
-        "Content-Type": "application/json"
-    }
-    payload = {
-        "accountReference": f"{first_name}_{last_name}_{random.randint(1000, 9999)}_{timestamp}",
-        "accountName": f"{first_name} {last_name}",
-        "currencyCode": "NGN",
-        "contractCode": os.getenv("MONNIFY_CONTRACT_CODE"),
-        "customerEmail": unique_email,
-        "bvn": bvn,
-        "customerName": f"{first_name} {last_name}",
-        "getAllAvailableBanks": True
-    }
+        auth_data = auth_response.json()
+        if not auth_data.get("requestSuccessful"):
+            logger.error(f"Monnify auth unsuccessful: {auth_data}")
+            return {"status": "error", "message": "Authentication unsuccessful"}
+            
+        auth_token = auth_data.get("responseBody", {}).get("accessToken")
+        if not auth_token:
+            logger.error("Authentication token not found in Monnify response.")
+            return {"status": "error", "message": "No access token received"}
+        
+        # Create virtual account
+        create_account_url = f"{monnify_base_url}/api/v2/bank-transfer/reserved-accounts"
+        headers = {
+            "Authorization": f"Bearer {auth_token}",
+            "Content-Type": "application/json"
+        }
+        
+        # Ensure all required fields are present and not empty
+        account_reference = f"{clean_first_name}_{clean_last_name}_{random.randint(1000, 9999)}_{timestamp}"
+        account_name = f"{first_name} {last_name}".strip()
+        customer_name = account_name
+        
+        payload = {
+            "accountReference": account_reference,
+            "accountName": account_name,
+            "currencyCode": "NGN",
+            "contractCode": monnify_contract_code,
+            "customerEmail": unique_email,
+            "bvn": bvn,
+            "customerName": customer_name,
+            "getAllAvailableBanks": True
+        }        # Log payload for debugging (without sensitive data)
+        safe_payload = {k: v for k, v in payload.items() if k != "bvn"}
+        logger.info(f"Creating virtual account with payload: {safe_payload}")
+        
+        # Make the API request to create virtual account
+        response = requests.post(create_account_url, json=payload, headers=headers, timeout=30)
 
-    logger.info(f"Payload sent to Monnify: {payload}")
+        # Monnify returns 200 for successful account creation, not 201
+        if response.status_code != 200:
+            logger.error(f"Failed to create virtual account: HTTP {response.status_code}")
+            logger.error(f"Response: {response.text}")
+            return {"status": "error", "message": f"Account creation failed: HTTP {response.status_code}"}
 
-    response = requests.post(create_account_url, json=payload, headers=headers)
+        response_data = response.json()
+        logger.info(f"Monnify response: {response_data}")
+        
+        # Check if the request was successful according to Monnify's response format
+        if not response_data.get("requestSuccessful"):
+            error_msg = response_data.get("responseMessage", "Unknown error")
+            logger.error(f"Monnify API returned unsuccessful response: {response_data}")
+            return {"status": "error", "message": f"Monnify error: {error_msg}"}        
+        account_data = response_data.get("responseBody", {})
+        
+        # Extract the first available account from the accounts array
+        accounts = account_data.get("accounts", [])
+        if not accounts:
+            logger.error("No accounts returned in Monnify response")
+            return {"status": "error", "message": "No accounts created"}
 
-    # Monnify returns 200 for successful account creation, not 201
-    if response.status_code != 200:
-        logger.error(f"Failed to create virtual account: {response.text}")
-        return {}
+        # Use the first account (usually Wema Bank)
+        primary_account = accounts[0]
+        
+        result = {
+            "status": "success",
+            "data": {
+                "accountNumber": primary_account.get("accountNumber"),
+                "accountName": primary_account.get("accountName"), 
+                "bankName": primary_account.get("bankName"),
+                "accountReference": account_data.get("accountReference"),
+                "allAccounts": accounts  # Include all accounts for reference
+            },
+            "message": "Virtual account created successfully"        }
+        
+        # If chat_id is provided, save to Supabase
+        if chat_id and result.get("status") == "success":
+            try:
+                asyncio.create_task(save_virtual_account(chat_id, result["data"]))
+            except Exception as save_error:
+                logger.error(f"Error saving virtual account to database: {save_error}")
+        
+        logger.info(f"Successfully created virtual account: {result['data']['accountNumber']}")
+        return result
+            
+    except requests.exceptions.Timeout:
+        logger.error("Timeout creating virtual account")
+        return {"status": "error", "message": "Request timeout"}
+    except Exception as api_error:
+        logger.error(f"Error creating virtual account: {str(api_error)}")
+        return {"status": "error", "message": f"Account creation error: {str(api_error)}"}
 
-    response_data = response.json()
-    
-    # Check if the request was successful according to Monnify's response format
-    if not response_data.get("requestSuccessful"):
-        logger.error(f"Monnify API returned unsuccessful response: {response_data}")
-        return {}
-    
-    account_data = response_data.get("responseBody", {})
-    
-    # Extract the first available account from the accounts array
-    accounts = account_data.get("accounts", [])
-    if not accounts:
-        logger.error("No accounts returned in Monnify response")
-        return {}
-    
-    # Use the first account (usually Wema Bank)
-    primary_account = accounts[0]
-    
-    result = {
-        "accountNumber": primary_account.get("accountNumber"),
-        "accountName": primary_account.get("accountName"), 
-        "bankName": primary_account.get("bankName"),
-        "accountReference": account_data.get("accountReference"),
-        "allAccounts": accounts  # Include all accounts for reference
-    }
-    
-    # If chat_id is provided, save to Supabase
-    if chat_id and result:
-        asyncio.create_task(save_virtual_account(chat_id, result))
-    
-    return result
 # Enhanced response mapping with varied responses
 INTENT_RESPONSES = {
     "greeting": [
@@ -1344,33 +1385,29 @@ async def handle_sharp_commands(chat_id: str, message: str) -> Optional[str]:
     
     # Smart greetings with time awareness
     if any(word in message_lower for word in ['hello', 'hi', 'hey', 'good morning', 'good evening']):
-        greeting = await get_smart_greeting(chat_id)
-        return greeting
+        return "Hello! 👋 I'm Sofi, your AI banking assistant. How can I help you today?"
     
-    # Spending reports
+    # Spending reports (Sharp AI disabled)
     if any(word in message_lower for word in ['spending', 'expenses', 'analytics', 'report']):
-        report = await get_spending_report(chat_id)
-        return report
+        return "📊 Spending analytics feature is temporarily disabled. Check back soon!"
     
-    # Memory commands
+    # Memory commands (Sharp AI disabled)
     if 'remember' in message_lower or 'save this' in message_lower:
-        await remember_user_action(chat_id, message, "Memory saved")
-        return "I've saved that to memory! 🧠"
+        # Sharp AI memory disabled - using simple response
+        return "I've noted that! 🧠 (Memory system temporarily disabled)"
     
     return None
 
 # ===== ENHANCED BALANCE CHECKER =====
 
 async def get_user_balance(chat_id: str) -> float:
-    """Get user's current balance with Sharp AI tracking"""
+    """Get user's current balance"""
     try:
         virtual_account = await check_virtual_account(chat_id)
         if virtual_account:
             balance = virtual_account.get('balance', 0)
             
-            # SHARP AI: Update balance in user profile
-            await sharp_memory.update_user_balance(chat_id, balance)
-            
+            # Sharp AI disabled - just return balance
             return float(balance)
         return 0.0
     except Exception as e:
@@ -1378,7 +1415,7 @@ async def get_user_balance(chat_id: str) -> float:
         return 0.0
 
 async def show_funding_account_details(chat_id: str, virtual_account: dict) -> str:
-    """Show funding details with Sharp AI context"""
+    """Show funding details"""
     try:
         if not virtual_account:
             return "Please complete your onboarding first to get your account details."
@@ -1387,8 +1424,7 @@ async def show_funding_account_details(chat_id: str, virtual_account: dict) -> s
         account_name = virtual_account.get("accountname") or virtual_account.get("accountName", "Your Account")
         bank_name = virtual_account.get("bankname") or virtual_account.get("bankName", "Monnify MFB")
         
-        # SHARP AI: Remember funding request
-        await remember_user_action(chat_id, "funding_request", "Showed account details")
+        # Sharp AI disabled - just show account details
         
         funding_message = f"""💳 **Your Virtual Account Details**
 
