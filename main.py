@@ -20,12 +20,13 @@ from pydub import AudioSegment
 from pydub.utils import which
 from utils.memory import save_memory, list_memories, save_chat_message, get_chat_history
 from utils.conversation_state import conversation_state, ConversationState
-from utils.sharp_memory import (
-    sharp_memory, get_smart_greeting, get_spending_report, 
-    remember_user_action, remember_transaction, save_conversation_context,
-    get_current_date_time
-)
-from utils.sharp_sofi_ai import handle_smart_message, sharp_sofi
+# Sharp AI imports temporarily disabled to restore normal functionality
+# from utils.sharp_memory import (
+#     sharp_memory, get_smart_greeting, get_spending_report, 
+#     remember_user_action, remember_transaction, save_conversation_context,
+#     get_current_date_time
+# )
+# from utils.sharp_sofi_ai import handle_smart_message, sharp_sofi
 from utils.media_processor import MediaProcessor
 from unittest.mock import MagicMock
 
@@ -1187,20 +1188,9 @@ Proceed with this transfer? Type 'yes' to confirm or 'no' to cancel."""
 # ===== SHARP AI INTEGRATION =====
 
 async def handle_message(chat_id: str, message: str, user_data: dict = None, virtual_account: dict = None):
-    """Main message handler with Sharp AI integration"""
+    """Main message handler - RESTORED TO ORIGINAL WORKING VERSION"""
     try:
-        # SHARP AI: Get intelligent greeting with memory
-        smart_greeting = await get_smart_greeting(chat_id)
-          # SHARP AI: Save conversation context
-        await save_conversation_context(chat_id, f"User message: {message}")
-          # SHARP AI: Handle with intelligent processing
-        ai_response = await handle_smart_message(chat_id, message, user_data)
-        
-        if ai_response:            # SHARP AI: Remember user action
-            await remember_user_action(chat_id, f"processed_message: {message[:50]}...")
-            return ai_response
-        
-        # Fallback to existing AI response system
+        # Direct fallback to existing AI response system (WORKING VERSION)
         return await generate_ai_reply(chat_id, message)
     
     except Exception as e:
