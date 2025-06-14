@@ -1194,9 +1194,8 @@ async def handle_message(chat_id: str, message: str, user_data: dict = None, vir
         
         # SHARP AI: Save conversation context
         await save_conversation_context(chat_id, 'command', message)
-        
-        # SHARP AI: Handle with intelligent processing
-        ai_response = await handle_smart_message(chat_id, message, user_data, virtual_account)
+          # SHARP AI: Handle with intelligent processing
+        ai_response = await handle_smart_message(chat_id, message, user_data)
         
         if ai_response:
             # SHARP AI: Remember user action
