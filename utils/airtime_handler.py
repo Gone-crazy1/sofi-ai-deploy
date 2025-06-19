@@ -19,7 +19,7 @@ class AirtimeHandler:
         try:
             # Import the existing airtime API
             from utils.airtime_api import AirtimeAPI
-            from utils.airtime_fallback import AirtimeFallback
+            from utils.airtime_fallback import get_ussd_codes  # Use this function if fallback needed
             
             # Check for airtime/data keywords
             airtime_keywords = ['airtime', 'recharge', 'top up', 'buy airtime', 'data', 'data plan']
@@ -54,12 +54,10 @@ class AirtimeHandler:
                             return f"✅ Data purchase successful!\n\n💾 {amount}MB data sent to {phone}\n📱 Reference: {result.get('reference', 'N/A')}"
                         else:
                             # Fall back to manual instructions
-                            fallback = AirtimeFallback()
-                            return fallback.get_data_ussd_code(amount, phone)
+                            return get_ussd_codes(amount, phone, 'data')
                     except Exception as e:
                         # Fall back to manual instructions
-                        fallback = AirtimeFallback()
-                        return fallback.get_data_ussd_code(amount, phone)
+                        return get_ussd_codes(amount, phone, 'data')
                 else:
                     return "To buy data, please specify amount and phone number. Example: 'Buy 1000MB data for 08012345678'"
             
@@ -74,12 +72,10 @@ class AirtimeHandler:
                             return f"✅ Airtime purchase successful!\n\n💰 ₦{amount} airtime sent to {phone}\n📱 Reference: {result.get('reference', 'N/A')}"
                         else:
                             # Fall back to manual instructions
-                            fallback = AirtimeFallback()
-                            return fallback.get_airtime_ussd_code(amount, phone)
+                            return get_ussd_codes(amount, phone, 'airtime')
                     except Exception as e:
                         # Fall back to manual instructions
-                        fallback = AirtimeFallback()
-                        return fallback.get_airtime_ussd_code(amount, phone)
+                        return get_ussd_codes(amount, phone, 'airtime')
                 else:
                     return "To buy airtime, please specify amount and phone number. Example: 'Buy 1000 airtime for 08012345678'"
             
