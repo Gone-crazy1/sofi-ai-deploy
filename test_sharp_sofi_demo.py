@@ -151,7 +151,8 @@ class SharpSofiDemo:
         greeting = await get_smart_greeting(self.test_chat_id)
         print("🤖 SOFI'S SMART GREETING:")
         print(f"   {greeting}")
-      async def demo_xara_style_detection(self):
+
+    async def demo_xara_style_detection(self):
         """Demonstrate Xara-style account detection"""
         print("\n🎯 XARA-STYLE ACCOUNT DETECTION DEMONSTRATION")
         print("=" * 50)

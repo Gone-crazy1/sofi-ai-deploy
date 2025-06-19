@@ -740,3 +740,30 @@ Response: {
   "system_fingerprint": null
 }
 
+Message: Abeg send 5k give my guy sharp sharp
+Response: {'choices': [{'message': {'content': '{"intent": "transfer", "details": {"amount": "5000", "recipient": "friend", "urgency": "high"}}'}}]}
+
+Message: My account don empty, wetin remain?
+Response: {'choices': [{'message': {'content': '{"intent": "transfer", "details": {"amount": "5000", "recipient": "friend", "urgency": "high"}}'}}]}
+
+Message: Transfer 50k give my mama now now
+Response: {'choices': [{'message': {'content': '{"intent": "transfer", "details": {"amount": "5000", "recipient": "friend", "urgency": "high"}}'}}]}
+
+Message: Abeg send 5k give my guy sharp sharp
+Response: {'choices': [{'message': {'content': '{"intent": "transfer", "details": {"amount": "5000", "recipient": "friend", "urgency": "high"}}'}}]}
+
+Message: My account don empty, wetin remain?
+Response: {'choices': [{'message': {'content': '{"intent": "transfer", "details": {"amount": "5000", "recipient": "friend", "urgency": "high"}}'}}]}
+
+Message: Transfer 50k give my mama now now
+Response: {'choices': [{'message': {'content': '{"intent": "transfer", "details": {"amount": "5000", "recipient": "friend", "urgency": "high"}}'}}]}
+
+Message: Abeg send 5k give my guy sharp sharp
+Response: {'choices': [{'message': {'content': '{"intent": "transfer", "details": {"amount": "5000", "recipient": "friend", "urgency": "high"}}'}}]}
+
+Message: My account don empty, wetin remain?
+Response: {'choices': [{'message': {'content': '{"intent": "transfer", "details": {"amount": "5000", "recipient": "friend", "urgency": "high"}}'}}]}
+
+Message: Transfer 50k give my mama now now
+Response: {'choices': [{'message': {'content': '{"intent": "transfer", "details": {"amount": "5000", "recipient": "friend", "urgency": "high"}}'}}]}
+

@@ -124,7 +124,7 @@ class AdminProfitManager:
                 'pending_withdrawals': pending_result.data,
                 'profit_breakdown_30days': profit_by_type
             }
-              except Exception as e:
+        except Exception as e:
             logger.error(f"Error getting profit summary: {e}")
             return {'error': str(e)}
     

@@ -84,7 +84,7 @@ class SecureTransferHandler:
             attempt_result = await track_pin_attempt(str(user_id), pin_valid)
             
             if not pin_valid:
-                return self.handle_failed_pin_attempt(attempt_result)
+                return self.handle_failed_pin_attempt(chat_id, attempt_result)
             
             # All security checks passed - execute transfer
             return await self.execute_secure_transfer(chat_id, user_data, transfer_data, balance_check)
@@ -94,7 +94,7 @@ class SecureTransferHandler:
             conversation_state.clear_state(chat_id)
             return "❌ **Error:** Unable to process transfer. Please try again later."
     
-    def handle_failed_pin_attempt(self, attempt_result: Dict) -> str:
+    def handle_failed_pin_attempt(self, chat_id: str, attempt_result: Dict) -> str:
         """Handle failed PIN attempt with appropriate response"""
         if attempt_result.get('locked'):
             conversation_state.clear_state(chat_id)
