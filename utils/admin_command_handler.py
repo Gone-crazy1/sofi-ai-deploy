@@ -24,21 +24,27 @@ logger = logging.getLogger(__name__)
 
 class AdminCommandHandler:
     """Handles admin-specific commands for profit management"""
-    
-    def __init__(self):
+      def __init__(self):
         logger.info("🔐 Initializing Admin Command Handler...")
+        
+        # FORCE reload environment variables
+        load_dotenv(override=True)
         
         # SECURITY: Load admin chat IDs from environment
         self.admin_chat_ids = self._load_admin_chat_ids()
-        logger.info(f"🔐 Admin security initialized. {len(self.admin_chat_ids)} authorized admin(s)")
         
-        # Debug: Log what we loaded
         if self.admin_chat_ids:
-            logger.info(f"✅ Admin IDs loaded: {self.admin_chat_ids}")
+            logger.info(f"✅ Admin security initialized. {len(self.admin_chat_ids)} authorized admin(s): {self.admin_chat_ids}")
         else:
             logger.warning("⚠️ No admin IDs loaded from environment!")
-    
-    def _load_admin_chat_ids(self):
+            # Try different environment variable names as fallback
+            fallback_admin_id = os.getenv("ADMIN_CHAT_ID") or os.getenv("TELEGRAM_ADMIN_ID")
+            if fallback_admin_id:
+                self.admin_chat_ids = [fallback_admin_id]
+                logger.info(f"✅ Found fallback admin ID: {fallback_admin_id}")
+            else:
+                logger.error("❌ CRITICAL: No admin access configured! Admin commands disabled.")
+      def _load_admin_chat_ids(self):
         """Load admin chat IDs from environment"""
         try:
             # Force reload environment variables
@@ -47,6 +53,11 @@ class AdminCommandHandler:
             # Load from environment variable
             admin_ids_str = os.getenv("ADMIN_CHAT_IDS", "")
             logger.info(f"🔍 Raw ADMIN_CHAT_IDS from env: '{admin_ids_str}'")
+            
+            # Debug: Print all environment variables starting with ADMIN
+            import os
+            admin_env_vars = {k: v for k, v in os.environ.items() if 'ADMIN' in k}
+            logger.info(f"🔍 All ADMIN environment variables: {admin_env_vars}")
             
             if not admin_ids_str:
                 logger.warning("⚠️ ADMIN_CHAT_IDS not configured! Admin commands will be disabled.")
@@ -292,5 +303,4 @@ class AdminCommandHandler:
         
         return None
 
-# Global instance
-admin_handler = AdminCommandHandler()
+# No global instance - let main.py create it after environment loading

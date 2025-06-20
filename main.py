@@ -1,6 +1,6 @@
 from flask import Flask, request, jsonify, url_for, render_template
 from flask_cors import CORS
-import os, requests, hashlib, logging, json, asyncio, tempfile
+import os, requests, hashlib, logging, json, asyncio, tempfile, re
 from datetime import datetime
 from supabase import create_client
 import openai
@@ -9,7 +9,6 @@ from utils.bank_api import BankAPI
 from utils.secure_transfer_handler import SecureTransferHandler
 from utils.balance_helper import get_user_balance as get_balance_secure, check_virtual_account as check_virtual_account_secure
 from utils.admin_profit_manager import profit_manager
-from utils.admin_command_handler import admin_handler
 # Monnify Integration - Official Banking Partner
 from monnify.monnify_api import MonnifyAPI
 from monnify.monnify_webhook import handle_monnify_webhook
@@ -26,6 +25,10 @@ from unittest.mock import MagicMock
 
 # Load environment variables from .env file
 load_dotenv()
+
+# Import admin handler AFTER environment loading
+from utils.admin_command_handler import AdminCommandHandler
+admin_handler = AdminCommandHandler()
 
 def generate_pos_style_receipt(sender_name, amount, recipient_name, recipient_account, recipient_bank, balance, transaction_id):
     """Generate a POS-style receipt for a transaction."""
@@ -449,8 +452,8 @@ async def verify_account_name(account_number: str, bank_name: str) -> Dict:
     try:
         bank_api = BankAPI()
         
-        # Get bank code
-        bank_code = await bank_api.get_bank_code(bank_name)
+        # Get bank code (this is not async)
+        bank_code = bank_api.get_bank_code(bank_name)
         if not bank_code:
             return {
                 "verified": False,
@@ -473,48 +476,76 @@ async def verify_account_name(account_number: str, bank_name: str) -> Dict:
         }
 
 async def handle_transfer_flow(chat_id: str, message: str, user_data: dict = None, media_data: dict = None) -> str:
-    """Handle the transfer conversation flow with enhanced flexibility"""
+    """Handle the transfer conversation flow with enhanced natural language processing"""
+    from utils.enhanced_intent_detection import enhanced_intent_detector
+    
     state = conversation_state.get_state(chat_id)
     
+    # Check if user wants to exit transfer flow
+    if state and enhanced_intent_detector.detect_intent_change(message):
+        conversation_state.clear_state(chat_id)
+        # Let the message be handled by general AI
+        return None
+    
     if not state:
-        # Starting new transfer flow
+        # Starting new transfer flow - check for transfer intent
         intent_data = detect_intent(message)
-        if intent_data.get('intent') != 'transfer':
+        
+        # Try enhanced parsing for natural language transfers
+        transfer_info = enhanced_intent_detector.extract_transfer_info(message)
+        
+        if intent_data.get('intent') != 'transfer' and not transfer_info:
             return None
-            
-        details = intent_data.get('details', {})
+        
+        # Combine traditional and enhanced detection
+        if transfer_info:
+            details = transfer_info
+        else:
+            details = intent_data.get('details', {})
+        
         state = {
             'transfer': {
                 'amount': details.get('amount'),
-                'recipient_name': details.get('recipient_name'),
-                'account_number': details.get('account_number', ''),
+                'recipient_name': details.get('recipient'),
+                'account_number': details.get('account', ''),
                 'bank': details.get('bank', ''),
                 'narration': details.get('narration', '')
             }
         }
         
         # Determine the next step based on what information we have
-        if state['transfer']['account_number'] and state['transfer']['bank']:
-            # We have account and bank, verify it
-            verification_result = await verify_account_name(
-                state['transfer']['account_number'],
-                state['transfer']['bank']
-            )
-            if verification_result['verified']:
-                state['transfer']['recipient_name'] = verification_result['account_name']
-                state['step'] = 'get_amount' if not state['transfer']['amount'] else 'confirm_transfer'
-                msg = (
-                    f"I found these account details:\n"
-                    f"Name: {verification_result['account_name']}\n"
-                    f"Account: {state['transfer']['account_number']}\n"
-                    f"Bank: {state['transfer']['bank']}\n\n"
+        if state['transfer']['account_number'] and len(state['transfer']['account_number']) >= 10:
+            # We have account number, try to verify it
+            bank = state['transfer']['bank'] or 'unknown'
+            
+            try:
+                verification_result = await verify_account_name(
+                    state['transfer']['account_number'],
+                    bank
                 )
-                if not state['transfer']['amount']:
-                    msg += "How much would you like to send?"
+                if verification_result and verification_result.get('verified'):
+                    state['transfer']['recipient_name'] = verification_result['account_name']
+                    state['transfer']['bank'] = verification_result.get('bank_name', bank)
+                    state['step'] = 'get_amount' if not state['transfer']['amount'] else 'confirm_transfer'
+                    
+                    msg = (
+                        f"✅ Account verified:\n"
+                        f"👤 Name: {verification_result['account_name']}\n"
+                        f"🏦 Account: {state['transfer']['account_number']}\n"
+                        f"🏛️ Bank: {state['transfer']['bank']}\n\n"
+                    )
+                    if not state['transfer']['amount']:
+                        msg += "💰 How much would you like to send?"
+                    else:
+                        msg += f"💰 You want to send ₦{state['transfer']['amount']:,}. Is this correct? (yes/no)"
                 else:
-                    msg += f"You want to send ₦{state['transfer']['amount']:,}. Is this correct? (yes/no)"
-            else:
-                return f"Could not verify account: {verification_result.get('error')}. Please try again:"
+                    # Account verification failed, but continue with manual entry
+                    state['step'] = 'get_bank'
+                    msg = f"📱 Account number: {state['transfer']['account_number']}\n\nWhich bank is this account with?"
+            except Exception as e:
+                logger.error(f"Error verifying account: {e}")
+                state['step'] = 'get_bank'
+                msg = f"📱 Account number: {state['transfer']['account_number']}\n\nWhich bank is this account with?"
         else:
             state['step'] = 'get_account'
             msg = "Please provide the recipient's account number:"
@@ -527,24 +558,50 @@ async def handle_transfer_flow(chat_id: str, message: str, user_data: dict = Non
     transfer = state['transfer']
     
     if current_step == 'get_account':
-        if not validate_account_number(message.strip()):
+        # Enhanced account number extraction
+        transfer_info = enhanced_intent_detector.extract_transfer_info(message)
+        
+        if transfer_info and transfer_info.get('account'):
+            account_number = transfer_info['account']
+            bank = transfer_info.get('bank', '')
+        elif enhanced_intent_detector.is_pure_account_number(message):
+            account_number = re.sub(r'[^\d]', '', message)
+            bank = ''
+        else:
             return "Please provide a valid account number (at least 10 digits):"
         
-        transfer['account_number'] = message.strip()
-        if transfer['bank']:
-            # Verify account if we have both account number and bank
-            verification_result = await verify_account_name(transfer['account_number'], transfer['bank'])
-            if verification_result['verified']:
+        if len(account_number) < 10:
+            return "Please provide a valid account number (at least 10 digits):"
+        
+        transfer['account_number'] = account_number
+        if bank:
+            transfer['bank'] = bank
+        
+        # Try to verify account
+        try:
+            verification_result = await verify_account_name(account_number, bank or 'unknown')
+            if verification_result and verification_result.get('verified'):
                 transfer['recipient_name'] = verification_result['account_name']
+                transfer['bank'] = verification_result.get('bank_name', bank)
                 state['step'] = 'get_amount' if not transfer['amount'] else 'confirm_transfer'
+                
                 msg = (
-                    f"Account verified:\n"
-                    f"Name: {verification_result['account_name']}\n"
-                    f"Account: {transfer['account_number']}\n"
-                    f"Bank: {verification_result['bank_name']}\n\n"
+                    f"✅ Account verified:\n"
+                    f"👤 Name: {verification_result['account_name']}\n"
+                    f"🏦 Account: {account_number}\n"
+                    f"🏛️ Bank: {transfer['bank']}\n\n"
                 )
                 if not transfer['amount']:
-                    msg += "How much would you like to send?"
+                    msg += "💰 How much would you like to send?"
+                else:
+                    msg += f"💰 You want to send ₦{transfer['amount']:,}. Is this correct? (yes/no)"
+            else:
+                state['step'] = 'get_bank'
+                msg = f"📱 Account: {account_number}\n\nWhich bank is this account with?"
+        except Exception as e:
+            logger.error(f"Error verifying account: {e}")
+            state['step'] = 'get_bank'
+            msg = f"📱 Account: {account_number}\n\nWhich bank is this account with?"
                 else:
                     msg += f"You want to send ₦{transfer['amount']:,}. Is this correct? (yes/no)"
             else:
