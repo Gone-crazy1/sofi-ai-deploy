@@ -19,7 +19,7 @@ class CryptoCommandHandler:
         try:
             # Import the existing crypto modules
             from crypto.wallet import create_bitnob_wallet, create_real_wallet, get_supabase_client
-            from crypto.rates import CryptoRates
+            from crypto.rates import get_multiple_crypto_rates
             
             # Check for crypto keywords
             crypto_keywords = ['wallet', 'bitcoin', 'btc', 'ethereum', 'eth', 'usdt', 'crypto', 'cryptocurrency']
@@ -73,24 +73,18 @@ class CryptoCommandHandler:
             
             # Handle crypto rates requests
             elif any(phrase in message_lower for phrase in ['crypto rates', 'bitcoin price', 'eth price', 'usdt price', 'rates']):
-                crypto_rates = CryptoRates()
-                rates = await crypto_rates.get_current_rates()
-                
+                rates = get_multiple_crypto_rates(["BTC", "ETH", "USDT"])
                 if rates:
                     response = "💹 **Current Crypto Rates (NGN)**\n\n"
-                    
-                    if rates.get('btc'):
-                        response += f"₿ **Bitcoin:** ₦{rates['btc']:,.2f}\n"
-                    
-                    if rates.get('eth'):
-                        response += f"⟠ **Ethereum:** ₦{rates['eth']:,.2f}\n"
-                    
-                    if rates.get('usdt'):
-                        response += f"₮ **USDT:** ₦{rates['usdt']:,.2f}\n"
-                    
-                    response += f"\n🕐 **Updated:** {rates.get('timestamp', 'Now')}\n"
+                    if rates.get('BTC'):
+                        response += f"₿ **Bitcoin:** ₦{rates['BTC']:,.2f}\n"
+                    if rates.get('ETH'):
+                        response += f"⟠ **Ethereum:** ₦{rates['ETH']:,.2f}\n"
+                    if rates.get('USDT'):
+                        response += f"₮ **USDT:** ₦{rates['USDT']:,.2f}\n"
+                    from datetime import datetime
+                    response += f"\n🕐 **Updated:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
                     response += "\n💡 Send crypto to your Sofi wallet for instant conversion!"
-                    
                     return response
                 else:
                     return "❌ Unable to fetch crypto rates right now. Please try again later."

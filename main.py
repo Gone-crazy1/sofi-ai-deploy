@@ -640,6 +640,14 @@ async def handle_transfer_flow(chat_id: str, message: str, user_data: dict = Non
 async def handle_airtime_commands(chat_id: str, message: str, user_data: dict, virtual_account: dict = None) -> Optional[str]:
     """Handle airtime and data purchase commands"""
     try:
+        # Check if message is actually about airtime/data before processing
+        airtime_keywords = ['airtime', 'data', 'recharge', 'mtn', 'glo', 'airtel', '9mobile', 'buy credit']
+        message_lower = message.lower()
+        
+        # Only process if message contains airtime-related keywords
+        if not any(keyword in message_lower for keyword in airtime_keywords):
+            return None
+        
         # Import airtime handler
         from utils.airtime_handler import AirtimeHandler
         
@@ -648,11 +656,23 @@ async def handle_airtime_commands(chat_id: str, message: str, user_data: dict, v
         return response
     except Exception as e:
         logger.error(f"Error handling airtime command: {e}")
-        return "Sorry, I'm having trouble with airtime services right now. Please try again later."
+        # Only return error message if it was actually an airtime request
+        airtime_keywords = ['airtime', 'data', 'recharge', 'mtn', 'glo', 'airtel', '9mobile', 'buy credit']
+        if any(keyword in message.lower() for keyword in airtime_keywords):
+            return "Sorry, I'm having trouble with airtime services right now. Please try again later."
+        return None
 
 async def handle_crypto_commands(chat_id: str, message: str, user_data: dict) -> Optional[str]:
     """Handle crypto wallet and transaction commands"""
     try:
+        # Check if message is actually about crypto before processing
+        crypto_keywords = ['wallet', 'bitcoin', 'btc', 'ethereum', 'eth', 'usdt', 'crypto', 'cryptocurrency']
+        message_lower = message.lower()
+        
+        # Only process if message contains crypto-related keywords
+        if not any(keyword in message_lower for keyword in crypto_keywords):
+            return None
+        
         # Import crypto handler
         from crypto.handlers import CryptoCommandHandler
         
@@ -661,7 +681,11 @@ async def handle_crypto_commands(chat_id: str, message: str, user_data: dict) ->
         return response
     except Exception as e:
         logger.error(f"Error handling crypto command: {e}")
-        return "Sorry, I'm having trouble with crypto services right now. Please try again later."
+        # Only return error message if it was actually a crypto request
+        crypto_keywords = ['wallet', 'bitcoin', 'btc', 'ethereum', 'eth', 'usdt', 'crypto', 'cryptocurrency']
+        if any(keyword in message.lower() for keyword in crypto_keywords):
+            return "Sorry, I'm having trouble with crypto services right now. Please try again later."
+        return None
 
 async def handle_message(chat_id: str, message: str, user_data: dict = None, virtual_account: dict = None) -> str:
     """Main message handler that routes to appropriate handlers"""
@@ -934,8 +958,19 @@ def create_virtual_account():
         from utils.user_onboarding import SofiUserOnboarding
         
         data = request.get_json()
-        onboarding = SofiUserOnboarding()
         
+        # Fix field mapping from form to backend
+        if data:
+            # Combine first_name and last_name into full_name
+            if 'first_name' in data and 'last_name' in data:
+                data['full_name'] = f"{data['first_name']} {data['last_name']}"
+            
+            # Generate a temporary telegram_id if not provided (for web form users)
+            if not data.get('telegram_id'):
+                import uuid
+                data['telegram_id'] = f"web_user_{uuid.uuid4().hex[:8]}"
+        
+        onboarding = SofiUserOnboarding()
         result = onboarding.create_virtual_account(data)
         
         if result.get('success'):

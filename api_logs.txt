@@ -767,3 +767,269 @@ Response: {'choices': [{'message': {'content': '{"intent": "transfer", "details"
 Message: Transfer 50k give my mama now now
 Response: {'choices': [{'message': {'content': '{"intent": "transfer", "details": {"amount": "5000", "recipient": "friend", "urgency": "high"}}'}}]}
 
+Message: hello
+Response: {
+  "id": "chatcmpl-BkNTOfnIwXcU8YT6CgYHJyU0ngqzC",
+  "object": "chat.completion",
+  "created": 1750393018,
+  "model": "gpt-3.5-turbo-0125",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "{\n  \"intent\": \"greeting\",\n  \"confidence\": 0.95,\n  \"details\": {}\n}",
+        "refusal": null,
+        "annotations": []
+      },
+      "logprobs": null,
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 1226,
+    "completion_tokens": 24,
+    "total_tokens": 1250,
+    "prompt_tokens_details": {
+      "cached_tokens": 0,
+      "audio_tokens": 0
+    },
+    "completion_tokens_details": {
+      "reasoning_tokens": 0,
+      "audio_tokens": 0,
+      "accepted_prediction_tokens": 0,
+      "rejected_prediction_tokens": 0
+    }
+  },
+  "service_tier": "default",
+  "system_fingerprint": null
+}
+
+Message: hi
+Response: {
+  "id": "chatcmpl-BkNTS4v8z4GXfbYNJd9mROTr8YODZ",
+  "object": "chat.completion",
+  "created": 1750393022,
+  "model": "gpt-3.5-turbo-0125",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "{\n  \"intent\": \"greeting\",\n  \"confidence\": 0.95,\n  \"details\": {}\n}",
+        "refusal": null,
+        "annotations": []
+      },
+      "logprobs": null,
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 1226,
+    "completion_tokens": 24,
+    "total_tokens": 1250,
+    "prompt_tokens_details": {
+      "cached_tokens": 0,
+      "audio_tokens": 0
+    },
+    "completion_tokens_details": {
+      "reasoning_tokens": 0,
+      "audio_tokens": 0,
+      "accepted_prediction_tokens": 0,
+      "rejected_prediction_tokens": 0
+    }
+  },
+  "service_tier": "default",
+  "system_fingerprint": null
+}
+
+Message: how are you
+Response: {
+  "id": "chatcmpl-BkNTXEBr4MkJ4Bpue8pjBbV1GmFSa",
+  "object": "chat.completion",
+  "created": 1750393027,
+  "model": "gpt-3.5-turbo-0125",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "{\n  \"intent\": \"greeting\",\n  \"confidence\": 0.85,\n  \"details\": {}\n}",
+        "refusal": null,
+        "annotations": []
+      },
+      "logprobs": null,
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 1230,
+    "completion_tokens": 24,
+    "total_tokens": 1254,
+    "prompt_tokens_details": {
+      "cached_tokens": 0,
+      "audio_tokens": 0
+    },
+    "completion_tokens_details": {
+      "reasoning_tokens": 0,
+      "audio_tokens": 0,
+      "accepted_prediction_tokens": 0,
+      "rejected_prediction_tokens": 0
+    }
+  },
+  "service_tier": "default",
+  "system_fingerprint": null
+}
+
+Message: what can you do
+Response: {
+  "id": "chatcmpl-BkNTaXJ2G8HNJZtd4srejcTxegZki",
+  "object": "chat.completion",
+  "created": 1750393030,
+  "model": "gpt-3.5-turbo-0125",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "{\n  \"intent\": \"general_inquiries\",\n  \"confidence\": 0.95,\n  \"details\": {}\n}",
+        "refusal": null,
+        "annotations": []
+      },
+      "logprobs": null,
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 1232,
+    "completion_tokens": 25,
+    "total_tokens": 1257,
+    "prompt_tokens_details": {
+      "cached_tokens": 0,
+      "audio_tokens": 0
+    },
+    "completion_tokens_details": {
+      "reasoning_tokens": 0,
+      "audio_tokens": 0,
+      "accepted_prediction_tokens": 0,
+      "rejected_prediction_tokens": 0
+    }
+  },
+  "service_tier": "default",
+  "system_fingerprint": null
+}
+
+Message: help
+Response: {
+  "id": "chatcmpl-BkNTd9SEE9UpGQKc3QLLI7gdR6JmD",
+  "object": "chat.completion",
+  "created": 1750393033,
+  "model": "gpt-3.5-turbo-0125",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "{\n  \"intent\": \"general_inquiries\",\n  \"confidence\": 0.95,\n  \"details\": {}\n}",
+        "refusal": null,
+        "annotations": []
+      },
+      "logprobs": null,
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 1226,
+    "completion_tokens": 25,
+    "total_tokens": 1251,
+    "prompt_tokens_details": {
+      "cached_tokens": 0,
+      "audio_tokens": 0
+    },
+    "completion_tokens_details": {
+      "reasoning_tokens": 0,
+      "audio_tokens": 0,
+      "accepted_prediction_tokens": 0,
+      "rejected_prediction_tokens": 0
+    }
+  },
+  "service_tier": "default",
+  "system_fingerprint": null
+}
+
+Message: who are you
+Response: {
+  "id": "chatcmpl-BkNTfdckqddBuIoIuA9R7nIuJ7aes",
+  "object": "chat.completion",
+  "created": 1750393035,
+  "model": "gpt-3.5-turbo-0125",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "{\n  \"intent\": \"general_inquiries\",\n  \"confidence\": 0.85,\n  \"details\": {}\n}",
+        "refusal": null,
+        "annotations": []
+      },
+      "logprobs": null,
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 1230,
+    "completion_tokens": 25,
+    "total_tokens": 1255,
+    "prompt_tokens_details": {
+      "cached_tokens": 0,
+      "audio_tokens": 0
+    },
+    "completion_tokens_details": {
+      "reasoning_tokens": 0,
+      "audio_tokens": 0,
+      "accepted_prediction_tokens": 0,
+      "rejected_prediction_tokens": 0
+    }
+  },
+  "service_tier": "default",
+  "system_fingerprint": null
+}
+
+Message: I want to create an account
+Response: {
+  "id": "chatcmpl-BkNZHCllQN2KKJZDpLqHz1Z1gpr8c",
+  "object": "chat.completion",
+  "created": 1750393383,
+  "model": "gpt-3.5-turbo-0125",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "{\n  \"intent\": \"account_management\",\n  \"confidence\": 0.95,\n  \"details\": {\n    \"action\": \"create\",\n    \"account_type\": \"general\"\n  }\n}",
+        "refusal": null,
+        "annotations": []
+      },
+      "logprobs": null,
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 1237,
+    "completion_tokens": 41,
+    "total_tokens": 1278,
+    "prompt_tokens_details": {
+      "cached_tokens": 0,
+      "audio_tokens": 0
+    },
+    "completion_tokens_details": {
+      "reasoning_tokens": 0,
+      "audio_tokens": 0,
+      "accepted_prediction_tokens": 0,
+      "rejected_prediction_tokens": 0
+    }
+  },
+  "service_tier": "default",
+  "system_fingerprint": null
+}
+

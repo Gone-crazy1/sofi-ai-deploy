@@ -15,6 +15,10 @@ import os
 import logging
 from typing import Dict, Optional
 from utils.admin_profit_manager import profit_manager
+from dotenv import load_dotenv
+
+# Ensure environment variables are loaded
+load_dotenv()
 
 logger = logging.getLogger(__name__)
 
@@ -22,15 +26,27 @@ class AdminCommandHandler:
     """Handles admin-specific commands for profit management"""
     
     def __init__(self):
+        logger.info("🔐 Initializing Admin Command Handler...")
+        
         # SECURITY: Load admin chat IDs from environment
         self.admin_chat_ids = self._load_admin_chat_ids()
         logger.info(f"🔐 Admin security initialized. {len(self.admin_chat_ids)} authorized admin(s)")
+        
+        # Debug: Log what we loaded
+        if self.admin_chat_ids:
+            logger.info(f"✅ Admin IDs loaded: {self.admin_chat_ids}")
+        else:
+            logger.warning("⚠️ No admin IDs loaded from environment!")
     
     def _load_admin_chat_ids(self):
         """Load admin chat IDs from environment"""
         try:
+            # Force reload environment variables
+            load_dotenv(override=True)
+            
             # Load from environment variable
             admin_ids_str = os.getenv("ADMIN_CHAT_IDS", "")
+            logger.info(f"🔍 Raw ADMIN_CHAT_IDS from env: '{admin_ids_str}'")
             
             if not admin_ids_str:
                 logger.warning("⚠️ ADMIN_CHAT_IDS not configured! Admin commands will be disabled.")
@@ -46,6 +62,7 @@ class AdminCommandHandler:
                     # Validate it's a proper Telegram chat ID (integer)
                     int(admin_id)
                     validated_ids.append(admin_id)
+                    logger.info(f"✅ Validated admin ID: {admin_id}")
                 except ValueError:
                     logger.error(f"❌ Invalid admin chat ID format: {admin_id}")
             
@@ -68,7 +85,10 @@ class AdminCommandHandler:
         # SECURITY: If no admin IDs configured, DENY ALL ACCESS
         if not self.admin_chat_ids:
             logger.warning(f"🚨 Admin access denied for {chat_id_str}: No admin IDs configured")
-            return False
+            # Try to reload admin IDs once more
+            self.admin_chat_ids = self._load_admin_chat_ids()
+            if not self.admin_chat_ids:
+                return False
         
         # Check if this chat ID is in the authorized admin list
         is_authorized = chat_id_str in self.admin_chat_ids
@@ -77,6 +97,7 @@ class AdminCommandHandler:
             logger.info(f"✅ Admin access granted for chat ID: {chat_id_str}")
         else:
             logger.warning(f"🚨 Admin access DENIED for unauthorized chat ID: {chat_id_str}")
+            logger.info(f"🔍 Authorized admin IDs: {self.admin_chat_ids}")
         
         return is_authorized
     
