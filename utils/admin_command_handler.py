@@ -24,7 +24,8 @@ logger = logging.getLogger(__name__)
 
 class AdminCommandHandler:
     """Handles admin-specific commands for profit management"""
-      def __init__(self):
+    
+    def __init__(self):
         logger.info("🔐 Initializing Admin Command Handler...")
         
         # FORCE reload environment variables
@@ -44,7 +45,8 @@ class AdminCommandHandler:
                 logger.info(f"✅ Found fallback admin ID: {fallback_admin_id}")
             else:
                 logger.error("❌ CRITICAL: No admin access configured! Admin commands disabled.")
-      def _load_admin_chat_ids(self):
+    
+    def _load_admin_chat_ids(self):
         """Load admin chat IDs from environment"""
         try:
             # Force reload environment variables

@@ -576,8 +576,7 @@ async def handle_transfer_flow(chat_id: str, message: str, user_data: dict = Non
         transfer['account_number'] = account_number
         if bank:
             transfer['bank'] = bank
-        
-        # Try to verify account
+          # Try to verify account
         try:
             verification_result = await verify_account_name(account_number, bank or 'unknown')
             if verification_result and verification_result.get('verified'):
@@ -602,13 +601,6 @@ async def handle_transfer_flow(chat_id: str, message: str, user_data: dict = Non
             logger.error(f"Error verifying account: {e}")
             state['step'] = 'get_bank'
             msg = f"📱 Account: {account_number}\n\nWhich bank is this account with?"
-                else:
-                    msg += f"You want to send ₦{transfer['amount']:,}. Is this correct? (yes/no)"
-            else:
-                return f"Could not verify account: {verification_result.get('error')}. Please try again:"
-        else:
-            state['step'] = 'get_bank'
-            msg = "Great! Now, which bank is this account with?"
         
         conversation_state.set_state(chat_id, state)
         return msg
