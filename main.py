@@ -22,6 +22,7 @@ from pydub.utils import which
 from utils.memory import save_memory, list_memories, save_chat_message, get_chat_history
 from utils.conversation_state import conversation_state
 from utils.nigerian_expressions import enhance_nigerian_message, get_response_guidance
+from utils.prompt_schemas import get_image_prompt, validate_image_result
 from unittest.mock import MagicMock
 
 # Load environment variables from .env file
@@ -340,44 +341,66 @@ def process_photo(file_id):
         image = Image.open(BytesIO(image_data))
         
         # Use OpenAI Vision API to analyze the image
-        import base64
-          # Convert image to base64
+        import base64        # Convert image to base64
         buffered = BytesIO()
         image.save(buffered, format="JPEG")
         img_base64 = base64.b64encode(buffered.getvalue()).decode()
+        
+        # Use standardized image analysis prompt
+        prompt = get_image_prompt()
         
         response = openai_client.chat.completions.create(
             model="chatgpt-4o-latest",
             messages=[
                 {
                     "role": "system",
-                    "content": """You are analyzing images sent by users to a Nigerian fintech bot called Sofi AI.
-                    Your task is to:
-                    1. Identify if this is a bank account screenshot, transaction receipt, or financial document
-                    2. Look for transaction amounts or financial figures
-                    3. Return information in this JSON format:
-                    {
-                        "type": "bank_details" | "transaction" | "other",
-                        "details": {
-                            "account_number": "string",
-                            "bank_name": "string",
-                            "account_holder": "string",
-                            "amount": number (if visible)
-                        }
-                    }
-                    If it's a bank account screenshot or details, focus on extracting those details accurately."""
+                    "content": prompt
                 },
                 {
                     "role": "user",
                     "content": f"I see an image that appears to be {image.format} format, size {image.size}. " + 
-                              "Please help me understand what this might be and how I can assist the user."
+                              "Please analyze this financial document image."
                 }
             ],
             max_tokens=300
         )
         
-        image_description = response['choices'][0]['message']['content']
-        logger.info(f"Image analysis result: {image_description}")
+        result_text = response.choices[0].message.content.strip()
+        logger.info(f"Image analysis result: {result_text}")
+        
+        # Try to parse as JSON and validate
+        try:
+            import json
+            raw_result = json.loads(result_text)
+            validated_result = validate_image_result(raw_result)
+            
+            if validated_result.error:
+                image_description = f"Error analyzing image: {validated_result.error}"
+            else:
+                # Format the result for user display
+                if validated_result.document_type == "bank_details":
+                    parts = ["I can see this is a bank account document."]
+                    if validated_result.bank_name:
+                        parts.append(f"Bank: {validated_result.bank_name}")
+                    if validated_result.account_number:
+                        parts.append(f"Account: {validated_result.account_number}")
+                    if validated_result.account_holder:
+                        parts.append(f"Account Holder: {validated_result.account_holder}")
+                    if validated_result.amount:
+                        parts.append(f"Amount: ₦{validated_result.amount:,.2f}")
+                    image_description = "\n".join(parts)
+                elif validated_result.document_type == "transaction":
+                    parts = ["I can see this is a transaction receipt."]
+                    if validated_result.bank_name:
+                        parts.append(f"Bank: {validated_result.bank_name}")
+                    if validated_result.amount:
+                        parts.append(f"Amount: ₦{validated_result.amount:,.2f}")
+                    image_description = "\n".join(parts)
+                else:
+                    image_description = "I can see this appears to be a financial document, but I need more context to help you."
+        except:
+            # Fallback to original text response
+            image_description = result_text
         
         # Check if it's a "under construction" image based on keywords
         is_construction = any(phrase in image_description.lower() for phrase in 

@@ -157,15 +157,15 @@ class AdminCommandHandler:
             r'business report',
             r'generate report'
         ]
-        
-        # Completion commands
+          # Completion commands
         completion_patterns = [
             r'mark.*completed',
             r'completed.*withdrawal',
             r'opay.*done',
             r'withdrawal.*complete'
         ]
-          for pattern in dashboard_patterns:
+        
+        for pattern in dashboard_patterns:
             if re.search(pattern, message_lower):
                 return 'admin_dashboard'
         
@@ -186,7 +186,8 @@ class AdminCommandHandler:
                 return 'mark_completion'
         
         return None
-      async def handle_admin_command(self, command_type: str, message: str, chat_id: str) -> str:
+    
+    async def handle_admin_command(self, command_type: str, message: str, chat_id: str) -> str:
         """Process admin commands and return appropriate response"""
         try:
             if command_type == 'profit_inquiry':

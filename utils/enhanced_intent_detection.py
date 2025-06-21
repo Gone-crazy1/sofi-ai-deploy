@@ -11,6 +11,7 @@ from typing import Dict, Optional, Tuple
 import openai
 from openai import OpenAI
 from dotenv import load_dotenv
+from .prompt_schemas import get_transfer_prompt, validate_transfer_result
 
 load_dotenv()
 
@@ -68,14 +69,14 @@ class EnhancedIntentDetector:
             if match:
                 amount_str = match.group(1).replace(',', '')
                 amount = float(amount_str)
-                
-                # Handle 'k' or 'thousand'
+                  # Handle 'k' or 'thousand'
                 if 'k' in message or 'thousand' in message:
                     amount *= 1000
                 
                 result['amount'] = amount
                 break
-          # Extract account number (10-11 digits) - Improved patterns
+        
+        # Extract account number (10-11 digits) - Improved patterns
         account_patterns = [
             r'\b(\d{10,11})\b',  # 10-11 consecutive digits anywhere
             r'(?:to|send\s+(?:money\s+)?to|transfer\s+(?:to)?)\s*(\d{10,11})',
@@ -89,7 +90,8 @@ class EnhancedIntentDetector:
             if match:
                 result['account'] = match.group(1)
                 break
-          # Extract bank name - Improved patterns
+        
+        # Extract bank name - Improved patterns
         bank_patterns = [
             r'\b(opay|access\s*bank|gtbank|gtb|first\s*bank|zenith|uba|wema|sterling|kuda|polaris|palmpay|carbon|vfd|mint)\b',
             r'(\w+)\s*bank',
@@ -113,32 +115,18 @@ class EnhancedIntentDetector:
             return result
         
         return None
-    
+
     def _extract_with_gpt(self, message: str) -> Optional[Dict]:
         """Extract transfer info using GPT for complex parsing"""
         try:
-            prompt = f"""
-Extract transfer information from this message: "{message}"
-
-Return JSON with these fields (use null if not found):
-- amount: number (convert k/thousand to actual amount, remove currency symbols)
-- account: string (10-11 digit account number)
-- bank: string (bank name)
-- recipient: string (recipient name if mentioned)
-
-Examples:
-"Send 5k to 1234567891 access bank" -> {{"amount": 5000, "account": "1234567891", "bank": "Access Bank", "recipient": null}}
-"Transfer ₦2000 to 0123456789" -> {{"amount": 2000, "account": "0123456789", "bank": null, "recipient": null}}
-"8104611794 Opay mella" -> {{"amount": null, "account": "8104611794", "bank": "Opay", "recipient": "mella"}}
-
-Message: "{message}"
-JSON:"""
+            # Use standardized prompt schema
+            prompt = get_transfer_prompt()
             
             response = self.openai_client.chat.completions.create(
                 model="chatgpt-4o-latest",
                 messages=[
-                    {"role": "system", "content": "You are a banking assistant that extracts transfer information from messages. Always return valid JSON."},
-                    {"role": "user", "content": prompt}
+                    {"role": "system", "content": prompt},
+                    {"role": "user", "content": f"Message: {message}"}
                 ],
                 max_tokens=150,
                 temperature=0.1
@@ -148,16 +136,26 @@ JSON:"""
             
             # Try to parse JSON response
             import json
-            result = json.loads(result_text)
+            raw_result = json.loads(result_text)
             
-            # Clean up the result
-            if result.get('amount') and isinstance(result['amount'], (int, float)):
-                result['amount'] = float(result['amount'])
+            # Validate and standardize using schema validator
+            validated_result = validate_transfer_result(raw_result)
             
-            if result.get('account') and len(str(result['account'])) >= 10:
-                result['account'] = str(result['account'])
+            # Convert to dict format expected by existing code
+            if validated_result.error:
+                return None
+                
+            result = {}
+            if validated_result.amount is not None:
+                result['amount'] = validated_result.amount
+            if validated_result.account is not None:
+                result['account'] = validated_result.account
+            if validated_result.bank is not None:
+                result['bank'] = validated_result.bank
+            if validated_result.recipient is not None:
+                result['recipient'] = validated_result.recipient
             
-            return result if any(result.values()) else None
+            return result if result else None
             
         except Exception as e:
             logger.error(f"GPT extraction error: {e}")
