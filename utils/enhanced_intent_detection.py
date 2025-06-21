@@ -35,12 +35,12 @@ class EnhancedIntentDetector:
         - "Transfer ₦2000 to 0123456789" -> {amount: 2000, account: "0123456789", bank: None}
         - "8104611794 Opay" -> {account: "8104611794", bank: "Opay"}
         """
-        try:
-            # First try regex-based extraction for common patterns
+        try:            # First try regex-based extraction for common patterns
             regex_result = self._extract_with_regex(message)
             if regex_result:
                 return regex_result
-              # Fallback to GPT for complex natural language
+            
+            # Fallback to GPT for complex natural language
             if self.openai_client:
                 return self._extract_with_gpt(message)
             
@@ -75,12 +75,13 @@ class EnhancedIntentDetector:
                 
                 result['amount'] = amount
                 break
-        
-        # Extract account number (10-11 digits)
+          # Extract account number (10-11 digits) - Improved patterns
         account_patterns = [
-            r'\b(\d{10,11})\b',  # 10-11 consecutive digits
-            r'(?:to|account)\s*(\d{10,11})',
-            r'(\d{10,11})\s*(?:opay|access|gtb|first|zenith|uba|wema|sterling)'
+            r'\b(\d{10,11})\b',  # 10-11 consecutive digits anywhere
+            r'(?:to|send\s+(?:money\s+)?to|transfer\s+(?:to)?)\s*(\d{10,11})',
+            r'(\d{10,11})\s*(?:opay|access|gtb|first|zenith|uba|wema|sterling|kuda|palmpay)',
+            r'(\d{10,11})\s+(?:access\s+bank|opay|kuda|palmpay)',  # Account + bank name
+            r'(?:account\s*(?:number)?:?\s*)?(\d{10,11})'  # With or without "account" prefix
         ]
         
         for pattern in account_patterns:
@@ -88,12 +89,13 @@ class EnhancedIntentDetector:
             if match:
                 result['account'] = match.group(1)
                 break
-        
-        # Extract bank name
+          # Extract bank name - Improved patterns
         bank_patterns = [
-            r'\b(opay|access\s*bank|gtb|first\s*bank|zenith|uba|wema|sterling|kuda|polaris)\b',
+            r'\b(opay|access\s*bank|gtbank|gtb|first\s*bank|zenith|uba|wema|sterling|kuda|polaris|palmpay|carbon|vfd|mint)\b',
             r'(\w+)\s*bank',
-            r'\d{10,11}\s+(\w+(?:\s+\w+)?)'  # Word(s) after account number
+            r'\d{10,11}\s+(opay|access|gtbank|first|zenith|uba|wema|sterling|kuda|palmpay)',  # Bank after account
+            r'\d{10,11}\s+(\w+(?:\s+bank)?)',  # Word(s) after account number
+            r'(access\s+bank|first\s+bank|gtbank|zenith\s+bank)'  # Full bank names
         ]
         
         for pattern in bank_patterns:
@@ -130,7 +132,9 @@ Examples:
 "8104611794 Opay mella" -> {{"amount": null, "account": "8104611794", "bank": "Opay", "recipient": "mella"}}
 
 Message: "{message}"
-JSON:"""            response = self.openai_client.chat.completions.create(
+JSON:"""
+            
+            response = self.openai_client.chat.completions.create(
                 model="chatgpt-4o-latest",
                 messages=[
                     {"role": "system", "content": "You are a banking assistant that extracts transfer information from messages. Always return valid JSON."},

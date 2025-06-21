@@ -8,6 +8,7 @@ This module provides a clean, secure transfer flow that:
 4. Prevents users from going into debt
 """
 
+import os
 import logging
 from datetime import datetime
 from typing import Dict, Optional
@@ -154,8 +155,7 @@ class SecureTransferHandler:
                 
                 # Log successful transaction
                 await self.log_successful_transaction(user_data, transfer_data, transfer_result)
-                
-                # Clear conversation state
+                  # Clear conversation state
                 conversation_state.clear_state(chat_id)
                 
                 return f"✅ **Transfer Successful!** Here's your receipt:\n\n{receipt}"
@@ -165,7 +165,7 @@ class SecureTransferHandler:
                 logger.error(f"Transfer failed: {error_msg}")
                 conversation_state.clear_state(chat_id)
                 return f"❌ **Transfer Failed:** {error_msg}\n\nPlease try again or contact support."
-                
+        
         except Exception as e:
             logger.error(f"Error executing secure transfer: {e}")
             conversation_state.clear_state(chat_id)
@@ -175,7 +175,6 @@ class SecureTransferHandler:
         """Get user's virtual account details for funding instructions"""
         try:
             from supabase import create_client
-            import os
             
             client = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
             result = client.table("virtual_accounts").select("*").eq("telegram_chat_id", str(chat_id)).execute()
@@ -184,7 +183,7 @@ class SecureTransferHandler:
                 return result.data[0]
             else:
                 return {"accountNumber": "N/A", "bankName": "N/A"}
-                
+        
         except Exception as e:
             logger.error(f"Error getting virtual account: {e}")
             return {"accountNumber": "N/A", "bankName": "N/A"}
@@ -193,7 +192,6 @@ class SecureTransferHandler:
         """Update user balance after successful transfer"""
         try:
             from supabase import create_client
-            import os
             
             client = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
             

@@ -51,7 +51,7 @@ def test_gpt4o_latest():
     """Test GPT-4o-latest model"""
     try:
         from openai import OpenAI
-          client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
         
         response = client.chat.completions.create(
             model="chatgpt-4o-latest",

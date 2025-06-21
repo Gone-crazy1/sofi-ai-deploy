@@ -55,9 +55,7 @@ class AdminCommandHandler:
             # Load from environment variable
             admin_ids_str = os.getenv("ADMIN_CHAT_IDS", "")
             logger.info(f"🔍 Raw ADMIN_CHAT_IDS from env: '{admin_ids_str}'")
-            
-            # Debug: Print all environment variables starting with ADMIN
-            import os
+              # Debug: Print all environment variables starting with ADMIN
             admin_env_vars = {k: v for k, v in os.environ.items() if 'ADMIN' in k}
             logger.info(f"🔍 All ADMIN environment variables: {admin_env_vars}")
             

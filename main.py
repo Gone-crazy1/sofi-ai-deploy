@@ -343,7 +343,8 @@ def process_photo(file_id):
         import base64
           # Convert image to base64
         buffered = BytesIO()
-        image.save(buffered, format="JPEG")        img_base64 = base64.b64encode(buffered.getvalue()).decode()
+        image.save(buffered, format="JPEG")
+        img_base64 = base64.b64encode(buffered.getvalue()).decode()
         
         response = openai_client.chat.completions.create(
             model="chatgpt-4o-latest",
@@ -876,23 +877,26 @@ def create_sofi_ai_response_with_custom_prompt(user_message, context="general"):
     """
     Create Sofi AI response using custom prompt from OpenAI
     Prompt ID: pmpt_6855c4bb02d4819782b8428f4e76f7830bfd1f9ee7b5787d
-    """    try:
-        # Use your custom prompt (simplified format based on your screenshot)
+    """
+    try:
+        # Attempt to use the custom prompt directly via prompt ID
         response = openai_client.responses.create(
             prompt={
                 "id": "pmpt_6855c4bb02d4819782b8428f4e76f7830bfd1f9ee7b5787d",
                 "version": "3"
-            }
+            },
+            input={"user_message": user_message, "context": context}
         )
-        
-        return response.choices[0].message.content if response.choices else "I'm having trouble processing your request right now. Please try again."
-        
+
+        return response.choices[0].message.content if response.choices else "I'm having trouble processing your request. Try again later."
+
     except Exception as e:
         logger.error(f"Error with custom prompt: {e}")
-        # Fallback to standard chatgpt-4o-latest
+
+        # Fallback to ChatGPT 4o latest model
         try:
             response = openai_client.chat.completions.create(
-                model="chatgpt-4o-latest",
+                model="gpt-4o-latest",
                 messages=[
                     {
                         "role": "system",
@@ -903,15 +907,12 @@ def create_sofi_ai_response_with_custom_prompt(user_message, context="general"):
                 temperature=0.7,
                 max_tokens=500
             )
-            
-            return response.choices[0].message.content
-            
+
+            return response.choices[0].message.content if response.choices else "Fallback failed. Try again later."
+
         except Exception as fallback_error:
             logger.error(f"Fallback also failed: {fallback_error}")
-            return "I'm having trouble processing your request right now. Please try again."
-        )
-        
-        return response.choices[0].message.content
+            return "Unexpected error occurred. Please try again later."
 
 # Flask Routes
 @app.route("/health")
