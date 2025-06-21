@@ -147,8 +147,7 @@ class AdminCommandHandler:
             r'business.*summary',
             r'today.*business',
             r'daily.*report',
-            r'stats.*today'
-        ]
+            r'stats.*today'        ]
         
         # Report commands
         report_patterns = [
@@ -157,7 +156,8 @@ class AdminCommandHandler:
             r'business report',
             r'generate report'
         ]
-          # Completion commands
+        
+        # Completion commands
         completion_patterns = [
             r'mark.*completed',
             r'completed.*withdrawal',
