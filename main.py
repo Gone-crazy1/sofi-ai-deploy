@@ -4,6 +4,7 @@ import os, requests, hashlib, logging, json, asyncio, tempfile, re
 from datetime import datetime
 from supabase import create_client
 import openai
+from openai import OpenAI
 from typing import Dict, Optional
 from utils.bank_api import BankAPI
 from utils.secure_transfer_handler import SecureTransferHandler
@@ -67,7 +68,8 @@ CORS(app)  # CSRF Disabled globally
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-openai.api_key = os.getenv("OPENAI_API_KEY")
+# Initialize OpenAI client with API key
+openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 # Set the path to the ffmpeg executable for pydub
 AudioSegment.converter = which("ffmpeg")
@@ -88,7 +90,7 @@ def send_reply(chat_id, message, reply_markup=None):
     return response.json() if response.status_code == 200 else None
 
 def detect_intent(message):
-    """Enhanced intent detector using OpenAI API with GPT-3.5-turbo and Nigerian expressions support"""
+    """Enhanced intent detector using OpenAI API with chatgpt-4o-latest and Nigerian expressions support"""
     try:
         # Step 1: Enhance message with Nigerian expressions understanding
         enhanced_analysis = enhance_nigerian_message(message)
@@ -110,11 +112,10 @@ IMPORTANT NIGERIAN CONTEXT:
 - "My account don empty" = my account is empty
 - "Abeg" = please, "sharp sharp" = immediately, "now now" = right now
 - "kudi/ego/owo" = money, "guy/padi/paddy" = friend
-- Always interpret enhanced/translated messages while maintaining cultural context
-        """
+- Always interpret enhanced/translated messages while maintaining cultural context        """
         
-        response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
+        response = openai_client.chat.completions.create(
+            model="chatgpt-4o-latest",
             messages=[
                 {"role": "system", "content": enhanced_system_prompt},
                 {"role": "user", "content": f"Original: {message}\nEnhanced: {enhanced_message}"}
@@ -292,17 +293,15 @@ async def generate_ai_reply(chat_id: str, message: str):
             account_number = virtual_account.get("accountNumber") or virtual_account.get("account_number", "Unknown")
             bank_name = virtual_account.get("bankName") or virtual_account.get("bank_name", "Unknown")
             account_context = f"\nUser has virtual account: {account_number} at {bank_name}"
-            conversation[0]["content"] += account_context
-
-        # Generate response
-        response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
+            conversation[0]["content"] += account_context        # Generate response
+        response = openai_client.chat.completions.create(
+            model="chatgpt-4o-latest",
             messages=conversation,
             temperature=0.7,  # Slightly more creative for natural conversation
             max_tokens=500
         )
         
-        ai_reply = response['choices'][0]['message']['content']
+        ai_reply = response.choices[0].message.content
         # Ensure ai_reply is a string (handle MagicMock in tests)
         if not isinstance(ai_reply, str):
             ai_reply = str(ai_reply)
@@ -342,14 +341,12 @@ def process_photo(file_id):
         
         # Use OpenAI Vision API to analyze the image
         import base64
-        
-        # Convert image to base64
+          # Convert image to base64
         buffered = BytesIO()
-        image.save(buffered, format="JPEG")
-        img_base64 = base64.b64encode(buffered.getvalue()).decode()
+        image.save(buffered, format="JPEG")        img_base64 = base64.b64encode(buffered.getvalue()).decode()
         
-        response = openai.ChatCompletion.create(
-            model="gpt-4-vision-preview",
+        response = openai_client.chat.completions.create(
+            model="chatgpt-4o-latest",
             messages=[
                 {
                     "role": "system",
@@ -425,16 +422,18 @@ def process_voice(file_id):
         audio = AudioSegment.from_file(temp_file_path, format="ogg")
         wav_path = temp_file_path.replace(".ogg", ".wav")
         audio.export(wav_path, format="wav")
-        
-        # Transcribe using OpenAI Whisper
+          # Transcribe using OpenAI Whisper
         with open(wav_path, 'rb') as audio_file:
-            transcript = openai.Audio.transcribe("whisper-1", audio_file)
+            transcript = openai_client.audio.transcriptions.create(
+                model="whisper-1",
+                file=audio_file
+            )
         
         # Clean up temporary files
         os.unlink(temp_file_path)
         os.unlink(wav_path)
         
-        transcription = transcript['text']
+        transcription = transcript.text
         logger.info(f"Voice transcription: {transcription}")
         
         return True, transcription
@@ -872,6 +871,47 @@ async def handle_balance_inquiry(chat_id: str, message: str, user_data: dict = N
     except Exception as e:
         logger.error(f"Error handling balance inquiry: {e}")
         return None
+
+def create_sofi_ai_response_with_custom_prompt(user_message, context="general"):
+    """
+    Create Sofi AI response using custom prompt from OpenAI
+    Prompt ID: pmpt_6855c4bb02d4819782b8428f4e76f7830bfd1f9ee7b5787d
+    """    try:
+        # Use your custom prompt (simplified format based on your screenshot)
+        response = openai_client.responses.create(
+            prompt={
+                "id": "pmpt_6855c4bb02d4819782b8428f4e76f7830bfd1f9ee7b5787d",
+                "version": "3"
+            }
+        )
+        
+        return response.choices[0].message.content if response.choices else "I'm having trouble processing your request right now. Please try again."
+        
+    except Exception as e:
+        logger.error(f"Error with custom prompt: {e}")
+        # Fallback to standard chatgpt-4o-latest
+        try:
+            response = openai_client.chat.completions.create(
+                model="chatgpt-4o-latest",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are Sofi AI, the smart, funny but highly professional Nigerian wallet assistant built by Pip Install AI Technologies. You operate inside Telegram and handle wallet balance checks, virtual account creation, transfers, airtime/data purchase, crypto questions, and more. Always respond in Nigerian style with appropriate expressions."
+                    },
+                    {"role": "user", "content": user_message}
+                ],
+                temperature=0.7,
+                max_tokens=500
+            )
+            
+            return response.choices[0].message.content
+            
+        except Exception as fallback_error:
+            logger.error(f"Fallback also failed: {fallback_error}")
+            return "I'm having trouble processing your request right now. Please try again."
+        )
+        
+        return response.choices[0].message.content
 
 # Flask Routes
 @app.route("/health")

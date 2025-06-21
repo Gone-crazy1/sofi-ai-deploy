@@ -439,7 +439,12 @@ _Thank you for upgrading your Sofi AI Wallet! 🌟_
             if not supabase:
                 return None
             
-            response = supabase.table('users').select('*').eq('telegram_id', telegram_id).execute()
+            # Try both telegram_chat_id and chat_id columns
+            response = supabase.table('users').select('*').eq('telegram_chat_id', telegram_id).execute()
+            
+            if not response.data:
+                # Try with chat_id as fallback
+                response = supabase.table('users').select('*').eq('chat_id', telegram_id).execute()
             
             if response.data:
                 user = response.data[0]

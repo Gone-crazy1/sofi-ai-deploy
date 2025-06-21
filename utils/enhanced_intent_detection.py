@@ -9,6 +9,7 @@ import os
 import logging
 from typing import Dict, Optional, Tuple
 import openai
+from openai import OpenAI
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -21,7 +22,9 @@ class EnhancedIntentDetector:
     def __init__(self):
         self.openai_api_key = os.getenv("OPENAI_API_KEY")
         if self.openai_api_key:
-            openai.api_key = self.openai_api_key
+            self.openai_client = OpenAI(api_key=self.openai_api_key)
+        else:
+            self.openai_client = None
     
     def extract_transfer_info(self, message: str) -> Optional[Dict]:
         """
@@ -37,9 +40,8 @@ class EnhancedIntentDetector:
             regex_result = self._extract_with_regex(message)
             if regex_result:
                 return regex_result
-            
-            # Fallback to GPT for complex natural language
-            if self.openai_api_key:
+              # Fallback to GPT for complex natural language
+            if self.openai_client:
                 return self._extract_with_gpt(message)
             
             return None
@@ -128,10 +130,8 @@ Examples:
 "8104611794 Opay mella" -> {{"amount": null, "account": "8104611794", "bank": "Opay", "recipient": "mella"}}
 
 Message: "{message}"
-JSON:"""
-
-            response = openai.ChatCompletion.create(
-                model="gpt-3.5-turbo",
+JSON:"""            response = self.openai_client.chat.completions.create(
+                model="chatgpt-4o-latest",
                 messages=[
                     {"role": "system", "content": "You are a banking assistant that extracts transfer information from messages. Always return valid JSON."},
                     {"role": "user", "content": prompt}

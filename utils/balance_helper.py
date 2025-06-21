@@ -20,16 +20,21 @@ async def get_user_balance(chat_id: str) -> float:
     Returns:
         float: User's current balance
     """
-    try:
-        # Get user ID from chat ID
+    try:        # Get user ID from chat ID
         from supabase import create_client
         import os
         
         client = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
+        
+        # Try telegram_chat_id first, then chat_id as fallback
         user_result = client.table("users").select("id").eq("telegram_chat_id", str(chat_id)).execute()
         
         if not user_result.data:
-            logger.error(f"User not found for chat_id {chat_id}")
+            # Try with chat_id column as fallback
+            user_result = client.table("users").select("id").eq("chat_id", str(chat_id)).execute()
+        
+        if not user_result.data:
+            logger.error(f"User not found for chat_id {chat_id} (tried both telegram_chat_id and chat_id columns)")
             return 0.0
         
         user_id = user_result.data[0]["id"]

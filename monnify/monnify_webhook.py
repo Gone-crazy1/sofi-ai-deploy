@@ -273,8 +273,7 @@ class MonnifyWebhookHandler:
             account_number: Virtual account number
             
         Returns:
-            Dict with user info or None
-        """
+            Dict with user info or None        """
         try:
             from supabase import create_client
             
@@ -287,23 +286,51 @@ class MonnifyWebhookHandler:
             
             supabase = create_client(supabase_url, supabase_key)
             
-            # Query virtual_accounts table
-            result = supabase.table("virtual_accounts").select(
-                "user_id, users(email, first_name, last_name, phone)"
-            ).eq("account_number", account_number).eq("is_active", True).execute()
+            # First, find the virtual account
+            va_result = supabase.table("virtual_accounts").select("*").eq("account_number", account_number).execute()
             
-            if result.data:
-                account_info = result.data[0]
-                user_info = account_info["users"]
+            if not va_result.data:
+                logger.warning(f"Virtual account not found: {account_number}")
+                return None
+            
+            account_info = va_result.data[0]
+            user_id = account_info.get("user_id")
+            telegram_chat_id = account_info.get("telegram_chat_id")
+            
+            # Get user info - try multiple approaches
+            user_data = None
+            
+            if user_id:
+                # Try to get user by ID
+                user_result = supabase.table("users").select("*").eq("id", user_id).execute()
+                if user_result.data:
+                    user_data = user_result.data[0]
+            
+            if not user_data and telegram_chat_id:
+                # Try to get user by telegram_chat_id
+                user_result = supabase.table("users").select("*").eq("telegram_chat_id", telegram_chat_id).execute()
+                if user_result.data:
+                    user_data = user_result.data[0]
                 
+                # Also try chat_id as fallback
+                if not user_data:
+                    user_result = supabase.table("users").select("*").eq("chat_id", telegram_chat_id).execute()
+                    if user_result.data:
+                        user_data = user_result.data[0]
+            
+            if user_data:
                 return {
-                    "user_id": account_info["user_id"],
-                    "email": user_info["email"],
-                    "first_name": user_info["first_name"],
-                    "last_name": user_info["last_name"],
-                    "phone": user_info.get("phone")
+                    "user_id": user_data.get("id") or user_id,
+                    "telegram_chat_id": telegram_chat_id or user_data.get("telegram_chat_id") or user_data.get("chat_id"),
+                    "email": user_data.get("email"),
+                    "first_name": user_data.get("first_name"),
+                    "last_name": user_data.get("last_name"),
+                    "full_name": user_data.get("full_name") or f"{user_data.get('first_name', '')} {user_data.get('last_name', '')}".strip(),
+                    "phone": user_data.get("phone"),
+                    "account_number": account_number
                 }
             
+            logger.warning(f"User data not found for account {account_number}")
             return None
             
         except Exception as e:
@@ -372,17 +399,22 @@ class MonnifyWebhookHandler:
             if account_result.data:
                 balance = float(account_result.data[0].get("balance", 0))
                 account_name = account_result.data[0].get("account_name", account_name)
+              # Send enhanced notification using async notification manager
+            telegram_chat_id = user_info.get("telegram_chat_id")
             
-            # Send enhanced notification using async notification manager
-            asyncio.create_task(notify_deposit(
-                user_id=user_info["user_id"],
-                amount=amount,
-                balance=balance,
-                account_name=account_name,
-                reference=transaction_ref
-            ))
-            
-            logger.info(f"Enhanced deposit notification queued for user {user_info['user_id']}: ₦{amount:,.2f}")
+            if telegram_chat_id:
+                # Use the notification manager with telegram_chat_id
+                asyncio.create_task(notify_deposit(
+                    user_id=telegram_chat_id,  # Use telegram_chat_id for notifications
+                    amount=amount,
+                    balance=balance,
+                    account_name=account_name,
+                    reference=transaction_ref
+                ))
+                
+                logger.info(f"Enhanced deposit notification queued for chat ID {telegram_chat_id}: ₦{amount:,.2f}")
+            else:
+                logger.warning(f"No telegram_chat_id found for user {user_info['user_id']}")
             
         except Exception as e:
             logger.error(f"Error sending enhanced credit notification: {e}")
