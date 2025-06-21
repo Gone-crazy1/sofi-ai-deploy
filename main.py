@@ -122,14 +122,14 @@ IMPORTANT NIGERIAN CONTEXT:
             ],
             temperature=0.3
         )
-        
-        # Parse the response as JSON
+          # Parse the response as JSON
         try:
             # Handle mock responses in tests
             if isinstance(response, MagicMock):
                 content = response.choices[0]['message']['content']
             else:
-                content = response['choices'][0]['message']['content']
+                # OpenAI v1.x syntax
+                content = response.choices[0].message.content
                 # Log the raw response in non-test environment
                 with open("api_logs.txt", "a") as log_file:
                     log_file.write(f"Message: {message}\nResponse: {response}\n\n")

@@ -15,6 +15,7 @@ import os
 import logging
 from typing import Dict, Optional
 from utils.admin_profit_manager import profit_manager
+from utils.admin_dashboard_live import admin_dashboard
 from dotenv import load_dotenv
 
 # Ensure environment variables are loaded
@@ -135,6 +136,18 @@ class AdminCommandHandler:
             r'i want to withdraw',
             r'withdraw.*₦',
             r'take out.*profit'
+        ]        
+        # Dashboard commands
+        dashboard_patterns = [
+            r'how many.*deposit',
+            r'deposit.*today',
+            r'today.*deposit',
+            r'dashboard',
+            r'admin.*summary',
+            r'business.*summary',
+            r'today.*business',
+            r'daily.*report',
+            r'stats.*today'
         ]
         
         # Report commands
@@ -152,6 +165,9 @@ class AdminCommandHandler:
             r'opay.*done',
             r'withdrawal.*complete'
         ]
+          for pattern in dashboard_patterns:
+            if re.search(pattern, message_lower):
+                return 'admin_dashboard'
         
         for pattern in profit_patterns:
             if re.search(pattern, message_lower):
@@ -170,8 +186,7 @@ class AdminCommandHandler:
                 return 'mark_completion'
         
         return None
-    
-    async def handle_admin_command(self, command_type: str, message: str, chat_id: str) -> str:
+      async def handle_admin_command(self, command_type: str, message: str, chat_id: str) -> str:
         """Process admin commands and return appropriate response"""
         try:
             if command_type == 'profit_inquiry':
@@ -185,6 +200,9 @@ class AdminCommandHandler:
             
             elif command_type == 'mark_completion':
                 return await self._handle_mark_completion(message)
+            
+            elif command_type == 'admin_dashboard' or 'deposit' in message.lower() or 'today' in message.lower():
+                return await self._handle_admin_dashboard()
             
             else:
                 return "I didn't understand that admin command. Try asking about profit or requesting a withdrawal."
@@ -282,6 +300,24 @@ class AdminCommandHandler:
             return f"✅ **Withdrawal Completed!**\n\n₦{amount:,.2f} withdrawal has been marked as completed in Opay. Your records are now up to date!"
         else:
             return f"❌ Error marking completion: {result['error']}"
+    
+    async def _handle_admin_dashboard(self) -> str:
+        """Handle admin dashboard queries - live database statistics"""
+        try:
+            # Generate live dashboard summary from Supabase
+            dashboard_summary = await admin_dashboard.generate_admin_dashboard_summary()
+            return dashboard_summary
+            
+        except Exception as e:
+            logger.error(f"Error generating admin dashboard: {e}")
+            return f"""❌ **Dashboard Error:** {str(e)}
+
+📋 **Alternative Options:**
+• Check your Supabase connection
+• Verify database tables exist
+• Try again in a few minutes
+
+💡 **Need Help?** Contact your developer to troubleshoot the database connection."""
     
     def _extract_amount(self, message: str) -> Optional[float]:
         """Extract monetary amount from message"""
