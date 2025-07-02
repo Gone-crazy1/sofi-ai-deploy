@@ -142,6 +142,9 @@ IMPORTANT NIGERIAN CONTEXT:
                     log_file.write(f"Message: {message}\nResponse: {response}\n\n")
             
             content = content.strip()
+            # Remove markdown formatting if present
+            if content.startswith("```json"):
+                content = content.replace("```json", "").replace("```", "").strip()
             parsed = json.loads(content)
             
             return parsed
@@ -229,11 +232,11 @@ Keep responses short (2-3 lines max). Use Nigerian style but stay professional."
                     "Need: BVN + phone number\n"
                     "Get instant virtual account for transfers & airtime!"
                 )
-            await save_chat_message(chat_id, "assistant", reply)
+            save_chat_message(chat_id, "assistant", reply)
             return reply
 
         # Get conversation history
-        messages = await get_chat_history(chat_id)
+        messages = get_chat_history(chat_id)
           # Add system prompt and current message
         conversation = [
             {"role": "system", "content": system_prompt},
@@ -264,8 +267,8 @@ Keep responses short (2-3 lines max). Use Nigerian style but stay professional."
         # Save the exchange to conversation history
         # Only save if ai_reply is a string (avoid MagicMock in tests)
         if isinstance(ai_reply, str):
-            await save_chat_message(chat_id, "user", message)
-            await save_chat_message(chat_id, "assistant", ai_reply)
+            save_chat_message(chat_id, "user", message)
+            save_chat_message(chat_id, "assistant", ai_reply)
         else:
             logger.warning(f"Not saving non-string ai_reply to chat history: {type(ai_reply)}")
         return ai_reply
