@@ -31,32 +31,28 @@ SOFI_MONEY_FUNCTIONS = [
         "type": "function",
         "function": {
             "name": "send_money", 
-            "description": "Send money to a verified bank account. Requires PIN verification.",
+            "description": "Send money to a verified bank account. Will prompt for PIN via secure keyboard.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "recipient_account": {
-                        "type": "string",
-                        "description": "The recipient's account number"
-                    },
-                    "recipient_bank": {
-                        "type": "string",
-                        "description": "The recipient's bank name"
-                    },
                     "amount": {
                         "type": "number",
                         "description": "Amount to send in Naira (minimum ₦10)"
                     },
-                    "pin": {
-                        "type": "string", 
-                        "description": "User's 4-digit transaction PIN"
+                    "account_number": {
+                        "type": "string",
+                        "description": "The recipient's account number (10 digits)"
                     },
-                    "reason": {
+                    "bank_name": {
+                        "type": "string",
+                        "description": "The recipient's bank name (e.g., 'Access Bank', 'Wema Bank')"
+                    },
+                    "narration": {
                         "type": "string",
                         "description": "Reason for transfer (optional)"
                     }
                 },
-                "required": ["recipient_account", "recipient_bank", "amount", "pin"]
+                "required": ["amount", "account_number", "bank_name"]
             }
         }
     },

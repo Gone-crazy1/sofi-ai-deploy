@@ -14,22 +14,36 @@ import uuid
 
 logger = logging.getLogger(__name__)
 
-async def send_money(chat_id: str, recipient_account: str, recipient_bank: str, amount: float, narration: str = None, pin: str = None, **kwargs) -> Dict[str, Any]:
+async def send_money(chat_id: str, amount: float, narration: str = None, pin: str = None, 
+                    recipient_account: str = None, recipient_bank: str = None,
+                    account_number: str = None, bank_name: str = None, **kwargs) -> Dict[str, Any]:
     """
     Send money to another bank account using Paystack
     
     Args:
         chat_id (str): Sender's Telegram chat ID
-        recipient_account (str): Recipient's account number
-        recipient_bank (str): Recipient's bank code or name
         amount (float): Amount to send
         narration (str, optional): Transfer description
         pin (str, optional): User's transaction PIN
+        recipient_account (str, optional): Recipient's account number (old format)
+        recipient_bank (str, optional): Recipient's bank code or name (old format)
+        account_number (str, optional): Recipient's account number (new format)
+        bank_name (str, optional): Recipient's bank code or name (new format)
         
     Returns:
         Dict containing transfer result
     """
     try:
+        # Support both parameter name formats for compatibility
+        recipient_account = recipient_account or account_number
+        recipient_bank = recipient_bank or bank_name
+        
+        if not recipient_account:
+            return {"success": False, "error": "Missing recipient account number"}
+        
+        if not recipient_bank:
+            return {"success": False, "error": "Missing recipient bank"}
+        
         logger.info(f"💸 Processing Paystack transfer from {chat_id}: ₦{amount} to {recipient_account} at {recipient_bank}")
         
         # Official Paystack bank codes (updated from API)
@@ -196,6 +210,31 @@ async def send_money(chat_id: str, recipient_account: str, recipient_bank: str, 
         
         user_data = user_result.data[0]
         
+        # Check if PIN is provided - if not, trigger PIN entry flow
+        if not pin:
+            # No PIN provided - start PIN entry flow
+            from utils.pin_entry_system import pin_manager
+            
+            # Start PIN entry session
+            transfer_data = {
+                "account_number": recipient_account,
+                "bank_name": recipient_bank,
+                "amount": amount,
+                "narration": narration or f"Transfer from {user_data.get('full_name', 'Sofi User')}",
+                "temp_id": f"transfer_{chat_id}_{int(datetime.now().timestamp())}"
+            }
+            
+            pin_manager.start_pin_session(chat_id, "transfer", transfer_data)
+            
+            # Return special response indicating PIN entry is needed
+            return {
+                "success": False,
+                "requires_pin": True,
+                "message": f"Please enter your 4-digit PIN to send ₦{amount:,.0f} to {recipient_account}",
+                "show_pin_keyboard": True,
+                "transfer_data": transfer_data
+            }
+        
         # Verify PIN if provided
         if pin:
             from functions.security_functions import verify_pin
@@ -257,15 +296,18 @@ async def send_money(chat_id: str, recipient_account: str, recipient_bank: str, 
             # 🎯 CRITICAL: Check if Paystack transfer actually worked
             requires_otp = transfer_result.get("requires_otp", False)
             
-            # Prepare transaction data for database
+            # Prepare transaction data for database (include both column name formats for compatibility)
             transaction_data = {
                 "user_id": chat_id,
                 "transaction_id": transaction_id,
                 "type": "transfer_out", 
                 "amount": amount,
+                # Include both column name formats for compatibility
                 "recipient_account": recipient_account,
+                "account_number": recipient_account,  # Alternative column name
                 "recipient_name": recipient_name,
                 "recipient_bank": recipient_bank,
+                "bank_name": recipient_bank,  # Alternative column name
                 "narration": transfer_reason,
                 "status": "completed" if paystack_transfer_success and not requires_otp else "pending_otp",
                 "transfer_code": transfer_code,

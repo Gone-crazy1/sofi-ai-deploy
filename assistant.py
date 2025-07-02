@@ -212,32 +212,69 @@ class SofiAssistant:
                 )
             
             elif function_name == "send_money":
-                # Use the transfer functions directly
+                # For transfers, we need to initiate PIN entry flow instead of expecting PIN in args
                 logger.info(f"🔧 send_money called with args: {function_args}")
                 logger.info(f"🔧 chat_id: {chat_id}")
                 
-                # Validate required arguments
-                required_args = ["recipient_account", "recipient_bank", "amount", "pin"]
-                missing_args = [arg for arg in required_args if arg not in function_args]
+                # Extract parameters (supporting both old and new formats for compatibility)
+                recipient_account = function_args.get("account_number") or function_args.get("recipient_account")
+                recipient_bank = function_args.get("bank_name") or function_args.get("recipient_bank") 
+                amount = function_args.get("amount")
+                reason = function_args.get("narration") or function_args.get("reason", "Transfer via Sofi AI")
                 
-                if missing_args:
-                    logger.error(f"❌ Missing required arguments: {missing_args}")
-                    return {"success": False, "error": f"Missing required arguments: {missing_args}"}
+                # Validate we have the required data
+                if not recipient_account:
+                    logger.error(f"❌ Missing recipient account number")
+                    return {"success": False, "error": "Missing recipient account number"}
                 
-                # Import and inspect the function to debug
-                from functions.transfer_functions import send_money
-                import inspect
-                sig = inspect.signature(send_money)
-                logger.info(f"🔧 send_money signature: {sig}")
+                if not recipient_bank:
+                    logger.error(f"❌ Missing recipient bank")
+                    return {"success": False, "error": "Missing recipient bank"}
                 
-                return await send_money(
-                    chat_id=chat_id,
-                    recipient_account=function_args["recipient_account"],
-                    recipient_bank=function_args["recipient_bank"],
-                    amount=float(function_args["amount"]),
-                    pin=function_args["pin"],
-                    narration=function_args.get("reason", "Transfer via Sofi AI")
-                )
+                if not amount:
+                    logger.error(f"❌ Missing transfer amount")
+                    return {"success": False, "error": "Missing transfer amount"}
+                
+                logger.info(f"✅ Parsed transfer details: ₦{amount} to {recipient_account} at {recipient_bank}")
+                
+                # Check if PIN is provided (for direct calls) or if we need to start PIN entry
+                if "pin" in function_args and function_args["pin"]:
+                    # Direct PIN provided - execute transfer immediately
+                    from functions.transfer_functions import send_money
+                    
+                    return await send_money(
+                        chat_id=chat_id,
+                        account_number=recipient_account,  # Use new parameter name
+                        bank_name=recipient_bank,          # Use new parameter name
+                        amount=float(amount),
+                        pin=function_args["pin"],
+                        narration=reason
+                    )
+                else:
+                    # No PIN provided - start PIN entry flow
+                    from utils.pin_entry_system import pin_manager
+                    from datetime import datetime
+                    
+                    # Start PIN entry session
+                    transfer_data = {
+                        "account_number": recipient_account,  # Use new parameter name  
+                        "bank_name": recipient_bank,          # Use new parameter name
+                        "amount": float(amount),
+                        "narration": reason,
+                        "temp_id": f"transfer_{chat_id}_{int(datetime.now().timestamp())}"
+                    }
+                    
+                    pin_manager.start_pin_session(chat_id, "transfer", transfer_data)
+                    logger.info(f"🔐 PIN session started for transfer: ₦{amount} to {recipient_account}")
+                    
+                    # Return special response indicating PIN entry is needed
+                    return {
+                        "success": False,
+                        "requires_pin": True,
+                        "message": f"Please enter your 4-digit PIN to send ₦{amount:,.0f} to {recipient_account} at {recipient_bank}",
+                        "show_pin_keyboard": True,
+                        "transfer_data": transfer_data
+                    }
             
             elif function_name == "check_balance":
                 # Use the balance functions directly
