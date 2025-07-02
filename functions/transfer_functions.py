@@ -1,0 +1,257 @@
+"""
+Transfer-related functions for Sofi AI Assistant
+Handles money transfers using Paystack
+"""
+
+import logging
+from typing import Dict, Any
+from supabase import create_client
+import os
+from paystack.paystack_service import get_paystack_service
+from utils.secure_transfer_handler import SecureTransferHandler
+from datetime import datetime
+import uuid
+
+logger = logging.getLogger(__name__)
+
+async def send_money(chat_id: str, recipient_account: str, recipient_bank: str, amount: float, narration: str = None, pin: str = None, **kwargs) -> Dict[str, Any]:
+    """
+    Send money to another bank account using Paystack
+    
+    Args:
+        chat_id (str): Sender's Telegram chat ID
+        recipient_account (str): Recipient's account number
+        recipient_bank (str): Recipient's bank code or name
+        amount (float): Amount to send
+        narration (str, optional): Transfer description
+        pin (str, optional): User's transaction PIN
+        
+    Returns:
+        Dict containing transfer result
+    """
+    try:
+        logger.info(f"💸 Processing Paystack transfer from {chat_id}: ₦{amount} to {recipient_account} at {recipient_bank}")
+        
+        # Convert bank name to bank code if necessary
+        bank_name_to_code = {
+            "uba": "033",
+            "united bank for africa": "033",
+            "gtbank": "058",
+            "guaranty trust bank": "058", 
+            "access bank": "044",
+            "first bank": "011",
+            "first bank of nigeria": "011",
+            "zenith bank": "057",
+            "opay": "999992",
+            "moniepoint": "50515",
+            "palmpay": "999991",
+            "kuda": "50211"
+        }
+        
+        # If recipient_bank is a name, convert to code
+        if recipient_bank.lower() in bank_name_to_code:
+            bank_code = bank_name_to_code[recipient_bank.lower()]
+            logger.info(f"🔄 Converted bank name '{recipient_bank}' to code '{bank_code}'")
+            recipient_bank = bank_code
+        
+        # Validate inputs
+        if amount <= 0:
+            return {
+                "success": False,
+                "error": "Invalid amount. Amount must be greater than 0."
+            }
+        
+        if amount < 100:  # Paystack minimum
+            return {
+                "success": False,
+                "error": "Minimum transfer amount is ₦100."
+            }
+        
+        # Get Paystack service
+        paystack = get_paystack_service()
+        
+        # Validate transfer amount
+        validation = paystack.validate_transfer_amount(amount)
+        if not validation["valid"]:
+            return {
+                "success": False,
+                "error": validation["errors"][0]
+            }
+        
+        # Check if user exists
+        supabase = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
+        user_result = supabase.table("users").select("*").eq("telegram_chat_id", str(chat_id)).execute()
+        
+        if not user_result.data:
+            return {
+                "success": False,
+                "error": "User not found. Please complete registration first."
+            }
+        
+        user_data = user_result.data[0]
+        
+        # Verify PIN if provided
+        if pin:
+            from functions.security_functions import verify_pin
+            pin_result = await verify_pin(chat_id=chat_id, pin=pin)
+            if not pin_result["valid"]:
+                return {
+                    "success": False,
+                    "error": "Invalid PIN. Please check your PIN and try again."
+                }
+        
+        # First verify the recipient account
+        logger.info(f"🔍 Verifying recipient account: {recipient_account}")
+        
+        verify_result = paystack.verify_account_number(recipient_account, recipient_bank)
+        if not verify_result["success"] or not verify_result["verified"]:
+            return {
+                "success": False,
+                "error": f"Could not verify recipient account: {verify_result.get('error', 'Invalid account details')}"
+            }
+        
+        recipient_name = verify_result["account_name"]
+        logger.info(f"✅ Account verified: {recipient_name}")
+        
+        # Prepare transfer
+        transfer_reason = narration or f"Transfer from {user_data.get('full_name', 'Sofi User')}"
+        
+        # Execute transfer using Paystack
+        transfer_result = paystack.create_recipient_and_send(
+            account_number=recipient_account,
+            bank_code=recipient_bank,
+            account_name=recipient_name,
+            amount=amount,
+            reason=transfer_reason
+        )
+        
+        # 🎯 CRITICAL FIX: Check if Paystack operations actually succeeded
+        # The create_recipient_and_send returns success=True even if recipient creation worked but transfer failed
+        recipient_created = transfer_result.get("success") and transfer_result.get("recipient")
+        actual_transfer_data = transfer_result.get("transfer")
+        transfer_code = transfer_result.get("transfer_code")
+        
+        # Determine if the actual money transfer worked
+        paystack_transfer_success = (
+            recipient_created and 
+            actual_transfer_data is not None and
+            transfer_code is not None
+        )
+        
+        logger.info(f"📊 Transfer Analysis:")
+        logger.info(f"   Recipient created: {recipient_created}")
+        logger.info(f"   Transfer data: {actual_transfer_data is not None}")
+        logger.info(f"   Transfer code: {transfer_code}")
+        logger.info(f"   Overall success: {paystack_transfer_success}")
+        
+        if paystack_transfer_success:
+            # Generate transaction ID
+            transaction_id = str(uuid.uuid4())
+            
+            # 🎯 CRITICAL: Check if Paystack transfer actually worked
+            requires_otp = transfer_result.get("requires_otp", False)
+            
+            # Prepare transaction data for database
+            transaction_data = {
+                "user_id": chat_id,
+                "transaction_id": transaction_id,
+                "type": "transfer_out", 
+                "amount": amount,
+                "recipient_account": recipient_account,
+                "recipient_name": recipient_name,
+                "recipient_bank": recipient_bank,
+                "narration": transfer_reason,
+                "status": "completed" if paystack_transfer_success and not requires_otp else "pending_otp",
+                "transfer_code": transfer_code,
+                "created_at": datetime.now().isoformat()
+            }
+            
+            # Try to save to database (but don't fail the whole transfer if this fails)
+            db_save_success = False
+            try:
+                supabase.table("bank_transactions").insert(transaction_data).execute()
+                db_save_success = True
+                logger.info(f"✅ Transaction recorded in database: {transaction_id}")
+            except Exception as db_error:
+                logger.warning(f"⚠️ Could not save transaction to database: {db_error}")
+                logger.info(f"💡 But Paystack transfer still worked! Transfer code: {transfer_code}")
+                # Don't fail the transfer because of database issues
+            
+            # 🎯 Return success based on PAYSTACK result, not database result
+            if paystack_transfer_success:
+                if requires_otp:
+                    return {
+                        "success": True,
+                        "requires_otp": True,
+                        "transfer_code": transfer_code,
+                        "message": f"Transfer requires OTP verification. Transfer code: {transfer_code}",
+                        "amount": amount,
+                        "recipient": recipient_name,
+                        "transaction_id": transaction_id,
+                        "db_saved": db_save_success
+                    }
+                else:
+                    return {
+                        "success": True,
+                        "message": f"✅ Transfer of ₦{amount:,.2f} to {recipient_name} completed successfully!",
+                        "amount": amount,
+                        "recipient": recipient_name,
+                        "transaction_id": transaction_id,
+                        "transfer_code": transfer_code,
+                        "reference": transfer_code,
+                        "status": "completed",
+                        "db_saved": db_save_success
+                    }
+            else:
+                return {
+                    "success": False,
+                    "error": f"Paystack transfer failed: {transfer_result.get('error', 'Unknown error')}"
+                }
+        else:
+            return {
+                "success": False,
+                "error": f"Transfer failed: {transfer_result.get('error', 'Unknown error')}"
+            }
+        
+    except Exception as e:
+        logger.error(f"❌ Error in send_money: {str(e)}")
+        return {
+            "success": False,
+            "error": f"Transfer failed due to system error: {str(e)}"
+        }
+
+
+async def calculate_transfer_fee(amount: float, **kwargs) -> Dict[str, Any]:
+    """
+    Calculate transfer fee for a given amount
+    
+    Args:
+        amount (float): Transfer amount
+        
+    Returns:
+        Dict containing fee information
+    """
+    try:
+        # Sofi AI fee structure
+        if amount <= 5000:
+            fee = 10.0
+        elif amount <= 50000:
+            fee = 25.0
+        else:
+            fee = 50.0
+        
+        return {
+            "amount": amount,
+            "fee": fee,
+            "total": amount + fee,
+            "fee_percentage": (fee / amount) * 100 if amount > 0 else 0
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Error calculating fee: {str(e)}")
+        return {
+            "amount": amount,
+            "fee": 10.0,  # Default fee
+            "total": amount + 10.0,
+            "error": str(e)
+        }

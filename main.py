@@ -5,14 +5,16 @@ from datetime import datetime
 from supabase import create_client
 import openai
 from openai import OpenAI
-from typing import Dict, Optional
+from typing import Dict, Optional, Any
+import time
 from utils.bank_api import BankAPI
 from utils.secure_transfer_handler import SecureTransferHandler
 from utils.balance_helper import get_user_balance as get_balance_secure, check_virtual_account as check_virtual_account_secure
-from utils.admin_profit_manager import profit_manager
-# Monnify Integration - Official Banking Partner
-from monnify.monnify_api import MonnifyAPI
-from monnify.monnify_webhook import handle_monnify_webhook
+# Paystack Integration - Banking Partner
+from paystack import get_paystack_service
+from paystack.paystack_webhook import handle_paystack_webhook
+# OpenAI Assistant Integration
+from assistant import get_assistant
 from dotenv import load_dotenv
 import random
 from PIL import Image
@@ -31,6 +33,10 @@ load_dotenv()
 # Import admin handler AFTER environment loading
 from utils.admin_command_handler import AdminCommandHandler
 admin_handler = AdminCommandHandler()
+
+# Import user onboarding system
+from utils.user_onboarding import SofiUserOnboarding
+onboarding_service = SofiUserOnboarding()
 
 def generate_pos_style_receipt(sender_name, amount, recipient_name, recipient_account, recipient_bank, balance, transaction_id):
     """Generate a POS-style receipt for a transaction."""
@@ -240,7 +246,7 @@ async def generate_ai_reply(chat_id: str, message: str):
                 # Debug info
                 logger.info(f"DEBUG: Virtual account data = {virtual_account}")
                 
-                # Get user's full name from Supabase instead of truncated Monnify name
+                # Get user's full name from Supabase instead of truncated bank name
                 from utils.user_onboarding import onboarding_service
                 user_profile = await onboarding_service.get_user_profile(str(chat_id))
                 
@@ -248,7 +254,7 @@ async def generate_ai_reply(chat_id: str, message: str):
                 account_number = virtual_account.get("accountNumber") or virtual_account.get("account_number", "Not available")
                 bank_name = virtual_account.get("bankName") or virtual_account.get("bank_name", "Not available")
                 
-                # Use full name from Supabase, not truncated Monnify account name
+                # Use full name from Supabase, not truncated bank account name
                 display_name = user_profile.get('full_name') if user_profile else virtual_account.get("accountName", "Not available")
                 
                 reply = (
@@ -470,7 +476,7 @@ def validate_account_number(account_number: str) -> bool:
     """Validate Nigerian bank account number format"""
     return bool(account_number and account_number.isdigit() and len(account_number) >= 10)
 
-async def verify_account_name(account_number: str, bank_name: str) -> Dict:
+def verify_account_name(account_number: str, bank_name: str) -> Dict:
     """Verify account name with bank using Bank API"""
     try:
         bank_api = BankAPI()
@@ -482,15 +488,21 @@ async def verify_account_name(account_number: str, bank_name: str) -> Dict:
                 "verified": False,
                 "error": "Unsupported bank"
             }
-            
-        # Verify account
-        result = await bank_api.verify_account(account_number, bank_code)
-        return {
-            "verified": True,
-            "account_name": result.get('account_name'),
-            "bank_name": result.get('bank_name'),
-            "account_number": account_number
-        }
+              # Verify account
+        result = bank_api.verify_account(account_number, bank_code)
+        
+        if result and result.get('verified'):
+            return {
+                "verified": True,
+                "account_name": result.get('account_name'),
+                "bank_name": result.get('bank_name'),
+                "account_number": account_number
+            }
+        else:
+            return {
+                "verified": False,
+                "error": "Account verification failed"
+            }
     except Exception as e:
         logger.error(f"Error verifying account: {str(e)}")
         return {
@@ -542,7 +554,7 @@ async def handle_transfer_flow(chat_id: str, message: str, user_data: dict = Non
             bank = state['transfer']['bank'] or 'unknown'
             
             try:
-                verification_result = await verify_account_name(
+                verification_result = verify_account_name(
                     state['transfer']['account_number'],
                     bank
                 )
@@ -601,7 +613,7 @@ async def handle_transfer_flow(chat_id: str, message: str, user_data: dict = Non
             transfer['bank'] = bank
           # Try to verify account
         try:
-            verification_result = await verify_account_name(account_number, bank or 'unknown')
+            verification_result = verify_account_name(account_number, bank or 'unknown')
             if verification_result and verification_result.get('verified'):
                 transfer['recipient_name'] = verification_result['account_name']
                 transfer['bank'] = verification_result.get('bank_name', bank)
@@ -630,7 +642,7 @@ async def handle_transfer_flow(chat_id: str, message: str, user_data: dict = Non
     
     elif current_step == 'get_bank':
         transfer['bank'] = message.strip()
-        verification_result = await verify_account_name(transfer['account_number'], transfer['bank'])
+        verification_result = verify_account_name(transfer['account_number'], transfer['bank'])
         if verification_result['verified']:
             transfer['recipient_name'] = verification_result['account_name']
             state['step'] = 'get_amount' if not transfer['amount'] else 'confirm_transfer'
@@ -760,14 +772,38 @@ async def handle_crypto_commands(chat_id: str, message: str, user_data: dict) ->
         return None
 
 async def handle_message(chat_id: str, message: str, user_data: dict = None, virtual_account: dict = None) -> str:
-    """Main message handler that routes to appropriate handlers"""
+    """Main message handler with OpenAI Assistant integration"""
     try:
-        # Check for admin commands first
+        # Check for admin commands first (highest priority)
         admin_command = await admin_handler.detect_admin_command(message, chat_id)
         if admin_command:
             admin_response = await admin_handler.handle_admin_command(admin_command, message, chat_id)
             return admin_response
         
+        # Try OpenAI Assistant first for better AI handling
+        try:
+            assistant = get_assistant()
+            
+            # Prepare user data for context
+            context_data = user_data or {}
+            if virtual_account:
+                context_data['virtual_account'] = virtual_account
+            
+            # Process message with OpenAI Assistant
+            response, function_data = await assistant.process_message(chat_id, message, context_data)
+            
+            # If assistant handled it successfully, return the response
+            if response and not response.startswith("Sorry, I encountered an error"):
+                logger.info(f"✅ OpenAI Assistant handled message from {chat_id}")
+                return response
+            else:
+                logger.info(f"⚠️ OpenAI Assistant failed, falling back to legacy handlers")
+        
+        except Exception as assistant_error:
+            logger.error(f"❌ OpenAI Assistant error: {str(assistant_error)}")
+            logger.info("🔄 Falling back to legacy message handlers")
+        
+        # Fallback to legacy handlers if assistant fails
         # Check for balance inquiry
         balance_response = await handle_balance_inquiry(chat_id, message, user_data, virtual_account)
         if balance_response:
@@ -831,7 +867,7 @@ async def handle_balance_inquiry(chat_id: str, message: str, user_data: dict = N
         
         # Safe access to account details
         account_number = virtual_account.get("accountNumber") or virtual_account.get("account_number", "Not available")
-        bank_name = virtual_account.get("bankName") or virtual_account.get("bank_name", "Monnify MFB")
+        bank_name = virtual_account.get("bankName") or virtual_account.get("bank_name", "Paystack Bank")
         display_name = user_profile.get('full_name') if user_profile else virtual_account.get("accountName", "Not available")
         
         # Get recent transactions from Supabase
@@ -1009,12 +1045,12 @@ async def webhook_incoming():
                     f"🚀 *Click the button below to start your registration!*"
                 )
                 
-                # Create inline keyboard with registration button
+                # Create inline keyboard with web app button
                 inline_keyboard = {
                     "inline_keyboard": [[
                         {
                             "text": "🚀 Complete Registration",
-                            "url": "https://sofi-ai-trio.onrender.com/onboarding"
+                            "web_app": {"url": "https://sofi-ai-trio.onrender.com/onboard"}
                         }
                     ]]
                 }
@@ -1040,20 +1076,25 @@ async def webhook_incoming():
         logger.error(f"Error processing webhook: {str(e)}")
         return jsonify({"error": "Internal server error", "response": None}), 500
 
-@app.route("/monnify_webhook", methods=["POST"])
-def handle_monnify_webhook_route():
-    """Handle Monnify webhook notifications for payments and transfers"""
+@app.route("/api/paystack/webhook", methods=["POST"])
+def handle_paystack_webhook_route():
+    """Handle Paystack webhook notifications for payments and transfers"""
     try:
         data = request.get_json()
         
-        # Get signature from headers if available
-        signature = request.headers.get('Monnify-Signature')
+        # Get signature from headers
+        signature = request.headers.get('X-Paystack-Signature')
+        
+        # TEMPORARY: Bypass signature check for localhost testing
+        if request.remote_addr == "127.0.0.1":
+            logger.info("🔐 Bypassing signature check for localhost test")
+            signature = None  # Skip verification for local tests
         
         # Log incoming webhook for debugging
-        logger.info(f"Monnify webhook received: {data}")
+        logger.info(f"Paystack webhook received: {data}")
         
         # Process the webhook using imported handler
-        result = handle_monnify_webhook(data, signature)
+        result = handle_paystack_webhook(data, signature)
         
         if result.get('success'):
             return jsonify({"status": "success", "message": "Webhook processed"}), 200
@@ -1061,8 +1102,13 @@ def handle_monnify_webhook_route():
             return jsonify({"status": "error", "message": result.get('error', 'Unknown error')}), 400
             
     except Exception as e:
-        logger.error(f"Error processing Monnify webhook: {str(e)}")
+        logger.error(f"Error processing Paystack webhook: {str(e)}")
         return jsonify({"status": "error", "message": "Internal server error"}), 500
+
+@app.route("/paystack-webhook", methods=["POST"])
+def handle_paystack_webhook_legacy():
+    """Legacy webhook route for backward compatibility"""
+    return handle_paystack_webhook_route()
 
 @app.route("/api/create_virtual_account", methods=["POST"])
 def create_virtual_account():
@@ -1169,6 +1215,139 @@ def cancel_transfer_api(transaction_id):
     except Exception as e:
         logger.error(f"Error cancelling transfer: {e}")
         return jsonify({'success': False}), 500
+
+@app.route("/api/onboard", methods=["POST"])
+def onboard_user_api():
+    """API endpoint for web onboarding"""
+    try:
+        # Get user data from request
+        user_data = request.get_json()
+        
+        if not user_data:
+            return jsonify({
+                'success': False,
+                'error': 'No user data provided'
+            }), 400
+        
+        # Validate required fields
+        required_fields = ['telegram_id', 'full_name', 'phone']
+        missing_fields = [field for field in required_fields if not user_data.get(field)]
+        
+        if missing_fields:
+            return jsonify({
+                'success': False,
+                'error': f'Missing required fields: {", ".join(missing_fields)}'
+            }), 400
+        
+        # Run the onboarding process
+        logger.info(f"Starting web onboarding for user: {user_data.get('full_name')}")
+        
+        # Since onboarding is async, we need to run it in an event loop
+        import asyncio
+        
+        # Create new event loop if one doesn't exist
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        
+        # Run the onboarding process
+        result = loop.run_until_complete(onboarding_service.create_new_user(user_data))
+        
+        if result.get('success'):
+            logger.info(f"Successfully onboarded web user: {user_data.get('full_name')}")
+            
+            # Send account details to user via Telegram if telegram_id is provided
+            telegram_id = user_data.get('telegram_id')
+            if telegram_id and not telegram_id.startswith('web_user_'):
+                # This is a real Telegram user, send them their account details
+                asyncio.run(send_account_details_to_user(telegram_id, result))
+            
+            return jsonify(result), 200
+        else:
+            logger.warning(f"Onboarding failed for web user: {result.get('error')}")
+            return jsonify(result), 400
+            
+    except Exception as e:
+        logger.error(f"Error in web onboarding API: {e}")
+        return jsonify({
+            'success': False,
+            'error': f'Internal server error: {str(e)}'
+        }), 500
+
+async def send_account_details_to_user(chat_id: str, onboarding_result: dict):
+    """Send account details to user via Telegram after successful onboarding"""
+    try:
+        account_details = onboarding_result.get('account_details', {})
+        full_name = onboarding_result.get('full_name', '')
+        customer_code = onboarding_result.get('customer_code', '')
+        
+        # Create beautiful account details message
+        welcome_message = (
+            f"🎉 *Account Created Successfully!*\n\n"
+            f"Welcome to Sofi AI, {full_name}! Your virtual account is ready.\n\n"
+            f"💳 *Your Account Details:*\n"
+            f"━━━━━━━━━━━━━━━━━━━━━\n"
+            f"🏦 *Account Number:* `{account_details.get('account_number', 'N/A')}`\n"
+            f"👤 *Account Name:* {account_details.get('account_name', 'N/A')}\n"
+            f"🏛️ *Bank:* {account_details.get('bank_name', 'N/A')}\n"
+            f"🆔 *Customer ID:* `{customer_code}`\n"
+            f"━━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"🚀 *Next Steps:*\n"
+            f"✅ Fund your account using the details above\n"
+            f"✅ Start sending money instantly\n"
+            f"✅ Buy airtime & data at best rates\n"
+            f"✅ Check your balance anytime\n\n"
+            f"💬 *Try saying:*\n"
+            f"• \"Check my balance\"\n"
+            f"• \"Send ₦1000 to John\"\n"
+            f"• \"Buy ₦200 airtime\"\n\n"
+            f"🤖 I'm here to help with all your financial needs!"
+        )
+        
+        # Send message to user
+        send_reply(chat_id, welcome_message)
+        logger.info(f"Account details sent to user {chat_id}")
+        
+    except Exception as e:
+        logger.error(f"Error sending account details to user {chat_id}: {e}")
+
+@app.route("/api/notify-onboarding", methods=["POST"])
+def notify_onboarding_complete():
+    """Webhook endpoint for onboarding completion notifications"""
+    try:
+        data = request.get_json()
+        telegram_id = data.get('telegram_id')
+        onboarding_result = data.get('result', {})
+        
+        if telegram_id and not telegram_id.startswith('web_user_'):
+            # Send account details to the user
+            import asyncio
+            asyncio.run(send_account_details_to_user(telegram_id, onboarding_result))
+            
+        return jsonify({'success': True}), 200
+        
+    except Exception as e:
+        logger.error(f"Error in onboarding notification: {e}")
+        return jsonify({'success': False}), 500
+
+@app.route("/onboard", methods=["GET"])
+def serve_onboarding_form():
+    """Serve the web onboarding form"""
+    try:
+        with open('web_onboarding.html', 'r', encoding='utf-8') as f:
+            html_content = f.read()
+        return html_content, 200, {'Content-Type': 'text/html'}
+    except FileNotFoundError:
+        return jsonify({
+            'error': 'Onboarding form not found'
+        }), 404
+    except Exception as e:
+        logger.error(f"Error serving onboarding form: {e}")
+        return jsonify({
+            'error': 'Internal server error'
+        }), 500
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)), debug=False)

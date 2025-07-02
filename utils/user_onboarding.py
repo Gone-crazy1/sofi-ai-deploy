@@ -3,7 +3,7 @@ Sofi AI User Onboarding System
 
 Handles complete user registration process:
 - Telegram Web App form collection
-- Monnify virtual account creation (Official Banking Partner)
+- Paystack virtual account creation (Official Banking Partner)
 - User data storage in Supabase
 - Welcome notifications with account details
 - Account upgrade options
@@ -17,7 +17,7 @@ from supabase import create_client
 from dotenv import load_dotenv
 
 # Import our modules
-from monnify.monnify_api import MonnifyAPI
+from paystack.paystack_service import PaystackService
 from utils.notification_service import notification_service
 from utils.fee_calculator import fee_calculator
 
@@ -31,10 +31,10 @@ supabase = create_client(SUPABASE_URL, SUPABASE_KEY) if SUPABASE_URL and SUPABAS
 logger = logging.getLogger(__name__)
 
 class SofiUserOnboarding:
-    """Complete Sofi AI User Onboarding System with Monnify Integration"""
+    """Complete Sofi AI User Onboarding System with Paystack Integration"""
     
     def __init__(self):
-        self.monnify_api = MonnifyAPI()
+        self.paystack_service = PaystackService()
     
     async def create_new_user(self, user_data: Dict) -> Dict:
         """
@@ -61,6 +61,8 @@ class SofiUserOnboarding:
             email = user_data.get('email', '').strip()
             address = user_data.get('address', '').strip()
             bvn = user_data.get('bvn', '').strip()
+            pin = user_data.get('pin', '').strip()
+            confirm_pin = user_data.get('confirm_pin', '').strip()
             
             # Validate required fields
             if not all([telegram_id, full_name, phone]):
@@ -68,6 +70,34 @@ class SofiUserOnboarding:
                     'success': False,
                     'error': 'Missing required fields: full_name, phone, telegram_id'
                 }
+            
+            # Validate PIN if provided
+            if pin:
+                if not pin.isdigit() or len(pin) != 4:
+                    return {
+                        'success': False,
+                        'error': 'PIN must be exactly 4 digits'
+                    }
+                
+                if pin != confirm_pin:
+                    return {
+                        'success': False,
+                        'error': 'PIN confirmation does not match'
+                    }
+            
+            # Import hashlib for PIN hashing
+            import hashlib
+            
+            # Hash PIN if provided
+            pin_hash = None
+            if pin:
+                # Create a secure hash of the PIN with a salt
+                pin_hash = hashlib.pbkdf2_hmac('sha256', 
+                                             pin.encode('utf-8'), 
+                                             telegram_id.encode('utf-8'), 
+                                             100000)  # 100,000 iterations
+                pin_hash = pin_hash.hex()
+                logger.info(f"PIN securely hashed for user {full_name}")
             
             # Check if user already exists
             existing_user = await self.check_existing_user(telegram_id)
@@ -77,22 +107,19 @@ class SofiUserOnboarding:
                     'error': 'User already registered',
                     'existing_user': existing_user
                 }            
-            # Step 1: Create Monnify virtual account
-            logger.info(f"Creating Monnify virtual account for {full_name}")
+            # Step 1: Create Paystack customer and virtual account
+            logger.info(f"Creating Paystack virtual account for {full_name}")
             
-            # Split full name for Monnify API
-            name_parts = full_name.split(' ', 1)
-            first_name = name_parts[0]
-            last_name = name_parts[1] if len(name_parts) > 1 else first_name
+            # Prepare user data for Paystack
+            paystack_user_data = {
+                'email': email or f"{full_name.lower().replace(' ', '.')}@sofi.ai",
+                'first_name': full_name.split(' ')[0],
+                'last_name': full_name.split(' ', 1)[1] if ' ' in full_name else full_name,
+                'phone': phone
+            }
             
-            # Create virtual account with Monnify
-            account_result = self.monnify_api.create_virtual_account({
-                'first_name': first_name,
-                'last_name': last_name,
-                'email': email or f"{first_name.lower()}.{last_name.lower()}@sofi.ai",
-                'phone': phone,
-                'user_id': telegram_id
-            })
+            # Create customer and virtual account with Paystack
+            account_result = self.paystack_service.create_user_account(paystack_user_data)
             
             if not account_result.get('success'):
                 return {
@@ -100,63 +127,123 @@ class SofiUserOnboarding:
                     'error': f"Failed to create virtual account: {account_result.get('error', 'Unknown error')}"
                 }
             
-            # Get account information
-            accounts = account_result.get('accounts', [])
-            if not accounts:
-                return {
-                    'success': False,
-                    'error': 'No virtual accounts created'
-                }
+            # Get account information from Paystack response
+            account_info = account_result.get('account_info', {})
             
-            # Use the first account as primary
-            primary_account = accounts[0]
-            account_number = primary_account.get('account_number')
-            account_name = primary_account.get('account_name', full_name.upper())
-            bank_name = primary_account.get('bank_name')
+            # Check if DVA creation is pending
+            if not account_info.get('account_number'):
+                # DVA might be pending, try to fetch details
+                customer_code = account_info.get('customer_code')
+                if customer_code:
+                    logger.info(f"DVA pending for {customer_code}, attempting to fetch details...")
+                    retry_result = self.paystack_service.get_user_dva_details(customer_code)
+                    
+                    if retry_result.get('success'):
+                        account_info = retry_result.get('account_info', {})
+                        logger.info(f"✅ DVA details retrieved on retry: {account_info.get('account_number')}")
+                    else:
+                        # Still pending - return partial success with retry instructions
+                        return {
+                            'success': False,
+                            'error': 'DVA creation is still in progress. Please try again in a few moments.',
+                            'pending_dva': True,
+                            'customer_code': customer_code,
+                            'retry_instructions': 'DVA assignment may take a few moments. Please try onboarding again.'
+                        }
+                
+                # Final check
+                if not account_info.get('account_number'):
+                    return {
+                        'success': False,
+                        'error': 'No account number received from Paystack after retries'
+                    }
             
-            if not account_number:
-                return {
-                    'success': False,
-                    'error': 'No account number received from Monnify'
+            # Extract all the details we need
+            customer_id = account_info.get('customer_id')
+            customer_code = account_info.get('customer_code')
+            account_number = account_info.get('account_number')
+            account_name = account_info.get('account_name', full_name.upper())
+            bank_name = account_info.get('bank_name', 'Wema Bank')
+            bank_code = account_info.get('bank_code')
+            
+            # Ensure bank_code is not None (required by virtual_accounts table)
+            if not bank_code:
+                # Default bank codes for common banks
+                bank_code_mapping = {
+                    'wema bank': '035',
+                    'wema': '035',
+                    'paystack-titan': '100433',
+                    'titan': '100433'
                 }
-              # Step 2: Save user to Supabase (simplified for existing schema)
+                bank_code = bank_code_mapping.get(bank_name.lower(), '035')  # Default to Wema
+            
+            logger.info(f"Account details: {account_number} ({bank_name} - {bank_code})")
+            
+            # Step 2: Save user to Supabase with correct column names (based on actual schema)
             user_record = {
-                'chat_id': telegram_id,  # Use existing column
-                'first_name': first_name,
-                'last_name': last_name,
-                'email': email,
+                'telegram_chat_id': telegram_id,     # ✅ Correct
+                'full_name': full_name,              # ✅ Correct
+                'email': email,                      # ✅ Correct
+                'phone': phone,                      # ✅ Correct (not phone_number)
+                'paystack_customer_code': customer_code,  # ✅ Correct
+                'wallet_balance': 0.0,               # ✅ Correct
                 'created_at': datetime.now().isoformat()
             }
             
-            # Try to save user record, but don't fail if it doesn't work
+            # Add PIN hash if provided
+            if pin_hash:
+                user_record['pin_hash'] = pin_hash
+                user_record['has_pin'] = True
+                user_record['pin_set_at'] = datetime.now().isoformat()
+                logger.info("PIN hash added to user record")
+            
+            # Try to save user record with proper error handling
             try:
                 save_result = await self.save_user_to_database(user_record)
-                logger.info("User record saved successfully")
+                if save_result.get('success'):
+                    logger.info("User record saved successfully")
+                else:
+                    logger.warning(f"Could not save user record: {save_result.get('error')}")
+                    # Continue anyway since the virtual account was created
+                    save_result = {'success': True, 'user_id': telegram_id}
             except Exception as e:
-                logger.warning(f"Could not save user record: {e}")
-                # Continue anyway since the virtual account was created
-                save_result = {'success': True, 'user_id': telegram_id}
-            
-            # Step 3: Save virtual account data
-            try:
-                for account in accounts:
-                    account_record = {
-                        'user_id': telegram_id,
-                        'bank_name': account['bank_name'],
-                        'account_number': account['account_number'],
-                        'account_name': account['account_name'],
-                        'bank_code': account['bank_code'],
-                        'provider': 'monnify',
-                        'status': 'active',
-                        'created_at': datetime.now().isoformat()
+                error_msg = str(e)
+                if 'duplicate key' in error_msg and 'email' in error_msg:
+                    # User already exists with this email
+                    return {
+                        'success': False,
+                        'error': 'User with this email already exists. Please use a different email or contact support.',
+                        'existing_user': True
                     }
-                    
-                    if supabase:
-                        result = supabase.table('virtual_accounts').upsert(account_record).execute()
-                        logger.info(f"Virtual account {account['account_number']} saved")
+                elif 'duplicate key' in error_msg and 'telegram_chat_id' in error_msg:
+                    # User already exists with this telegram ID
+                    return {
+                        'success': False,
+                        'error': 'User already registered with this Telegram account.',
+                        'existing_user': True
+                    }
+                else:
+                    logger.warning(f"Could not save user record: {e}")
+                    # Continue anyway since the virtual account was created
+                    save_result = {'success': True, 'user_id': telegram_id}
+            
+            # Step 3: Save virtual account data with correct format
+            try:
+                # Use minimal fields that work (no user_id foreign key constraint issues)
+                account_record = {
+                    'telegram_chat_id': telegram_id, # ✅ String field that works
+                    'account_number': account_number, # ✅ Correct column name
+                    'bank_name': bank_name,          # ✅ Correct column name
+                    'bank_code': bank_code,          # ✅ Correct column name
+                    'created_at': datetime.now().isoformat()
+                }
+                
+                if supabase:
+                    result = supabase.table('virtual_accounts').upsert(account_record).execute()
+                    logger.info(f"Virtual account {account_number} saved")
                         
             except Exception as e:
-                logger.warning(f"Could not save virtual accounts: {e}")
+                logger.warning(f"Could not save virtual account: {e}")
                 # Continue anyway since account was created
             
             # Step 4: Send welcome notification (skip if no telegram integration)
@@ -171,14 +258,16 @@ class SofiUserOnboarding:
                 'success': True,
                 'user_id': telegram_id,
                 'full_name': full_name,
-                'accounts': accounts,
-                'primary_account': {
+                'customer_id': customer_id,
+                'customer_code': customer_code,
+                'account_details': {
                     'account_number': account_number,
                     'account_name': account_name,
-                    'bank_name': bank_name
+                    'bank_name': bank_name,
+                    'bank_code': bank_code
                 },
-                'account_reference': account_result.get('account_reference'),
-                'message': 'Virtual account created successfully!'            }
+                'message': 'Virtual account created successfully!'
+            }
             
         except Exception as e:
             logger.error(f"Error in user onboarding: {e}")
@@ -193,8 +282,8 @@ class SofiUserOnboarding:
             if not supabase:
                 return None
             
-            # Use chat_id column instead of telegram_id
-            response = supabase.table('users').select('*').eq('chat_id', telegram_id).execute()
+            # Use telegram_chat_id column instead of chat_id
+            response = supabase.table('users').select('*').eq('telegram_chat_id', telegram_id).execute()
             
             if response.data:
                 return response.data[0]
@@ -227,10 +316,10 @@ class SofiUserOnboarding:
         """Send comprehensive welcome notification with account details"""
         try:
             full_name = user_record.get('full_name', 'User')
-            account_number = user_record.get('opay_account_number')
-            # Show user's full name from Supabase, not the truncated Monnify account name
+            # Show user's full name from Supabase, not the truncated account name
             display_name = full_name  # Always use the full name from Supabase
-            bank_name = user_record.get('opay_bank_name', 'OPay')
+            account_number = user_record.get('paystack_account_number')
+            bank_name = user_record.get('paystack_bank_name', 'Paystack Bank')
             is_verified = user_record.get('is_verified', False)
             daily_limit = user_record.get('daily_limit', 200000.00)
             
@@ -239,7 +328,7 @@ class SofiUserOnboarding:
 🎉 *Welcome to Sofi AI Wallet, {full_name}!*
 
 Your virtual account has been created successfully! 🏦
-_Powered by Pip install -ai Tech - Nigeria's AI FinTech Leader_
+_Powered by Paystack - Nigeria's Leading Payment Infrastructure_
 
 *📋 Your Account Details:*
 👤 *Account Name:* {display_name}
@@ -265,7 +354,7 @@ _Powered by Pip install -ai Tech - Nigeria's AI FinTech Leader_
 *🔔 Important Notes:*
 • You'll receive instant notifications for all transactions
 • All transfers have small fees (transparently shown)
-• Your funds are secured with Monnify banking infrastructure
+• Your funds are secured with Paystack banking infrastructure
 
 Type /help to see all available commands!
 
@@ -439,12 +528,8 @@ _Thank you for upgrading your Sofi AI Wallet! 🌟_
             if not supabase:
                 return None
             
-            # Try both telegram_chat_id and chat_id columns
+            # Get user profile based on available columns
             response = supabase.table('users').select('*').eq('telegram_chat_id', telegram_id).execute()
-            
-            if not response.data:
-                # Try with chat_id as fallback
-                response = supabase.table('users').select('*').eq('chat_id', telegram_id).execute()
             
             if response.data:
                 user = response.data[0]
@@ -453,20 +538,20 @@ _Thank you for upgrading your Sofi AI Wallet! 🌟_
                 today_usage = await self.get_daily_usage(telegram_id)
                 
                 return {
-                    'user_id': user['id'],
-                    'telegram_id': user['telegram_id'],
-                    'full_name': user['full_name'],
-                    'phone': user['phone'],
-                    'email': user['email'],
-                    'account_number': user['opay_account_number'],
-                    'account_name': user['opay_account_name'],
-                    'bank_name': user['opay_bank_name'],
-                    'balance': float(user['total_balance']),
-                    'is_verified': user['is_verified'],
-                    'daily_limit': float(user['daily_limit']),
+                    'user_id': user.get('id'),
+                    'telegram_id': user.get('telegram_chat_id'),
+                    'full_name': user.get('full_name'),
+                    'phone': user.get('phone_number'),
+                    'email': user.get('email'),
+                    'account_number': user.get('paystack_account_number'),
+                    'account_name': user.get('full_name'),
+                    'bank_name': user.get('paystack_bank_name'),
+                    'balance': float(user.get('wallet_balance', 0.0)),
+                    'is_verified': user.get('is_verified', False),
+                    'daily_limit': float(user.get('daily_limit', 200000.0)),
                     'today_usage': today_usage,
-                    'remaining_limit': float(user['daily_limit']) - today_usage,
-                    'created_at': user['created_at']
+                    'remaining_limit': float(user.get('daily_limit', 200000.0)) - today_usage,
+                    'created_at': user.get('created_at')
                 }
             
             return None
@@ -541,8 +626,9 @@ _Thank you for upgrading your Sofi AI Wallet! 🌟_
         try:
             # Extract account details
             full_name = account_result.get('full_name', 'User')
-            account_number = account_result.get('account_number')
-            bank_name = account_result.get('bank_name', 'Monnify')
+            account_details = account_result.get('account_details', {})
+            account_number = account_details.get('account_number')
+            bank_name = account_details.get('bank_name', 'Paystack Bank')
             is_verified = account_result.get('is_verified', False)
             daily_limit = account_result.get('daily_limit', 200000.00)
             
