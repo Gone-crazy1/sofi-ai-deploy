@@ -210,12 +210,20 @@ async def send_money(chat_id: str, amount: float, narration: str = None, pin: st
         
         user_data = user_result.data[0]
         
-        # Check if user has sufficient balance
+        # Check if user has sufficient balance (including transfer fees)
         current_balance = user_data.get("wallet_balance", 0)
-        if current_balance < amount:
+        
+        # Calculate transfer fees (Sofi profit + Paystack charges)
+        fee_calculation = await calculate_transfer_fee(amount)
+        sofi_fee = fee_calculation["sofi_fee"]      # Your profit
+        paystack_fee = fee_calculation["paystack_fee"]  # Paystack cost (10 naira)
+        total_fees = fee_calculation["total_fee"]   # Total fees to deduct
+        total_cost = fee_calculation["total"]       # Amount + all fees
+        
+        if current_balance < total_cost:
             return {
                 "success": False,
-                "error": f"Insufficient balance. Your wallet balance is ₦{current_balance:,.2f}, but you're trying to send ₦{amount:,.2f}."
+                "error": f"Insufficient balance. You need ₦{total_cost:,.2f} (₦{amount:,.2f} + ₦{total_fees:,.2f} fee) but have ₦{current_balance:,.2f}."
             }
         
         # Check if PIN is provided - if not, trigger PIN entry flow
@@ -304,12 +312,26 @@ async def send_money(chat_id: str, amount: float, narration: str = None, pin: st
             # 🎯 CRITICAL: Check if Paystack transfer actually worked
             requires_otp = transfer_result.get("requires_otp", False)
             
-            # Prepare transaction data for database (include both column name formats for compatibility)
+            # Calculate fees for transaction recording and balance update
+            fee_calculation = await calculate_transfer_fee(amount)
+            sofi_fee = fee_calculation["sofi_fee"]      # Your profit
+            paystack_fee = fee_calculation["paystack_fee"]  # Paystack cost
+            total_deduction = fee_calculation["total"]  # Amount + all fees
+            
+            # Calculate new balance after deducting transfer + all fees
+            current_balance = user_data.get("wallet_balance", 0)
+            new_balance = current_balance - total_deduction
+            
+            # Prepare transaction data for database
             transaction_data = {
                 "user_id": chat_id,
                 "transaction_id": transaction_id,
                 "type": "transfer_out", 
                 "amount": amount,
+                "fee": sofi_fee,  # Legacy column - keep for compatibility
+                "sofi_fee": sofi_fee,  # Your profit (new column)
+                "paystack_fee": paystack_fee,  # Paystack costs (new column)
+                "total_amount": total_deduction,  # Total amount deducted from user
                 # Include both column name formats for compatibility
                 "recipient_account": recipient_account,
                 "account_number": recipient_account,  # Alternative column name
@@ -319,6 +341,8 @@ async def send_money(chat_id: str, amount: float, narration: str = None, pin: st
                 "narration": transfer_reason,
                 "status": "completed" if paystack_transfer_success and not requires_otp else "pending_otp",
                 "transfer_code": transfer_code,
+                "balance_before": current_balance,
+                "balance_after": new_balance,
                 "created_at": datetime.now().isoformat()
             }
             
@@ -333,9 +357,14 @@ async def send_money(chat_id: str, amount: float, narration: str = None, pin: st
                 logger.info(f"💡 But Paystack transfer still worked! Transfer code: {transfer_code}")
                 # Don't fail the transfer because of database issues
             
-            # 🎯 CRITICAL: Update user's wallet balance after successful transfer
+            # 🎯 CRITICAL: Update user's wallet balance after successful transfer (including all fees)
             current_balance = user_data.get("wallet_balance", 0)
-            new_balance = current_balance - amount
+            fee_calculation = await calculate_transfer_fee(amount)
+            sofi_fee = fee_calculation["sofi_fee"]      # Your profit
+            paystack_fee = fee_calculation["paystack_fee"]  # Paystack cost (10 naira)
+            total_fees = fee_calculation["total_fee"]   # Total fees to deduct
+            total_deduction = fee_calculation["total"]  # Amount + all fees
+            new_balance = current_balance - total_deduction
             balance_updated = False
             
             try:
@@ -366,12 +395,15 @@ async def send_money(chat_id: str, amount: float, narration: str = None, pin: st
                         "db_saved": db_save_success
                     }
                 else:
-                    # Generate detailed receipt message with updated balance
+                    # Generate detailed receipt message (simplified for users)
                     balance_display = new_balance if balance_updated else current_balance
+                    total_fee_display = sofi_fee + paystack_fee  # Combined fee for user display
                     receipt_message = f"""✅ Transfer Successful!
 
 ━━━━━━━━━━━━━━━━━━━━━
 📤 Amount Sent: ₦{amount:,.2f}
+💸 Transfer Fee: ₦{total_fee_display:,.2f}
+💰 Total Charged: ₦{total_deduction:,.2f}
 👤 Recipient: {recipient_name}
 🏦 Bank: {recipient_bank} ({recipient_account})
 🧾 Reference: {transfer_code}
@@ -416,6 +448,7 @@ async def send_money(chat_id: str, amount: float, narration: str = None, pin: st
 async def calculate_transfer_fee(amount: float, **kwargs) -> Dict[str, Any]:
     """
     Calculate transfer fee for a given amount
+    Includes both Sofi fee (profit) and Paystack fee (cost)
     
     Args:
         amount (float): Transfer amount
@@ -424,26 +457,39 @@ async def calculate_transfer_fee(amount: float, **kwargs) -> Dict[str, Any]:
         Dict containing fee information
     """
     try:
-        # Sofi AI fee structure
+        # Sofi AI fee structure (your profit)
         if amount <= 5000:
-            fee = 10.0
+            sofi_fee = 10.0
         elif amount <= 50000:
-            fee = 25.0
+            sofi_fee = 25.0
         else:
-            fee = 50.0
+            sofi_fee = 50.0
+        
+        # Paystack fee (always 10 naira - our cost)
+        paystack_fee = 10.0
+        
+        # Total fee charged to user
+        total_fee = sofi_fee + paystack_fee
         
         return {
             "amount": amount,
-            "fee": fee,
-            "total": amount + fee,
-            "fee_percentage": (fee / amount) * 100 if amount > 0 else 0
+            "sofi_fee": sofi_fee,      # Your profit (internal)
+            "paystack_fee": paystack_fee,  # Paystack cost (internal)
+            "total_fee": total_fee,    # Total fee shown to user
+            "total": amount + total_fee,  # Amount + all fees
+            "fee_percentage": (total_fee / amount) * 100 if amount > 0 else 0,
+            # User-friendly display values
+            "user_fee_display": total_fee,  # What user sees as "fee"
+            "user_total_display": amount + total_fee  # What user sees as "total charge"
         }
         
     except Exception as e:
         logger.error(f"❌ Error calculating fee: {str(e)}")
         return {
             "amount": amount,
-            "fee": 10.0,  # Default fee
-            "total": amount + 10.0,
+            "sofi_fee": 10.0,      # Default Sofi fee
+            "paystack_fee": 10.0,  # Paystack fee
+            "total_fee": 20.0,     # Total default fee
+            "total": amount + 20.0,
             "error": str(e)
         }

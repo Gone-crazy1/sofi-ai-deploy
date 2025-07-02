@@ -1436,12 +1436,6 @@ async def answer_callback_query(query_id: str, text: str = ""):
         logger.error(f"❌ Error answering callback query: {str(e)}")
         return None
 
-# Flask Routes
-@app.route("/health")
-def health_check():
-    """Health check endpoint"""
-    return jsonify({"status": "healthy", "timestamp": datetime.now().isoformat()})
-
 @app.route("/webhook", methods=["POST"])
 async def webhook_incoming():
     """Handle incoming Telegram messages and callback queries"""

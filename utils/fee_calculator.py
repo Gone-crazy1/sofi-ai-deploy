@@ -80,24 +80,35 @@ class SofiFeeCalculator:
             self._set_default_settings()
                     
         except Exception as e:
-            logger.error(f"Error loading fee settings: {e}")
+            logger.warning(f"Could not load fee settings from database: {e}")
+            logger.info("Using hardcoded default fee settings")
             self._set_default_settings()
     
     def _set_default_settings(self):
-        """Set default fee values if not found in database"""
+        """Set default fee values matching our Paystack-only fee structure"""
         defaults = {
-            # Deposit fees
-            'sofi_deposit_fee': 50.00,        # Sofi's deposit fee (shown to user)
-            'opay_deposit_fee': 10.00,        # OPay's processing fee (hidden)
+            # Transfer fees (matching our calculate_transfer_fee function)
+            'fee_tier_1_amount': 5000.0,      # Up to ₦5,000
+            'fee_tier_1_fee': 10.0,           # ₦10 Sofi fee
+            'fee_tier_2_amount': 50000.0,     # ₦5,001 to ₦50,000
+            'fee_tier_2_fee': 25.0,           # ₦25 Sofi fee
+            'fee_tier_3_fee': 50.0,           # Above ₦50,000: ₦50 Sofi fee
+            'paystack_fee': 10.0,             # Always ₦10 Paystack fee
             
-            # Transfer fees  
-            'sofi_transfer_fee': 10.00,       # Sofi's transfer fee
-            'opay_transfer_fee': 20.00,       # OPay's transfer processing fee
+            # Transfer limits
+            'min_transfer_amount': 100.0,     # Minimum ₦100
+            'max_transfer_amount': 1000000.0, # Maximum ₦1M
             
-            # Crypto rates and margins
-            'crypto_buy_rate': 1550.00,       # Rate when Sofi buys from user (lower)
-            'crypto_sell_rate': 1600.00,      # Rate when Sofi sells to user (higher)
-            'crypto_deposit_fee_usd': 1.00,   # $1 fee for crypto deposits
+            # Legacy settings (deprecated but kept for compatibility)
+            'sofi_deposit_fee': 50.00,
+            'opay_deposit_fee': 10.00,
+            'sofi_transfer_fee': 10.00,
+            'opay_transfer_fee': 20.00,
+            
+            # Crypto rates (if needed)
+            'crypto_buy_rate': 1550.00,
+            'crypto_sell_rate': 1600.00,
+            'crypto_deposit_fee_usd': 1.00,
             
             # Airtime/Data commissions
             'airtime_commission_rate': 3.0,   # 3% commission on airtime
@@ -579,5 +590,19 @@ class SofiFeeCalculator:
             logger.error(f"Error generating detailed breakdown: {e}")
             return "Breakdown unavailable"
 
-# Global fee calculator instance
-fee_calculator = SofiFeeCalculator()
+# Global fee calculator instance (lazy initialization)
+_fee_calculator_instance = None
+
+def get_fee_calculator():
+    """Get or create the global fee calculator instance"""
+    global _fee_calculator_instance
+    if _fee_calculator_instance is None:
+        _fee_calculator_instance = SofiFeeCalculator()
+    return _fee_calculator_instance
+
+# For backward compatibility - create property that loads lazily
+class FeeCalculatorProxy:
+    def __getattr__(self, name):
+        return getattr(get_fee_calculator(), name)
+
+fee_calculator = FeeCalculatorProxy()
