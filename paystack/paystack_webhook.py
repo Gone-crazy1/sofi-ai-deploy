@@ -145,12 +145,17 @@ class PaystackWebhookHandler:
             current_balance = float(user_data.get("wallet_balance", 0))
             new_balance = current_balance + amount
             
-            # Record transaction with correct UUID (only use columns that exist)
+            # Record transaction with correct UUID and all required fields
             transaction_data = {
                 "user_id": user_uuid,  # Use actual UUID from users table
+                "transaction_type": "credit",  # This is a deposit/credit
                 "amount": amount,
                 "reference": reference,
                 "status": "success",
+                "description": f"Paystack deposit to account {account_number}",
+                "bank_code": "999999",  # Paystack internal code
+                "bank_name": "Paystack",  # Add bank_name if required
+                "account_number": account_number,  # Add account number
                 "created_at": data.get("created_at")
             }
             
@@ -163,6 +168,13 @@ class PaystackWebhookHandler:
             
             # Update user balance using UUID
             self.supabase.table("users").update({"wallet_balance": new_balance}).eq("id", user_uuid).execute()
+            
+            # ALSO update virtual_accounts balance for consistency
+            try:
+                self.supabase.table("virtual_accounts").update({"balance": new_balance}).eq("account_number", account_number).execute()
+                logger.info(f"✅ Virtual account balance updated: ₦{new_balance:,.2f}")
+            except Exception as e:
+                logger.warning(f"Could not update virtual account balance: {e}")
             
             # Send notification to user via Telegram using chat ID
             await self.send_credit_notification(telegram_chat_id, amount, new_balance)

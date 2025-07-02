@@ -67,29 +67,46 @@ async def check_virtual_account(chat_id: str) -> Dict:
         import os
         
         client = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
-        result = client.table("virtual_accounts").select("*").eq("telegram_chat_id", str(chat_id)).execute()
+        
+        # First get user ID from telegram_chat_id
+        user_result = client.table("users").select("id").eq("telegram_chat_id", str(chat_id)).execute()
+        
+        if not user_result.data:
+            logger.error(f"User not found for chat_id {chat_id}")
+            return {
+                "accountNumber": "Not available",
+                "bankName": "Moniepoint MFB", 
+                "accountName": "Not available",
+                "balance": 0.0
+            }
+        
+        user_id = user_result.data[0]["id"]
+        
+        # Get virtual account by user_id
+        result = client.table("virtual_accounts").select("*").eq("user_id", user_id).execute()
         
         if result.data:
             account = result.data[0]
             return {
-                "accountNumber": account.get("accountnumber"),
-                "bankName": account.get("bankname", "Moniepoint MFB"),
-                "accountName": account.get("accountname"),
+                "accountNumber": account.get("account_number"),
+                "bankName": account.get("bank_name", "Wema Bank"),
+                "accountName": account.get("account_name", "Sofi User"),
                 "balance": account.get("balance", 0.0)
             }
         else:
+            logger.warning(f"No virtual account found for user_id {user_id}")
             return {
-                "accountNumber": "N/A",
-                "bankName": "N/A", 
-                "accountName": "N/A",
+                "accountNumber": "Not available",
+                "bankName": "Wema Bank",
+                "accountName": "Not available",
                 "balance": 0.0
             }
             
     except Exception as e:
         logger.error(f"Error checking virtual account: {e}")
         return {
-            "accountNumber": "N/A",
-            "bankName": "N/A",
-            "accountName": "N/A", 
+            "accountNumber": "Not available",
+            "bankName": "Wema Bank",
+            "accountName": "Not available", 
             "balance": 0.0
         }

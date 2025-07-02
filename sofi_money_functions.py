@@ -43,12 +43,33 @@ class SofiMoneyTransferService:
             
             if not bank_code:
                 if len(account_number) == 10:
+                    # Try common banks in order of popularity/success rate
                     common_banks = [
                         ("999992", "OPay"),
+                        ("50515", "Moniepoint MFB"),
+                        ("999991", "PalmPay"),
+                        ("50211", "Kuda Bank"),
                         ("058", "GTBank"), 
                         ("044", "Access Bank"),
                         ("011", "First Bank"),
-                        ("033", "UBA")
+                        ("033", "UBA"),
+                        ("057", "Zenith Bank"),
+                        ("035", "Wema Bank"),
+                        ("070", "Fidelity Bank"),
+                        ("214", "FCMB"),
+                        ("232", "Sterling Bank"),
+                        ("221", "Stanbic IBTC"),
+                        ("032", "Union Bank"),
+                        ("076", "Polaris Bank"),
+                        ("301", "Jaiz Bank"),
+                        ("101", "Providus Bank"),
+                        ("302", "Taj Bank"),
+                        ("100", "SunTrust Bank"),
+                        ("565", "Carbon MFB"),
+                        ("51318", "FairMoney MFB"),
+                        ("566", "VFD MFB"),
+                        ("50126", "Eyowo MFB"),
+                        ("50304", "Mint MFB")
                     ]
                     
                     for code, name in common_banks:
@@ -67,6 +88,27 @@ class SofiMoneyTransferService:
                 else:
                     return {"success": False, "error": "Invalid account number format. Please check and try again."}
             else:
+                # Convert bank name to code if necessary
+                if not bank_code.isdigit():
+                    from functions.transfer_functions import send_money  # Import the bank mapping
+                    # Use the same bank mapping from transfer functions
+                    bank_name_to_code = {
+                        "access bank": "044", "gtbank": "058", "uba": "033",
+                        "first bank": "011", "zenith bank": "057", "fidelity bank": "070",
+                        "opay": "999992", "moniepoint": "50515", "palmpay": "999991",
+                        "kuda bank": "50211", "carbon": "565", "vfd bank": "566",
+                        "fcmb": "214", "sterling bank": "232", "stanbic ibtc": "221",
+                        "union bank": "032", "polaris bank": "076", "wema bank": "035",
+                        "heritage bank": "030", "keystone bank": "082", "unity bank": "215",
+                        "jaiz bank": "301", "providus bank": "101", "taj bank": "302",
+                        "suntrust bank": "100", "ecobank": "050", "citibank": "023"
+                    }
+                    
+                    bank_code_converted = bank_name_to_code.get(bank_code.lower(), bank_code)
+                    if bank_code_converted != bank_code:
+                        logger.info(f"🔄 Converted '{bank_code}' to '{bank_code_converted}'")
+                        bank_code = bank_code_converted
+                
                 result = self.paystack.verify_account_number(account_number, bank_code)
                 
                 if result.get("success"):

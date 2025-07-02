@@ -233,15 +233,15 @@ class SecureTransactionValidator:
             if not self.client:
                 return {"success": False, "error": "Database not available", "balance": 0.0}
             
-            # Method 1: Try virtual_accounts table first
-            result = self.client.table("virtual_accounts").select("balance").eq("user_id", user_id).execute()
+            # Method 1: Try users.wallet_balance first (most reliable)
+            result = self.client.table("users").select("wallet_balance").eq("id", user_id).execute()
             
-            if result.data and result.data[0].get("balance") is not None:
-                balance = float(result.data[0]["balance"])
+            if result.data and result.data[0].get("wallet_balance") is not None:
+                balance = float(result.data[0]["wallet_balance"])
                 return {
                     "success": True,
                     "balance": balance,
-                    "source": "virtual_accounts"
+                    "source": "users.wallet_balance"
                 }
             
             # Method 2: Try wallet_balances table (crypto system)

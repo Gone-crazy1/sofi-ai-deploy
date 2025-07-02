@@ -665,6 +665,99 @@ class PaystackService:
                 "error": str(e)
             }
     
+    # === BANK CODE UTILITIES ===
+    
+    @staticmethod
+    def get_bank_code(bank_name_or_code: str) -> str:
+        """
+        Convert bank name to bank code or return the code if already provided
+        
+        Args:
+            bank_name_or_code: Bank name or bank code
+            
+        Returns:
+            Bank code string
+        """
+        # If it's already a bank code (numeric), return as is
+        if bank_name_or_code.isdigit():
+            return bank_name_or_code
+        
+        # Comprehensive bank name to code mapping
+        bank_mapping = {
+            # Major Commercial Banks
+            "access bank": "044", "access bank plc": "044",
+            "citibank": "023", "citibank nigeria": "023",
+            "ecobank": "050", "ecobank nigeria": "050",
+            "fidelity bank": "070", "fidelity bank plc": "070",
+            "first bank": "011", "first bank of nigeria": "011", "first bank nigeria": "011",
+            "fcmb": "214", "first city monument bank": "214",
+            "gtbank": "058", "gtb": "058", "guaranty trust bank": "058",
+            "heritage bank": "030", "heritage banking company": "030",
+            "keystone bank": "082",
+            "polaris bank": "076", "polaris bank limited": "076",
+            "stanbic ibtc": "221", "stanbic ibtc bank": "221",
+            "sterling bank": "232", "sterling bank plc": "232",
+            "uba": "033", "united bank for africa": "033",
+            "union bank": "032", "union bank of nigeria": "032",
+            "unity bank": "215", "unity bank plc": "215",
+            "wema bank": "035", "wema bank plc": "035",
+            "zenith bank": "057", "zenith bank plc": "057",
+            
+            # Digital/Fintech Banks
+            "opay": "999992", "opay digital services": "999992",
+            "moniepoint": "50515", "moniepoint mfb": "50515",
+            "palmpay": "999991", "palmpay limited": "999991",
+            "kuda": "50211", "kuda bank": "50211", "kuda microfinance bank": "50211",
+            "carbon": "565", "carbon microfinance bank": "565",
+            "fairmoney": "51318", "fairmoney microfinance bank": "51318",
+            "gomoney": "100022", "gomoney nigeria": "100022",
+            "vfd": "566", "vfd microfinance bank": "566",
+            "rubies": "125", "rubies microfinance bank": "125",
+            "sparkle": "51310", "sparkle microfinance bank": "51310",
+            "mint": "50304", "mint fintech": "50304",
+            "eyowo": "50126", "eyowo microfinance bank": "50126",
+            
+            # Specialized Banks
+            "jaiz bank": "301", "jaiz bank plc": "301",
+            "providus bank": "101", "providus bank limited": "101",
+            "suntrust bank": "100", "suntrust bank nigeria": "100",
+            "taj bank": "302", "taj bank limited": "302",
+            "lotus bank": "303", "lotus bank nigeria": "303",
+            "coronation bank": "559", "coronation merchant bank": "559",
+        }
+        
+        # Convert to lowercase for case-insensitive lookup
+        bank_name_lower = bank_name_or_code.lower().strip()
+        
+        return bank_mapping.get(bank_name_lower, bank_name_or_code)
+    
+    @staticmethod
+    def get_supported_banks() -> Dict[str, str]:
+        """
+        Get all supported banks and their codes
+        
+        Returns:
+            Dict mapping bank names to bank codes
+        """
+        return {
+            # Major Commercial Banks
+            "Access Bank": "044", "Citibank": "023", "Ecobank": "050",
+            "Fidelity Bank": "070", "First Bank": "011", "FCMB": "214",
+            "GTBank": "058", "Heritage Bank": "030", "Keystone Bank": "082",
+            "Polaris Bank": "076", "Stanbic IBTC": "221", "Sterling Bank": "232",
+            "UBA": "033", "Union Bank": "032", "Unity Bank": "215",
+            "Wema Bank": "035", "Zenith Bank": "057",
+            
+            # Digital Banks
+            "OPay": "999992", "Moniepoint": "50515", "PalmPay": "999991",
+            "Kuda Bank": "50211", "Carbon": "565", "FairMoney": "51318",
+            "VFD Bank": "566", "Mint": "50304", "Eyowo": "50126",
+            
+            # Specialized Banks  
+            "Jaiz Bank": "301", "Providus Bank": "101", "SunTrust Bank": "100",
+            "Taj Bank": "302", "Lotus Bank": "303"
+        }
+
 # Initialize global Paystack service instance
 paystack_service = None
 

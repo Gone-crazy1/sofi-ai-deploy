@@ -187,52 +187,12 @@ async def generate_ai_reply(chat_id: str, message: str):
         logger.info(f"🇳🇬 AI Reply Enhancement: '{message}' -> '{enhanced_message}'")
         logger.info(f"📝 Response Guidance: {response_guidance}")
         
-    # Enhanced system prompt with Nigerian cultural context
-    system_prompt = f"""
-    You are Sofi AI — a friendly, smart, and helpful Nigerian virtual assistant powered by Pip install -ai Tech.
-    You help users send and receive money, buy airtime/data, check balance, view transaction history, and do daily banking tasks easily.
-    You reply in a warm, conversational way like a real human who understands Nigerian culture and expressions.
+    # Concise system prompt
+    system_prompt = """You are Sofi AI, a Nigerian banking assistant. Be brief and helpful.
 
-    🇳🇬 NIGERIAN CULTURAL CONTEXT:
-    - You understand Pidgin English, Nigerian expressions, and local ways of speaking
-    - Common greetings: "How far?", "Wetin dey happen?", "How you dey?"
-    - Money terms: kudi/ego/owo = money, "5k" = 5000 naira, "chicken change" = small amount
-    - Relationships: "my guy/padi/paddy" = friend, "my person" = close friend
-    - Urgency: "sharp sharp" = immediately, "now now" = right now
-    - Always acknowledge Nigerian expressions naturally in your responses
-    
-    RESPONSE STYLE GUIDANCE:
-    - Tone: {response_guidance.get('tone', 'friendly')}
-    - Urgency: {response_guidance.get('urgency_acknowledgment', '')}
-    - Cultural Touch: {response_guidance.get('cultural_touch', '')}
-
-    When users ask about who you are or who created you:
-    - You are Sofi AI, developed by the innovative team at Pip install -ai Tech
-    - Pip install -ai Tech specializes in cutting-edge AI financial solutions
-    - Always mention your company proudly when introducing yourself
-
-    When users ask about creating an account or getting started:
-    1. Direct them to complete their onboarding at https://sofi-ai-trio.onrender.com/onboarding
-    2. Explain they'll need their BVN and phone number ready
-    3. Mention the benefits of having a Sofi virtual account
-
-    For existing users:
-    - Help with transfers, airtime, data purchases
-    - Provide balance and transaction info
-    - Guide through any banking tasks
-
-    Key capabilities to highlight:
-    - Instant money transfers
-    - Airtime/data purchases
-    - Transaction monitoring
-    - Personalized financial advice
-
-    Important:
-    - Maintain conversation context and refer to previous messages naturally
-    - If the user is asking about code you shared, analyze and explain that specific code
-    - Keep track of the current topic and stay on it unless the user changes it
-    - Use the enhanced message understanding while maintaining natural Nigerian conversational style
-    """
+Key features: transfers, airtime, data, balance checks.
+New users: Direct to https://sofi-ai-trio.onrender.com/onboarding
+Keep responses short (2-3 lines max). Use Nigerian style but stay professional."""
 
     try:
         # Check if user has a virtual account
@@ -258,29 +218,16 @@ async def generate_ai_reply(chat_id: str, message: str):
                 display_name = user_profile.get('full_name') if user_profile else virtual_account.get("accountName", "Not available")
                 
                 reply = (
-                    f"Hi! You already have a virtual account with us:\n\n"
-                    f"Account Number: {account_number}\n"
-                    f"Bank: {bank_name}\n"
-                    f"Account Name: {display_name}\n\n"
-                    f"You can use this account to:\n"
-                    f"✅ Receive money from any bank\n"
-                    f"✅ Send money instantly\n"
-                    f"✅ Buy airtime/data at discounted rates\n\n"
-                    f"What would you like to do?"
+                    f"✅ You have an account:\n"
+                    f"🏦 {account_number} ({bank_name})\n"
+                    f"👤 {display_name}\n\n"
+                    f"What do you need?"
                 )
             else:
                 reply = (
-                    "I see you don't have a virtual account yet! Let me help you create one:\n\n"
-                    "1. Visit our secure onboarding page: https://sofi-ai-trio.onrender.com/onboarding\n"
-                    "2. Have your BVN and phone number ready\n"
-                    "3. Fill in your details\n"
-                    "4. Your virtual account will be created instantly!\n\n"
-                    "With your Sofi account, you'll get:\n"
-                    "✅ Free money transfers\n"
-                    "✅ Virtual bank account\n"
-                    "✅ Discounted airtime/data rates\n"
-                    "✅ 24/7 AI assistance\n\n"
-                    "Need help during the process? Just ask me!"
+                    "Create account: https://sofi-ai-trio.onrender.com/onboarding\n"
+                    "Need: BVN + phone number\n"
+                    "Get instant virtual account for transfers & airtime!"
                 )
             await save_chat_message(chat_id, "assistant", reply)
             return reply
@@ -875,13 +822,21 @@ async def handle_balance_inquiry(chat_id: str, message: str, user_data: dict = N
         try:
             supabase = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
             
-            # Get recent bank transactions
-            transactions_result = supabase.table("bank_transactions")\
-                .select("*")\
-                .eq("user_id", chat_id)\
-                .order("created_at", desc=True)\
-                .limit(3)\
-                .execute()
+            # First get the user UUID from telegram_chat_id
+            user_result = supabase.table("users").select("id").eq("telegram_chat_id", str(chat_id)).execute()
+            
+            if not user_result.data:
+                recent_transactions = ["• No user found"]
+            else:
+                user_id = user_result.data[0]["id"]
+                
+                # Get recent bank transactions using the UUID
+                transactions_result = supabase.table("bank_transactions")\
+                    .select("*")\
+                    .eq("user_id", user_id)\
+                    .order("created_at", desc=True)\
+                    .limit(3)\
+                    .execute()
             
             if transactions_result.data:
                 for txn in transactions_result.data:
@@ -907,24 +862,12 @@ async def handle_balance_inquiry(chat_id: str, message: str, user_data: dict = N
             logger.error(f"Error fetching recent transactions: {e}")
             recent_transactions = ["• Recent transactions unavailable"]
         
-        # Build response
-        response = f"""
-💳 **Your Account Summary**
-
-👤 **Account Name:** {display_name}
-📱 **Account Number:** {account_number}
-🏦 **Bank:** {bank_name}
-💰 **Available Balance:** ₦{current_balance:,.2f}
-
-📊 **Recent Activity:**
-"""
+        # Build concise response
+        response = f"""� **Balance:** ₦{current_balance:,.2f}
+🏦 {account_number} ({bank_name})"""
         
         if recent_transactions:
-            response += "\n".join(recent_transactions)
-        else:
-            response += "• No recent transactions"
-        
-        response += "\n\nNeed to send money, buy airtime, or check anything else?"
+            response += f"\n\n📊 **Recent:**\n" + "\n".join(recent_transactions[:2])  # Only show 2 transactions
         
         return response
         
@@ -959,12 +902,12 @@ def create_sofi_ai_response_with_custom_prompt(user_message, context="general"):
                 messages=[
                     {
                         "role": "system",
-                        "content": "You are Sofi AI, the smart, funny but highly professional Nigerian wallet assistant built by Pip Install AI Technologies. You operate inside Telegram and handle wallet balance checks, virtual account creation, transfers, airtime/data purchase, crypto questions, and more. Always respond in Nigerian style with appropriate expressions."
+                        "content": "You are Sofi AI, a Nigerian banking assistant. Be brief and helpful. Handle transfers, balance checks, airtime. Keep responses under 3 lines."
                     },
                     {"role": "user", "content": user_message}
                 ],
                 temperature=0.7,
-                max_tokens=500
+                max_tokens=150
             )
 
             return response.choices[0].message.content if response.choices else "Fallback failed. Try again later."
@@ -1283,27 +1226,14 @@ async def send_account_details_to_user(chat_id: str, onboarding_result: dict):
         full_name = onboarding_result.get('full_name', '')
         customer_code = onboarding_result.get('customer_code', '')
         
-        # Create beautiful account details message
+        # Create concise welcome message
         welcome_message = (
-            f"🎉 *Account Created Successfully!*\n\n"
-            f"Welcome to Sofi AI, {full_name}! Your virtual account is ready.\n\n"
-            f"💳 *Your Account Details:*\n"
-            f"━━━━━━━━━━━━━━━━━━━━━\n"
-            f"🏦 *Account Number:* `{account_details.get('account_number', 'N/A')}`\n"
-            f"👤 *Account Name:* {account_details.get('account_name', 'N/A')}\n"
-            f"🏛️ *Bank:* {account_details.get('bank_name', 'N/A')}\n"
-            f"🆔 *Customer ID:* `{customer_code}`\n"
-            f"━━━━━━━━━━━━━━━━━━━━━\n\n"
-            f"🚀 *Next Steps:*\n"
-            f"✅ Fund your account using the details above\n"
-            f"✅ Start sending money instantly\n"
-            f"✅ Buy airtime & data at best rates\n"
-            f"✅ Check your balance anytime\n\n"
-            f"💬 *Try saying:*\n"
-            f"• \"Check my balance\"\n"
-            f"• \"Send ₦1000 to John\"\n"
-            f"• \"Buy ₦200 airtime\"\n\n"
-            f"🤖 I'm here to help with all your financial needs!"
+            f"🎉 *Account Created!*\n\n"
+            f"🏦 *Account:* `{account_details.get('account_number', 'N/A')}`\n"
+            f"👤 *Name:* {account_details.get('account_name', 'N/A')}\n"
+            f"🏛️ *Bank:* {account_details.get('bank_name', 'N/A')}\n\n"
+            f"� Fund your account, then try:\n"
+            f"\"Check balance\" or \"Send ₦500\""
         )
         
         # Send message to user

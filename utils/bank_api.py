@@ -1,244 +1,279 @@
 """
-Bank API Integration for Sofi AI Banking Service
-Official Banking Partner: Monnify
-
-This module handles all banking operations including:
-- Account verification
-- Money transfers
-- Bank code mapping for Nigerian banks
+🏦 PAYSTACK-ONLY BANKING API FOR SOFI AI
+All banking operations powered by Paystack APIs only.
+No Monnify code - pure Paystack implementation.
 """
 
 import os
-import requests
 import logging
-from typing import Optional, Dict
-from dotenv import load_dotenv
+import asyncio
+from typing import Dict, List, Optional, Any
+import requests
+from datetime import datetime
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
+# Set up logging
 logger = logging.getLogger(__name__)
 
-load_dotenv()
-
 class BankAPI:
-    """Monnify-powered banking operations for Sofi AI"""
+    """Paystack-powered banking operations for Sofi AI"""
     
     def __init__(self):
-        self.provider = "monnify"  # Official banking partner
-        logger.info("BankAPI initialized with Monnify as banking partner")
-
-    def execute_transfer(self, transfer_data: dict) -> dict:
-        """Execute a real transfer via Monnify API"""
+        self.provider = "paystack"  # Only Paystack
+        self.paystack_secret_key = os.getenv("PAYSTACK_SECRET_KEY")
+        self.paystack_base_url = "https://api.paystack.co"
+        
+        if not self.paystack_secret_key:
+            raise ValueError("PAYSTACK_SECRET_KEY is required")
+            
+        logger.info("BankAPI initialized with Paystack as the only banking partner")
+    
+    def _paystack_headers(self) -> Dict[str, str]:
+        """Get Paystack API headers"""
+        return {
+            "Authorization": f"Bearer {self.paystack_secret_key}",
+            "Content-Type": "application/json"
+        }
+    
+    async def verify_account_name(self, account_number: str, bank_code: str) -> Dict[str, Any]:
+        """
+        Verify bank account using Paystack Account Resolution API
+        
+        Args:
+            account_number: Account number to verify
+            bank_code: Bank code (e.g., "044" for Access Bank)
+            
+        Returns:
+            Dict with verification result
+        """
         try:
-            from monnify.monnify_api import MonnifyAPI
-            import uuid
+            logger.info(f"🔍 Verifying account {account_number} with bank code {bank_code}")
             
-            # Initialize Monnify API
-            monnify_api = MonnifyAPI()
+            url = f"{self.paystack_base_url}/bank/resolve"
+            params = {
+                "account_number": account_number,
+                "bank_code": bank_code
+            }
             
-            # Get bank code from bank name
-            bank_code = self.get_bank_code(transfer_data['recipient_bank'])
+            response = requests.get(url, headers=self._paystack_headers(), params=params)
+            result = response.json()
+            
+            if response.status_code == 200 and result.get("status"):
+                account_name = result["data"]["account_name"]
+                logger.info(f"✅ Account verified: {account_name}")
+                
+                return {
+                    'success': True,
+                    'account_name': account_name,
+                    'account_number': account_number,
+                    'bank_code': bank_code,
+                    'provider': 'paystack'
+                }
+            else:
+                error_msg = result.get("message", "Account verification failed")
+                logger.error(f"❌ Account verification failed: {error_msg}")
+                return {
+                    'success': False,
+                    'error': error_msg,
+                    'provider': 'paystack'
+                }
+                
+        except Exception as e:
+            logger.error(f"❌ Error verifying account: {e}")
+            return {
+                'success': False,
+                'error': f"Verification error: {str(e)}",
+                'provider': 'paystack'
+            }
+    
+    async def transfer_money(self, amount: float, account_number: str, bank_name: str, 
+                           narration: str = None, reference: str = None) -> Dict[str, Any]:
+        """
+        Transfer money using Paystack Transfer API
+        
+        Args:
+            amount: Amount to transfer (in Naira)
+            account_number: Recipient account number
+            bank_name: Bank name (will be converted to bank code)
+            narration: Transfer description
+            reference: Unique reference for the transfer
+            
+        Returns:
+            Dict with transfer result
+        """
+        try:
+            # Convert bank name to bank code
+            bank_code = self._get_bank_code(bank_name)
             if not bank_code:
                 return {
                     'success': False,
-                    'error': f"Unsupported bank: {transfer_data['recipient_bank']}"
+                    'error': f"Unsupported bank: {bank_name}. Please try banks like UBA, GTB, Access, Opay, Kuda, etc."
                 }
             
-            # Call Monnify transfer API
-            result = monnify_api.execute_transfer({
-                'amount': transfer_data['amount'],
-                'recipient_account': transfer_data['recipient_account'],
-                'recipient_bank': bank_code,
-                'recipient_name': transfer_data.get('recipient_name', 'Account Holder'),
-                'narration': transfer_data.get('narration', 'Transfer via Sofi AI'),
-                'reference': f"SOFI_{uuid.uuid4().hex[:8]}"
-            })
-            
-            # Process Monnify response
-            if result.get('success'):
-                return {
-                    'success': True,
-                    'transaction_id': result.get('transaction_id'),
-                    'reference': result.get('reference'),
-                    'status': result.get('status', 'pending'),
-                    'message': 'Transfer initiated successfully',
-                    'monnify_response': result
-                }
-            else:
-                error_message = result.get('error', 'Transfer failed')
+            # First verify the account
+            verification = await self.verify_account_name(account_number, bank_code)
+            if not verification['success']:
                 return {
                     'success': False,
-                    'error': error_message,
-                    'monnify_response': result
+                    'error': f"Could not verify account: {verification['error']}"
                 }
-                
-        except Exception as e:
-            logger.error(f"Transfer execution error: {str(e)}")
-            return {
-                'success': False,
-                'error': f"Transfer processing error: {str(e)}"
+            
+            # Create transfer recipient
+            recipient_data = {
+                "type": "nuban",
+                "name": verification['account_name'],
+                "account_number": account_number,
+                "bank_code": bank_code,
+                "currency": "NGN"
             }
-
-    def verify_account(self, account_number: str, bank_code: str) -> Optional[Dict]:
-        """Verify a bank account and return the account holder's name using Monnify's API"""
-        try:
-            from monnify.monnify_api import MonnifyAPI
             
-            # Initialize Monnify API
-            monnify_api = MonnifyAPI()
+            recipient_response = requests.post(
+                f"{self.paystack_base_url}/transferrecipient",
+                headers=self._paystack_headers(),
+                json=recipient_data
+            )
             
-            # Call Monnify account verification
-            result = monnify_api.verify_account_name(account_number, bank_code)
-            
-            if result.get('success'):
+            if recipient_response.status_code != 201:
                 return {
-                    "account_name": result.get('account_name'),
-                    "account_number": account_number,
-                    "bank_code": bank_code,
-                    "verified": True
+                    'success': False,
+                    'error': "Failed to create transfer recipient"
+                }
+            
+            recipient_code = recipient_response.json()["data"]["recipient_code"]
+            
+            # Initiate transfer
+            transfer_data = {
+                "source": "balance",
+                "amount": int(amount * 100),  # Convert to kobo
+                "recipient": recipient_code,
+                "reason": narration or f"Transfer via Sofi AI",
+                "reference": reference or f"SOFI_{datetime.now().strftime('%Y%m%d%H%M%S')}"
+            }
+            
+            transfer_response = requests.post(
+                f"{self.paystack_base_url}/transfer",
+                headers=self._paystack_headers(),
+                json=transfer_data
+            )
+            
+            transfer_result = transfer_response.json()
+            
+            if transfer_response.status_code == 200 and transfer_result.get("status"):
+                logger.info(f"✅ Transfer initiated: ₦{amount:,.2f} to {verification['account_name']}")
+                return {
+                    'success': True,
+                    'transfer_code': transfer_result["data"]["transfer_code"],
+                    'reference': transfer_result["data"]["reference"],
+                    'amount': amount,
+                    'recipient_name': verification['account_name'],
+                    'status': transfer_result["data"]["status"],
+                    'provider': 'paystack'
                 }
             else:
-                logger.warning(f"Account verification failed: {result.get('error')}")
-                return None
+                error_msg = transfer_result.get("message", "Transfer failed")
+                logger.error(f"❌ Transfer failed: {error_msg}")
+                return {
+                    'success': False,
+                    'error': error_msg,
+                    'provider': 'paystack'
+                }
                 
         except Exception as e:
-            logger.error(f"Error verifying account: {str(e)}")
-            return None
-
-    def get_bank_code(self, bank_name: str) -> Optional[str]:
-        """Get the bank code for a given bank name - COMPREHENSIVE NIGERIAN BANKS & FINTECH"""
-        # Complete mapping of Nigerian banks and fintech platforms
+            logger.error(f"❌ Transfer error: {e}")
+            return {
+                'success': False,
+                'error': f"Transfer error: {str(e)}",
+                'provider': 'paystack'
+            }
+    
+    def _get_bank_code(self, bank_name: str) -> Optional[str]:
+        """Convert bank name to Paystack bank code - INCLUDING OPAY"""
         bank_codes = {
             # Traditional Banks
-            "access": "044",
-            "access bank": "044",
-            "gtb": "058",
-            "gtbank": "058",
-            "guaranty trust": "058",
-            "gt bank": "058",
-            "zenith": "057",
-            "zenith bank": "057",
-            "first bank": "011",
-            "firstbank": "011",
-            "fbn": "011",
-            "uba": "033",
-            "united bank for africa": "033",
-            "fidelity": "070",
-            "fidelity bank": "070",
-            "fcmb": "214",
-            "first city monument bank": "214",
-            "sterling": "232",
-            "sterling bank": "232",
-            "wema": "035",
-            "wema bank": "035",
-            "union": "032",
-            "union bank": "032",
-            "polaris": "076",
-            "polaris bank": "076",
-            "keystone": "082",
-            "keystone bank": "082",
-            "eco bank": "050",
+            "access": "044", "access bank": "044",
+            "gtb": "058", "gtbank": "058", "guaranty trust bank": "058",
+            "zenith": "057", "zenith bank": "057",
+            "uba": "033", "united bank for africa": "033",
+            "firstbank": "011", "first bank": "011", "first bank of nigeria": "011",
+            "union": "032", "union bank": "032",
+            "fidelity": "070", "fidelity bank": "070",
+            "sterling": "232", "sterling bank": "232",
+            "stanbic": "221", "stanbic ibtc": "221",
+            "wema": "035", "wema bank": "035",
+            "heritage": "030", "heritage bank": "030",
+            "keystone": "082", "keystone bank": "082",
+            "fcmb": "214", "first city monument bank": "214",
+            "unity": "215", "unity bank": "215",
+            "polaris": "076", "polaris bank": "076",
+            "citi": "023", "citibank": "023",
             "ecobank": "050",
-            "heritage": "030",
-            "heritage bank": "030",
-            "stanbic": "221",
-            "stanbic ibtc": "221",
             "standard chartered": "068",
-            "citi bank": "023",
-            "citibank": "023",
             
-            # Digital Banks & Fintech (Supported by Monnify)
-            "kuda": "50211",
-            "kuda bank": "50211",
-            "carbon": "565",
-            "carbon microfinance bank": "565",
-            "vfd": "566",
-            "vfd microfinance bank": "566",
-            "taj": "302",
-            "taj bank": "302",
-            "sun trust": "100",
-            "suntrust": "100",
-            "titan": "102",
-            "titan trust bank": "102",
-            "coronation": "559",
-            "coronation merchant bank": "559",
-            "rand": "559",
-            "rand merchant bank": "559",
-            "providus": "101",
-            "providus bank": "101",
-            "jaiz": "301",
-            "jaiz bank": "301",
-            "lotus": "303",
-            "lotus bank": "303",
-            "diamond": "063",
-            "diamond bank": "063",
-            
-            # Digital Platform Aliases
-            "alat": "035",  # Wema ALAT
-            "alat by wema": "035",
-            "gtworld": "058",  # GTBank digital
+            # Fintech & Digital Banks
+            "opay": "999991",  # ✅ OPAY BANK CODE - THIS WAS MISSING!
+            "palmpay": "999992",
+            "kuda": "50211", "kuda bank": "50211",
+            "moniepoint": "50515", "moniepoint mfb": "50515",
+            "carbon": "565", "carbon microfinance bank": "565",
+            "rubies": "125", "rubies mfb": "125",
+            "sparkle": "51310", "sparkle microfinance bank": "51310",
+            "mint": "50304", "mint mfb": "50304",
+            "vfd": "566", "vfd microfinance bank": "566",
+            "taj": "302", "taj bank": "302",
+            "lotus": "303", "lotus bank": "303",
+            "coronation": "559", "coronation merchant bank": "559",
+            "rand": "305", "rand merchant bank": "305"
         }
         
-        # Return bank code or None if not found
-        return bank_codes.get(bank_name.lower())
-
-    def get_supported_banks(self) -> Dict:
-        """Get list of banks supported by Monnify"""
+        return bank_codes.get(bank_name.lower().strip())
+    
+    async def get_banks(self) -> List[Dict[str, Any]]:
+        """Get list of banks supported by Paystack"""
         try:
-            from monnify.monnify_api import MonnifyAPI
+            response = requests.get(
+                f"{self.paystack_base_url}/bank",
+                headers=self._paystack_headers()
+            )
             
-            monnify_api = MonnifyAPI()
-            result = monnify_api.get_banks()
+            if response.status_code == 200:
+                result = response.json()
+                if result.get("status") and "data" in result:
+                    return result["data"]
             
-            if result.get('success'):
-                return {
-                    'success': True,
-                    'banks': result.get('data', []),
-                    'count': result.get('count', 0)
-                }
-            else:
-                return {
-                    'success': False,
-                    'error': result.get('error', 'Failed to get banks')
-                }
-                
+            return []
+            
         except Exception as e:
-            logger.error(f"Error getting supported banks: {str(e)}")
+            logger.error(f"Error fetching banks: {e}")
+            return []
+    
+    async def get_transaction_status(self, reference: str) -> Dict[str, Any]:
+        """Get transaction status from Paystack"""
+        try:
+            response = requests.get(
+                f"{self.paystack_base_url}/transaction/verify/{reference}",
+                headers=self._paystack_headers()
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                if result.get("status"):
+                    return {
+                        'success': True,
+                        'status': result["data"]["status"],
+                        'amount': result["data"]["amount"] / 100,  # Convert from kobo
+                        'reference': result["data"]["reference"],
+                        'provider': 'paystack'
+                    }
+            
             return {
                 'success': False,
-                'error': str(e)
+                'error': "Transaction not found",
+                'provider': 'paystack'
             }
-
-    def create_virtual_account(self, customer_data: Dict) -> Dict:
-        """Create virtual account for customer using Monnify"""
-        try:
-            from monnify.monnify_api import MonnifyAPI
-            
-            monnify_api = MonnifyAPI()
-            result = monnify_api.create_virtual_account(customer_data)
-            
-            return result
             
         except Exception as e:
-            logger.error(f"Error creating virtual account: {str(e)}")
+            logger.error(f"Error getting transaction status: {e}")
             return {
                 'success': False,
-                'error': str(e)
-            }
-
-    def get_transaction_status(self, reference: str) -> Dict:
-        """Get transaction status from Monnify"""
-        try:
-            from monnify.monnify_api import MonnifyAPI
-            
-            monnify_api = MonnifyAPI()
-            result = monnify_api.verify_transaction(reference)
-            
-            return result
-            
-        except Exception as e:
-            logger.error(f"Error getting transaction status: {str(e)}")
-            return {
-                'success': False,
-                'error': str(e)
+                'error': str(e),
+                'provider': 'paystack'
             }
