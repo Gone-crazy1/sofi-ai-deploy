@@ -207,8 +207,8 @@ class SofiAssistant:
                 from sofi_money_functions import SofiMoneyTransferService
                 service = SofiMoneyTransferService()
                 return await service.verify_account_name(
-                    account_number=function_args["account_number"],
-                    bank_code=function_args.get("bank_name")
+                    account_number=function_args.get("account_number"),
+                    bank_code=function_args.get("bank_name") or function_args.get("bank_code")
                 )
             
             elif function_name == "send_money":

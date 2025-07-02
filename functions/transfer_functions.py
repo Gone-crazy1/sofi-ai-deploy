@@ -210,6 +210,14 @@ async def send_money(chat_id: str, amount: float, narration: str = None, pin: st
         
         user_data = user_result.data[0]
         
+        # Check if user has sufficient balance
+        current_balance = user_data.get("wallet_balance", 0)
+        if current_balance < amount:
+            return {
+                "success": False,
+                "error": f"Insufficient balance. Your wallet balance is ₦{current_balance:,.2f}, but you're trying to send ₦{amount:,.2f}."
+            }
+        
         # Check if PIN is provided - if not, trigger PIN entry flow
         if not pin:
             # No PIN provided - start PIN entry flow
@@ -325,6 +333,25 @@ async def send_money(chat_id: str, amount: float, narration: str = None, pin: st
                 logger.info(f"💡 But Paystack transfer still worked! Transfer code: {transfer_code}")
                 # Don't fail the transfer because of database issues
             
+            # 🎯 CRITICAL: Update user's wallet balance after successful transfer
+            current_balance = user_data.get("wallet_balance", 0)
+            new_balance = current_balance - amount
+            balance_updated = False
+            
+            try:
+                # Update user's wallet balance
+                supabase.table("users").update({
+                    "wallet_balance": new_balance,
+                    "updated_at": datetime.now().isoformat()
+                }).eq("telegram_chat_id", str(chat_id)).execute()
+                
+                logger.info(f"💰 Balance updated: ₦{current_balance:,.2f} → ₦{new_balance:,.2f}")
+                balance_updated = True
+                
+            except Exception as balance_error:
+                logger.error(f"❌ Failed to update user balance: {balance_error}")
+                # Don't fail the transfer, but log the error
+            
             # 🎯 Return success based on PAYSTACK result, not database result
             if paystack_transfer_success:
                 if requires_otp:
@@ -339,16 +366,33 @@ async def send_money(chat_id: str, amount: float, narration: str = None, pin: st
                         "db_saved": db_save_success
                     }
                 else:
+                    # Generate detailed receipt message with updated balance
+                    balance_display = new_balance if balance_updated else current_balance
+                    receipt_message = f"""✅ Transfer Successful!
+
+━━━━━━━━━━━━━━━━━━━━━
+📤 Amount Sent: ₦{amount:,.2f}
+👤 Recipient: {recipient_name}
+🏦 Bank: {recipient_bank} ({recipient_account})
+🧾 Reference: {transfer_code}
+💳 New Balance: ₦{balance_display:,.2f}
+🕒 Time: {datetime.now().strftime('%d/%m/%Y %I:%M %p')}
+━━━━━━━━━━━━━━━━━━━━━
+
+🎉 Your transfer was completed successfully!"""
+                    
                     return {
                         "success": True,
-                        "message": f"✅ ₦{amount:,.0f} sent to {recipient_name}",
+                        "message": receipt_message,
                         "amount": amount,
                         "recipient": recipient_name,
                         "transaction_id": transaction_id,
                         "transfer_code": transfer_code,
                         "reference": transfer_code,
                         "status": "completed",
-                        "db_saved": db_save_success
+                        "db_saved": db_save_success,
+                        "balance_updated": balance_updated,
+                        "new_balance": new_balance
                     }
             else:
                 return {
