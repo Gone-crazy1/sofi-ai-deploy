@@ -213,7 +213,23 @@ class SofiAssistant:
             
             elif function_name == "send_money":
                 # Use the transfer functions directly
+                logger.info(f"🔧 send_money called with args: {function_args}")
+                logger.info(f"🔧 chat_id: {chat_id}")
+                
+                # Validate required arguments
+                required_args = ["recipient_account", "recipient_bank", "amount", "pin"]
+                missing_args = [arg for arg in required_args if arg not in function_args]
+                
+                if missing_args:
+                    logger.error(f"❌ Missing required arguments: {missing_args}")
+                    return {"success": False, "error": f"Missing required arguments: {missing_args}"}
+                
+                # Import and inspect the function to debug
                 from functions.transfer_functions import send_money
+                import inspect
+                sig = inspect.signature(send_money)
+                logger.info(f"🔧 send_money signature: {sig}")
+                
                 return await send_money(
                     chat_id=chat_id,
                     recipient_account=function_args["recipient_account"],
