@@ -51,7 +51,7 @@ class SofiAssistant:
                 name="Sofi AI Banking Assistant",
                 instructions=SOFI_MONEY_INSTRUCTIONS,
                 tools=SOFI_MONEY_FUNCTIONS,
-                model="gpt-4o-mini"  # More efficient model for shorter responses
+                model="gpt-4o"  # Use the correct model name
             )
             
             self.assistant_id = assistant.id
