@@ -110,3 +110,46 @@ async def check_virtual_account(chat_id: str) -> Dict:
             "accountName": "Not available", 
             "balance": 0.0
         }
+
+async def update_user_balance(user_id: str, new_balance: float) -> Dict:
+    """
+    Update user balance in Supabase
+    
+    Args:
+        user_id: User ID
+        new_balance: New balance amount
+        
+    Returns:
+        dict: Success status and updated balance
+    """
+    try:
+        from supabase import create_client
+        import os
+        
+        client = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
+        
+        # Update balance in virtual_accounts table
+        result = client.table("virtual_accounts").update({
+            "balance": new_balance
+        }).eq("user_id", user_id).execute()
+        
+        if result.data:
+            logger.info(f"Successfully updated balance for user {user_id} to {new_balance}")
+            return {
+                "success": True,
+                "balance": new_balance,
+                "message": "Balance updated successfully"
+            }
+        else:
+            logger.error(f"Failed to update balance for user {user_id}")
+            return {
+                "success": False,
+                "error": "Failed to update balance in database"
+            }
+            
+    except Exception as e:
+        logger.error(f"Error updating user balance: {e}")
+        return {
+            "success": False,
+            "error": str(e)
+        }

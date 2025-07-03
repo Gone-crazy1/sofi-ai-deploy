@@ -226,6 +226,44 @@ class BankAPI:
         
         return bank_codes.get(bank_name.lower().strip())
     
+    def get_bank_code(self, bank_name: str) -> Optional[str]:
+        """Public method to get bank code - wrapper for _get_bank_code"""
+        return self._get_bank_code(bank_name)
+    
+    def verify_account(self, account_number: str, bank_code: str) -> Dict[str, Any]:
+        """Synchronous wrapper for verify_account_name"""
+        try:
+            # Run the async method synchronously
+            import asyncio
+            try:
+                loop = asyncio.get_event_loop()
+            except RuntimeError:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+            
+            result = loop.run_until_complete(self.verify_account_name(account_number, bank_code))
+            
+            # Convert the result format to match expected format
+            if result.get('success'):
+                return {
+                    'verified': True,
+                    'account_name': result.get('account_name'),
+                    'bank_name': result.get('bank_name'),
+                    'account_number': account_number,
+                    'bank_code': bank_code
+                }
+            else:
+                return {
+                    'verified': False,
+                    'error': result.get('error', 'Account verification failed')
+                }
+        except Exception as e:
+            logger.error(f"Error in synchronous verify_account: {e}")
+            return {
+                'verified': False,
+                'error': f"Error verifying account: {str(e)}"
+            }
+    
     async def get_banks(self) -> List[Dict[str, Any]]:
         """Get list of banks supported by Paystack"""
         try:

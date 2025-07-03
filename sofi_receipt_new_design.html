@@ -1,0 +1,283 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sofi AI - Transaction Receipt</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f5f5f5;
+            padding: 20px;
+            color: #333;
+        }
+        
+        .receipt-container {
+            max-width: 400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        
+        .receipt-header {
+            background: #ffffff;
+            padding: 30px 20px;
+            text-align: center;
+            border-bottom: 1px solid #f0f0f0;
+        }
+        
+        .logo {
+            font-size: 24px;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+        
+        .logo-icon {
+            width: 32px;
+            height: 32px;
+            background: linear-gradient(135deg, #4CAF50, #45a049);
+            border-radius: 8px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 16px;
+        }
+        
+        .receipt-title {
+            color: #666;
+            font-size: 16px;
+            font-weight: 500;
+            margin-bottom: 20px;
+        }
+        
+        .amount-section {
+            margin: 20px 0;
+        }
+        
+        .main-amount {
+            font-size: 36px;
+            font-weight: 700;
+            color: #00C853;
+            margin-bottom: 8px;
+        }
+        
+        .status-text {
+            color: #00C853;
+            font-size: 18px;
+            font-weight: 500;
+        }
+        
+        .timestamp {
+            color: #999;
+            font-size: 14px;
+            margin-top: 15px;
+        }
+        
+        .details-section {
+            padding: 25px 20px;
+        }
+        
+        .detail-group {
+            margin-bottom: 25px;
+        }
+        
+        .detail-group:last-child {
+            margin-bottom: 0;
+        }
+        
+        .detail-title {
+            color: #666;
+            font-size: 14px;
+            font-weight: 500;
+            margin-bottom: 12px;
+        }
+        
+        .detail-content {
+            background: #f8f9fa;
+            border-radius: 12px;
+            padding: 15px;
+        }
+        
+        .detail-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        
+        .detail-row:last-child {
+            margin-bottom: 0;
+        }
+        
+        .detail-label {
+            color: #666;
+            font-size: 14px;
+        }
+        
+        .detail-value {
+            color: #333;
+            font-size: 14px;
+            font-weight: 500;
+            text-align: right;
+        }
+        
+        .recipient-name {
+            color: #333;
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+        
+        .bank-name {
+            color: #666;
+            font-size: 14px;
+            margin-bottom: 2px;
+        }
+        
+        .account-number {
+            color: #333;
+            font-size: 14px;
+            font-family: 'SF Mono', Monaco, monospace;
+        }
+        
+        .reference-value {
+            color: #333;
+            font-size: 14px;
+            font-family: 'SF Mono', Monaco, monospace;
+            font-weight: 500;
+        }
+        
+        .session-id {
+            color: #666;
+            font-size: 12px;
+            font-family: 'SF Mono', Monaco, monospace;
+            word-break: break-all;
+        }
+        
+        .footer {
+            background: #f8f9fa;
+            padding: 20px;
+            text-align: center;
+        }
+        
+        .footer-text {
+            color: #666;
+            font-size: 13px;
+            line-height: 1.5;
+        }
+        
+        .amount-highlight {
+            color: #00C853;
+            font-weight: 600;
+        }
+        
+        @media print {
+            body {
+                background: white;
+                padding: 0;
+            }
+            
+            .receipt-container {
+                box-shadow: none;
+                max-width: none;
+                border-radius: 0;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="receipt-container">
+        <div class="receipt-header">
+            <div class="logo">
+                <div class="logo-icon">💳</div>
+                Sofi AI
+            </div>
+            <div class="receipt-title">Transaction Receipt</div>
+            
+            <div class="amount-section">
+                <div class="main-amount">₦1,000.00</div>
+                <div class="status-text">Successful</div>
+                <div class="timestamp">Jul 3rd, 2025 06:38:03</div>
+            </div>
+        </div>
+        
+        <div class="details-section">
+            <div class="detail-group">
+                <div class="detail-title">Recipient Details</div>
+                <div class="detail-content">
+                    <div class="recipient-name">MRHAW SOLOMON</div>
+                    <div class="bank-name">OPay Digital Services Limited</div>
+                    <div class="account-number">8104965538</div>
+                </div>
+            </div>
+            
+            <div class="detail-group">
+                <div class="detail-title">Sender Details</div>
+                <div class="detail-content">
+                    <div class="recipient-name">Sofi AI User</div>
+                    <div class="bank-name">Via Sofi AI | Paystack</div>
+                </div>
+            </div>
+            
+            <div class="detail-group">
+                <div class="detail-title">Transaction Details</div>
+                <div class="detail-content">
+                    <div class="detail-row">
+                        <span class="detail-label">Amount</span>
+                        <span class="detail-value amount-highlight">₦1,000.00</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Fee</span>
+                        <span class="detail-value">₦25.00</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Total Charged</span>
+                        <span class="detail-value amount-highlight">₦1,025.00</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">New Balance</span>
+                        <span class="detail-value">₦2,475.00</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="detail-group">
+                <div class="detail-title">Transaction No.</div>
+                <div class="detail-content">
+                    <div class="reference-value">TRF_sofi_ai_20250703_001</div>
+                </div>
+            </div>
+            
+            <div class="detail-group">
+                <div class="detail-title">Session ID</div>
+                <div class="detail-content">
+                    <div class="session-id">SOFI250702021001358973336936</div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="footer">
+            <div class="footer-text">
+                Enjoy seamless banking with Sofi AI. Get instant transfers, 
+                balance checks, airtime purchases, and smart financial assistance. 
+                Sofi AI is powered by advanced AI technology and secured by industry-standard encryption.
+            </div>
+        </div>
+    </div>
+</body>
+</html>

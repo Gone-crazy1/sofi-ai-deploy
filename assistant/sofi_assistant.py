@@ -122,6 +122,7 @@ class SofiAssistant:
         """Handle function calls from the assistant"""
         try:
             tool_outputs = []
+            function_results = {}  # Track function results
             
             for tool_call in tool_calls:
                 function_name = tool_call.function.name
@@ -135,6 +136,8 @@ class SofiAssistant:
                 # Execute the function
                 try:
                     result = await self._execute_function(function_name, function_args)
+                    function_results[function_name] = result  # Store function result
+                    
                     tool_outputs.append({
                         "tool_call_id": tool_call.id,
                         "output": json.dumps(result)
@@ -153,11 +156,13 @@ class SofiAssistant:
                 tool_outputs=tool_outputs
             )
             
-            # Continue waiting for completion
-            return await self._handle_run_completion(thread_id, run_id, chat_id)
+            # Continue waiting for completion, but pass function results
+            response, _ = await self._handle_run_completion(thread_id, run_id, chat_id)
+            return response, function_results  # Return function results
             
         except Exception as e:
             logger.error(f"❌ Error handling function calls: {str(e)}")
+            return f"Sorry, I encountered an error executing functions: {str(e)}", None
             return f"Sorry, I encountered an error executing functions: {str(e)}", None
     
     async def _execute_function(self, function_name: str, args: Dict[str, Any]) -> Dict[str, Any]:
@@ -169,6 +174,7 @@ class SofiAssistant:
         from functions.transaction_functions import record_deposit, get_transfer_history, get_wallet_statement
         from functions.security_functions import verify_pin
         from functions.notification_functions import send_receipt, send_alert, update_transaction_status
+        from functions.verification_functions import verify_account_name
         
         # Function mapping
         function_map = {
@@ -182,6 +188,7 @@ class SofiAssistant:
             'verify_pin': verify_pin,
             'get_transfer_history': get_transfer_history,
             'get_wallet_statement': get_wallet_statement,
+            'verify_account_name': verify_account_name,
         }
         
         if function_name not in function_map:

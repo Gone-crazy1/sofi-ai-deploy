@@ -4,7 +4,7 @@ Handles money transfers using Paystack
 """
 
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from supabase import create_client
 import os
 from paystack.paystack_service import get_paystack_service
@@ -336,7 +336,7 @@ async def send_money(chat_id: str, amount: float, narration: str = None, pin: st
                 "recipient_account": recipient_account,
                 "account_number": recipient_account,  # Alternative column name
                 "recipient_name": recipient_name,
-                "recipient_bank": recipient_bank,
+                "bank_code": bank_code,  # Use bank_code instead of recipient_bank
                 "bank_name": recipient_bank,  # Alternative column name
                 "narration": transfer_reason,
                 "status": "completed" if paystack_transfer_success and not requires_otp else "pending_otp",
@@ -370,8 +370,7 @@ async def send_money(chat_id: str, amount: float, narration: str = None, pin: st
             try:
                 # Update user's wallet balance
                 supabase.table("users").update({
-                    "wallet_balance": new_balance,
-                    "updated_at": datetime.now().isoformat()
+                    "wallet_balance": new_balance
                 }).eq("telegram_chat_id", str(chat_id)).execute()
                 
                 logger.info(f"💰 Balance updated: ₦{current_balance:,.2f} → ₦{new_balance:,.2f}")
@@ -398,20 +397,26 @@ async def send_money(chat_id: str, amount: float, narration: str = None, pin: st
                     # Generate detailed receipt message (simplified for users)
                     balance_display = new_balance if balance_updated else current_balance
                     total_fee_display = sofi_fee + paystack_fee  # Combined fee for user display
-                    receipt_message = f"""✅ Transfer Successful!
-
-━━━━━━━━━━━━━━━━━━━━━
-📤 Amount Sent: ₦{amount:,.2f}
-💸 Transfer Fee: ₦{total_fee_display:,.2f}
-💰 Total Charged: ₦{total_deduction:,.2f}
-👤 Recipient: {recipient_name}
-🏦 Bank: {recipient_bank} ({recipient_account})
-🧾 Reference: {transfer_code}
-💳 New Balance: ₦{balance_display:,.2f}
-🕒 Time: {datetime.now().strftime('%d/%m/%Y %I:%M %p')}
-━━━━━━━━━━━━━━━━━━━━━
-
-🎉 Your transfer was completed successfully!"""
+                    
+                    # Generate beautiful receipt using new receipt generator
+                    from utils.receipt_generator import create_transaction_receipt
+                    
+                    receipt_data = {
+                        'amount': amount,
+                        'fee': total_fee_display,
+                        'total_charged': total_deduction,
+                        'new_balance': balance_display,
+                        'recipient_name': recipient_name,
+                        'bank_name': recipient_bank,
+                        'account_number': recipient_account,
+                        'reference': transfer_code,
+                        'transaction_id': transaction_id,
+                        'transaction_time': datetime.now().strftime('%d/%m/%Y %I:%M %p'),
+                        'narration': narration or "Transfer via Sofi AI"
+                    }
+                    
+                    # Generate beautiful Telegram receipt
+                    receipt_message = create_transaction_receipt(receipt_data, "telegram")
                     
                     return {
                         "success": True,
@@ -424,7 +429,9 @@ async def send_money(chat_id: str, amount: float, narration: str = None, pin: st
                         "status": "completed",
                         "db_saved": db_save_success,
                         "balance_updated": balance_updated,
-                        "new_balance": new_balance
+                        "new_balance": new_balance,
+                        "receipt_data": receipt_data,  # For potential HTML/PDF generation
+                        "auto_send_receipt": True  # Flag to indicate receipt should be sent
                     }
             else:
                 return {
@@ -493,3 +500,106 @@ async def calculate_transfer_fee(amount: float, **kwargs) -> Dict[str, Any]:
             "total": amount + 20.0,
             "error": str(e)
         }
+
+def get_bank_code_from_name(bank_name: str) -> Optional[str]:
+    """
+    Get bank code from bank name for API verification
+    
+    Args:
+        bank_name (str): Bank name to lookup
+        
+    Returns:
+        str: Bank code if found, None otherwise
+    """
+    # Official Paystack bank codes (same as in send_money function)
+    bank_name_to_code = {
+        # Major Commercial Banks
+        "access bank": "044",
+        "access bank plc": "044",
+        "access bank (diamond)": "063",
+        "citibank": "023",
+        "citibank nigeria": "023",
+        "ecobank": "050",
+        "ecobank nigeria": "050",
+        "fidelity bank": "070",
+        "fidelity bank plc": "070",
+        "first bank": "011",
+        "first bank of nigeria": "011",
+        "first bank nigeria": "011",
+        "fcmb": "214",
+        "first city monument bank": "214",
+        "gtbank": "058",
+        "gtb": "058",
+        "guaranty trust bank": "058",
+        "heritage bank": "030",
+        "heritage banking company": "030",
+        "keystone bank": "082",
+        "polaris bank": "076",
+        "polaris bank limited": "076",
+        "stanbic ibtc": "221",
+        "stanbic ibtc bank": "221",
+        "sterling bank": "232",
+        "sterling bank plc": "232",
+        "uba": "033",
+        "united bank for africa": "033",
+        "union bank": "032",
+        "union bank of nigeria": "032",
+        "unity bank": "215",
+        "unity bank plc": "215",
+        "wema bank": "035",
+        "wema bank plc": "035",
+        "alat by wema": "035A",
+        "alat": "035A",
+        "zenith bank": "057",
+        "zenith bank plc": "057",
+        
+        # Digital/Fintech Banks
+        "opay": "999992",
+        "opay digital services": "999992",
+        "opay digital services limited": "999992",
+        "moniepoint": "50515",
+        "moniepoint mfb": "50515",
+        "palmpay": "999991",
+        "palmpay limited": "999991",
+        "kuda": "50211",
+        "kuda bank": "50211",
+        "kuda microfinance bank": "50211",
+        "carbon": "565",
+        "carbon microfinance bank": "565",
+        "fairmoney": "51318",
+        "fairmoney microfinance bank": "51318",
+        "gomoney": "100022",
+        "gomoney nigeria": "100022",
+        "vfd": "566",
+        "vfd microfinance bank": "566",
+        "rubies": "125",
+        "rubies microfinance bank": "125",
+        "sparkle": "51310",
+        "sparkle microfinance bank": "51310",
+        "mint": "50304",
+        "mint fintech": "50304",
+        "eyowo": "50126",
+        "eyowo microfinance bank": "50126",
+        
+        # More banks...
+        "jaiz bank": "301",
+        "providus bank": "101",
+        "suntrust bank": "100",
+        "taj bank": "302",
+        "lotus bank": "303",
+        "coronation bank": "559"
+    }
+    
+    # Convert to lowercase for matching
+    bank_lower = bank_name.lower().strip()
+    
+    # Direct match
+    if bank_lower in bank_name_to_code:
+        return bank_name_to_code[bank_lower]
+    
+    # Partial match for common variations
+    for key in bank_name_to_code:
+        if bank_lower in key or key in bank_lower:
+            return bank_name_to_code[key]
+    
+    return None
