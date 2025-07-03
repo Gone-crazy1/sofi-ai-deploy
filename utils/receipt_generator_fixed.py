@@ -9,39 +9,15 @@ from typing import Dict, Any, Optional
 from datetime import datetime
 from jinja2 import Template
 
-logger = logging.getLogger(__name__)
-
-# Try to import PDF generation libraries
+# Try to import weasyprint for PDF generation
 try:
     import weasyprint
     PDF_AVAILABLE = True
-    logger.info("✅ WeasyPrint available - PDF generation enabled")
-except ImportError as e:
+except ImportError:
     PDF_AVAILABLE = False
-    logger.warning(f"WeasyPrint not available - trying alternative PDF methods: {e}")
-except Exception as e:
-    PDF_AVAILABLE = False
-    logger.warning(f"WeasyPrint import error - trying alternative PDF methods: {e}")
+    logging.warning("weasyprint not available - PDF generation disabled")
 
-# Try alternative PDF generation
-ALTERNATIVE_PDF_AVAILABLE = False
-try:
-    # Try reportlab for simple PDF generation
-    from reportlab.pdfgen import canvas
-    from reportlab.lib.pagesizes import letter, A4
-    from reportlab.lib.colors import HexColor
-    from reportlab.lib.units import inch
-    ALTERNATIVE_PDF_AVAILABLE = True
-    logger.info("✅ ReportLab available - PDF generation enabled")
-except ImportError as e:
-    logger.warning(f"ReportLab not available: {e}")
-    try:
-        # Try pdfkit (requires wkhtmltopdf)
-        import pdfkit
-        ALTERNATIVE_PDF_AVAILABLE = True
-        logger.info("✅ pdfkit available - alternative PDF generation enabled")
-    except ImportError:
-        logger.warning("No PDF generation libraries available")
+logger = logging.getLogger(__name__)
 
 class SofiReceiptGenerator:
     """Generate beautiful receipts for Sofi AI transactions"""
@@ -314,91 +290,27 @@ class SofiReceiptGenerator:
             return None
     
     def generate_pdf_receipt(self, transaction_data: Dict[str, Any], output_path: Optional[str] = None) -> Optional[str]:
-        """Generate PDF receipt using multiple methods"""
+        """Generate PDF receipt from HTML"""
         try:
-            # Try WeasyPrint first (if available)
-            if PDF_AVAILABLE:
-                try:
-                    html_content = self.generate_html_receipt(transaction_data)
-                    if html_content:
-                        if not output_path:
-                            timestamp = int(datetime.now().timestamp())
-                            output_path = f"sofi_receipt_{timestamp}.pdf"
-                        
-                        weasyprint.HTML(string=html_content).write_pdf(output_path)
-                        logger.info(f"PDF receipt generated with WeasyPrint: {output_path}")
-                        return output_path
-                except Exception as e:
-                    logger.warning(f"WeasyPrint PDF generation failed: {e}")
+            if not PDF_AVAILABLE:
+                logger.warning("PDF generation not available - weasyprint not installed")
+                return None
             
-            # Fallback to ReportLab (more reliable on Windows)
-            if ALTERNATIVE_PDF_AVAILABLE:
-                try:
-                    from reportlab.pdfgen import canvas
-                    from reportlab.lib.pagesizes import letter, A4
-                    from reportlab.lib.colors import HexColor
-                    from reportlab.lib.units import inch
-                    
-                    if not output_path:
-                        timestamp = int(datetime.now().timestamp())
-                        output_path = f"sofi_receipt_{timestamp}.pdf"
-                    
-                    # Create PDF with ReportLab
-                    c = canvas.Canvas(output_path, pagesize=letter)
-                    width, height = letter
-                    
-                    # Header
-                    c.setFillColor(HexColor('#4CAF50'))
-                    c.rect(0, height - 2*inch, width, 2*inch, fill=True, stroke=False)
-                    
-                    # Title
-                    c.setFillColor(HexColor('#FFFFFF'))
-                    c.setFont("Helvetica-Bold", 24)
-                    c.drawCentredText(width/2, height - 1*inch, "💳 SOFI AI")
-                    c.setFont("Helvetica", 12)
-                    c.drawCentredText(width/2, height - 1.3*inch, "Your Smart Banking Assistant")
-                    c.drawCentredText(width/2, height - 1.6*inch, "✅ TRANSFER SUCCESSFUL")
-                    
-                    # Transaction details
-                    c.setFillColor(HexColor('#000000'))
-                    y_pos = height - 3*inch
-                    
-                    details = [
-                        ("Amount Sent", f"₦{float(transaction_data.get('amount', 0)):,.2f}"),
-                        ("Transfer Fee", f"₦{float(transaction_data.get('fee', 0)):,.2f}"),
-                        ("Total Charged", f"₦{float(transaction_data.get('total_charged', 0)):,.2f}"),
-                        ("New Balance", f"₦{float(transaction_data.get('new_balance', 0)):,.2f}"),
-                        ("Recipient", transaction_data.get('recipient_name', 'Unknown')),
-                        ("Bank", transaction_data.get('bank_name', 'Unknown Bank')),
-                        ("Account", transaction_data.get('account_number', '')),
-                        ("Reference", transaction_data.get('reference', '')),
-                        ("Transaction ID", transaction_data.get('transaction_id', '')),
-                        ("Time", transaction_data.get('transaction_time', datetime.now().strftime('%d/%m/%Y %I:%M %p')))
-                    ]
-                    
-                    c.setFont("Helvetica-Bold", 14)
-                    c.drawString(1*inch, y_pos, "Transaction Details")
-                    y_pos -= 0.5*inch
-                    
-                    c.setFont("Helvetica", 10)
-                    for label, value in details:
-                        c.drawString(1*inch, y_pos, f"{label}:")
-                        c.drawRightString(width - 1*inch, y_pos, str(value))
-                        y_pos -= 0.3*inch
-                    
-                    # Footer
-                    c.drawCentredText(width/2, 1*inch, "Thank you for using Sofi AI!")
-                    c.drawCentredText(width/2, 0.7*inch, "Keep this receipt for your records")
-                    
-                    c.save()
-                    logger.info(f"PDF receipt generated with ReportLab: {output_path}")
-                    return output_path
-                    
-                except Exception as e:
-                    logger.error(f"ReportLab PDF generation failed: {e}")
+            # Generate HTML first
+            html_content = self.generate_html_receipt(transaction_data)
+            if not html_content:
+                return None
             
-            logger.warning("No PDF generation method available")
-            return None
+            # Create output path if not provided
+            if not output_path:
+                timestamp = int(datetime.now().timestamp())
+                output_path = f"/tmp/sofi_receipt_{timestamp}.pdf"
+            
+            # Generate PDF from HTML
+            weasyprint.HTML(string=html_content).write_pdf(output_path)
+            
+            logger.info(f"PDF receipt generated: {output_path}")
+            return output_path
             
         except Exception as e:
             logger.error(f"Error generating PDF receipt: {e}")

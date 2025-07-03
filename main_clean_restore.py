@@ -567,7 +567,7 @@ async def handle_transfer_flow(chat_id: str, message: str, user_data: dict = Non
             if verification_result and verification_result.get('verified'):
                 transfer['recipient_name'] = verification_result['account_name']
                 transfer['bank'] = verification_result.get('bank_name', bank)
-                state['step'] = 'get_amount' if not transfer['amount'] : 'confirm_transfer'
+                state['step'] = 'get_amount' if not transfer['amount'] else 'confirm_transfer'
                 
                 msg = (
                     f"✅ Account verified:\n"
@@ -1309,101 +1309,8 @@ def serve_onboarding_form():
             'error': 'Internal server error'
         }), 500
 
-@app.route("/pin-entry")
-def pin_entry():
-    """PIN entry web form for secure transfer confirmation"""
-    return render_template("pin-entry.html")
-
-@app.route("/api/submit-pin", methods=["POST"])
-async def submit_pin_api():
-    """Handle PIN submission from web form and execute transfer immediately"""
-    try:
-        data = request.get_json()
-        
-        chat_id = data.get("chat_id")
-        pin = data.get("pin")
-        amount = float(data.get("amount", 0))
-        account_number = data.get("account_number")
-        bank_code = data.get("bank_code")
-        recipient_name = data.get("recipient_name")
-        
-        if not all([chat_id, pin, amount, account_number, bank_code, recipient_name]):
-            return jsonify({"success": False, "error": "Missing required parameters"}), 400
-        
-        if len(pin) != 4 or not pin.isdigit():
-            return jsonify({"success": False, "error": "Invalid PIN format"}), 400
-        
-        # Execute the transfer immediately
-        from functions.transfer_functions import send_money
-        
-        # Get bank name from code
-        bank_name = get_bank_name_from_code(bank_code)
-        
-        result = await send_money(
-            chat_id=chat_id,
-            account_number=account_number,
-            bank_name=bank_name,
-            amount=amount,
-            pin=pin,
-            narration=f"Transfer to {recipient_name}"
-        )
-        
-        if result.get("success"):
-            # Send success message to Telegram immediately
-            success_msg = f"✅ *Transfer Completed Successfully!*\n\n💰 Amount: ₦{amount:,.2f}\n👤 Recipient: {recipient_name}\n📱 Account: {account_number}\n\n🧾 Your receipt is being prepared..."
-            send_reply(chat_id, success_msg)
-            
-            # Send beautiful receipt if available
-            receipt_data = result.get("receipt_data", {})
-            if receipt_data:
-                await send_beautiful_receipt(chat_id, receipt_data, result)
-            
-            return jsonify({"success": True, "message": "Transfer completed successfully"})
-        else:
-            # Send error message to Telegram
-            error_msg = f"❌ *Transfer Failed*\n\n{result.get('error', 'Unknown error occurred')}"
-            send_reply(chat_id, error_msg)
-            
-            return jsonify({"success": False, "error": result.get("error", "Transfer failed")})
-            
-    except Exception as e:
-        logger.error(f"Error in PIN submission API: {e}")
-        return jsonify({"success": False, "error": "System error occurred"}), 500
-
-def get_bank_name_from_code(bank_code: str) -> str:
-    """Get bank name from bank code"""
-    bank_map = {
-        "044": "Access Bank",
-        "014": "Afribank", 
-        "050": "Ecobank",
-        "011": "First Bank",
-        "070": "Fidelity Bank",
-        "058": "GTBank",
-        "030": "Heritage Bank",
-        "082": "Keystone Bank",
-        "076": "Polaris Bank",
-        "221": "Stanbic IBTC",
-        "068": "Standard Chartered",
-        "232": "Sterling Bank",
-        "032": "Union Bank",
-        "033": "United Bank for Africa",
-        "215": "Unity Bank",
-        "035": "Wema Bank",
-        "057": "Zenith Bank",
-        "100": "Suntrust Bank",
-        "304": "Stanbic Mobile",
-        "090": "Fortress Microfinance",
-        "104": "Aso Savings",
-        "090110": "VFD Microfinance Bank",
-        "090097": "Ekondo Microfinance Bank",
-        "090089": "Renmoney Microfinance Bank",
-        "090067": "Kuda Microfinance Bank",
-        "090090": "Mutual Trust Microfinance Bank"
-    }
-    return bank_map.get(bank_code, "Unknown Bank")
-
 async def handle_callback_query(callback_query: dict):
-    """Handle callback queries from inline keyboards (web PIN entry)"""
+    """Handle callback queries from inline keyboards (PIN entry, etc.)"""
     try:
         query_id = callback_query["id"]
         chat_id = str(callback_query["from"]["id"])
@@ -1411,62 +1318,54 @@ async def handle_callback_query(callback_query: dict):
         
         logger.info(f"📱 Callback query from {chat_id}: {callback_data}")
         
-        # Handle transfer verification callbacks
-        if callback_data.startswith("verify_transfer_"):
-            try:
-                # Parse callback data: verify_transfer_chatid_account_bankcode_amount_name
-                parts = callback_data.split("_")
-                if len(parts) >= 7:
-                    verify_chat_id = parts[2]
-                    account_number = parts[3]
-                    bank_code = parts[4]
-                    amount = float(parts[5])
-                    verified_name = "_".join(parts[6:]).replace("_", " ")
-                    
-                    if verify_chat_id != chat_id:
-                        await answer_callback_query(query_id, "❌ Invalid verification request")
-                        return jsonify({"error": "Invalid request"}), 400
-                    
-                    # Show "Response sent" feedback
-                    await answer_callback_query(query_id, "Response sent")
-                    
-                    # Get bank name from code
-                    bank_name = get_bank_name_from_code(bank_code)
-                    
-                    # Create PIN entry web app button
-                    pin_keyboard = {
-                        "inline_keyboard": [[
-                            {
-                                "text": "🔐 Enter My PIN",
-                                "web_app": {
-                                    "url": f"https://sofi-ai-trio.onrender.com/pin-entry?chat_id={chat_id}&amount={amount}&account={account_number}&bank_code={bank_code}&recipient={verified_name.replace(' ', '%20')}"
-                                }
-                            }
-                        ]]
-                    }
-                    
-                    # Send PIN entry request
-                    pin_message = f"""✅ *Account Verified: {verified_name}*
-
-You're about to send ₦{amount:,.2f} to:
-🏦 {verified_name} — {account_number} ({bank_name})
-
-👉 Please click the button below to enter your 4-digit transaction PIN securely:
-
-Let me know once you're done, and I'll complete the transfer!"""
-                    
-                    send_reply(chat_id, pin_message, pin_keyboard)
-                    
-                    return jsonify({"success": True}), 200
+        # Import PIN manager
+        from utils.pin_entry_system import pin_manager
+        
+        # Handle PIN entry callbacks
+        if callback_data.startswith("pin_"):
+            if callback_data == "pin_submit":
+                # Submit PIN for transfer
+                result = await handle_pin_submit(chat_id)
+                
+                # Answer the callback query
+                await answer_callback_query(query_id, result.get("message", ""))
+                
+                if result.get("success"):
+                    # Send transfer result
+                    send_reply(chat_id, result["response"])
                 else:
-                    await answer_callback_query(query_id, "❌ Invalid verification data")
-                    return jsonify({"error": "Invalid callback data"}), 400
+                    # Send error message
+                    send_reply(chat_id, f"❌ {result.get('error', 'Transfer failed')}")
                     
-            except Exception as e:
-                logger.error(f"Error handling transfer verification: {e}")
-                await answer_callback_query(query_id, "❌ Verification failed")
-                send_reply(chat_id, f"❌ Verification failed: {str(e)}")
-                return jsonify({"error": str(e)}), 500
+            elif callback_data == "pin_cancel":
+                # Cancel PIN entry
+                pin_manager.clear_session(chat_id)
+                await answer_callback_query(query_id, "Transfer cancelled")
+                send_reply(chat_id, "❌ Transfer cancelled.")
+                
+            elif callback_data == "pin_clear":
+                # Clear current PIN entry
+                pin_manager.clear_pin(chat_id)
+                await answer_callback_query(query_id, "PIN cleared")
+                
+            else:
+                # PIN digit pressed
+                digit = callback_data.replace("pin_", "")
+                if digit.isdigit():
+                    result = pin_manager.add_pin_digit(chat_id, digit)
+                    
+                    if result["status"] == "complete":
+                        await answer_callback_query(query_id, "PIN complete - submitting...")
+                        # Auto-submit when 4 digits entered
+                        submit_result = await handle_pin_submit(chat_id)
+                        if submit_result.get("success"):
+                            send_reply(chat_id, submit_result["response"])
+                        else:
+                            send_reply(chat_id, f"❌ {submit_result.get('error', 'Transfer failed')}")
+                    else:
+                        # Show PIN progress
+                        pin_display = "•" * result["length"]
+                        await answer_callback_query(query_id, f"PIN: {pin_display}")
         
         return jsonify({"success": True}), 200
         
@@ -1842,6 +1741,67 @@ def onboard_user_api():
             # Send account details to user via Telegram if telegram_id is provided
             telegram_id = user_data.get('telegram_id')
             if telegram_id and not telegram_id.startswith('web_user_'):
+                # This is a real Telegram user, send them their account details
+                asyncio.run(send_account_details_to_user(telegram_id, result))
+            
+            return jsonify(result), 200
+        else:
+            logger.warning(f"Onboarding failed for web user: {result.get('error')}")
+            return jsonify(result), 400
+            
+    except Exception as e:
+        logger.error(f"Error in web onboarding API: {e}")
+        return jsonify({
+            'success': False,
+            'error': f'Internal server error: {str(e)}'
+        }), 500
+
+async def send_account_details_to_user(chat_id: str, onboarding_result: dict):
+    """Send account details to user via Telegram after successful onboarding"""
+    try:
+        account_details = onboarding_result.get('account_details', {})
+        full_name = onboarding_result.get('full_name', '')
+        customer_code = onboarding_result.get('customer_code', '')
+        
+        # Create concise welcome message
+        welcome_message = (
+            f"🎉 *Account Created!*\n\n"
+            f"🏦 *Account:* `{account_details.get('account_number', 'N/A')}`\n"
+            f"👤 *Name:* {account_details.get('account_name', 'N/A')}\n"
+            f"🏛️ *Bank:* {account_details.get('bank_name', 'N/A')}\n\n"
+            f"� Fund your account, then try:\n"
+            f"\"Check balance\" or \"Send ₦500\""
+        )
+        
+        # Send message to user
+        send_reply(chat_id, welcome_message)
+        logger.info(f"Account details sent to user {chat_id}")
+        
+    except Exception as e:
+        logger.error(f"Error sending account details to user {chat_id}: {e}")
+
+@app.route("/api/notify-onboarding", methods=["POST"])
+def notify_onboarding_complete():
+    """Webhook endpoint for onboarding completion notifications"""
+    try:
+        data = request.get_json()
+        telegram_id = data.get('telegram_id')
+        onboarding_result = data.get('result', {})
+        
+        if telegram_id and not telegram_id.startswith('web_user_'):
+            # Send account details to the user
+            import asyncio
+            asyncio.run(send_account_details_to_user(telegram_id, onboarding_result))
+            
+        return jsonify({'success': True}), 200
+        
+    except Exception as e:
+        logger.error(f"Error in onboarding notification: {e}")
+        return jsonify({'success': False}), 500
+
+@app.route("/onboard", methods=["GET"])
+def serve_onboarding_form():
+    """Serve the web onboarding form"""
     try:
         with open('web_onboarding.html', 'r', encoding='utf-8') as f:
             html_content = f.read()
@@ -1855,3 +1815,6 @@ def onboard_user_api():
         return jsonify({
             'error': 'Internal server error'
         }), 500
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)), debug=False)

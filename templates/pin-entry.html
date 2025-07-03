@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Enter Your PIN - Sofi AI</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 30px;
+            width: 100%;
+            max-width: 400px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            text-align: center;
+        }
+
+        .logo {
+            font-size: 32px;
+            font-weight: bold;
+            color: #667eea;
+            margin-bottom: 10px;
+        }
+
+        .title {
+            font-size: 24px;
+            font-weight: 600;
+            color: #2d3748;
+            margin-bottom: 8px;
+        }
+
+        .subtitle {
+            color: #718096;
+            font-size: 16px;
+            margin-bottom: 30px;
+        }
+
+        .transfer-details {
+            background: #f7fafc;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 30px;
+            text-align: left;
+        }
+
+        .transfer-details h3 {
+            color: #2d3748;
+            font-size: 18px;
+            margin-bottom: 15px;
+            text-align: center;
+        }
+
+        .detail-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+        }
+
+        .detail-label {
+            color: #718096;
+            font-size: 14px;
+        }
+
+        .detail-value {
+            color: #2d3748;
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        .pin-container {
+            margin-bottom: 30px;
+        }
+
+        .pin-input {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .pin-digit {
+            width: 50px;
+            height: 50px;
+            border: 2px solid #e2e8f0;
+            border-radius: 12px;
+            text-align: center;
+            font-size: 24px;
+            font-weight: bold;
+            color: #2d3748;
+            background: #f7fafc;
+            transition: all 0.3s ease;
+        }
+
+        .pin-digit:focus {
+            outline: none;
+            border-color: #667eea;
+            background: white;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .pin-digit.filled {
+            border-color: #667eea;
+            background: #667eea;
+            color: white;
+        }
+
+        .keypad {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .key {
+            width: 60px;
+            height: 60px;
+            border: none;
+            border-radius: 50%;
+            background: #f7fafc;
+            font-size: 20px;
+            font-weight: 600;
+            color: #2d3748;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            justify-self: center;
+        }
+
+        .key:hover {
+            background: #e2e8f0;
+            transform: scale(1.05);
+        }
+
+        .key:active {
+            transform: scale(0.95);
+        }
+
+        .key.delete {
+            background: #fed7d7;
+            color: #e53e3e;
+        }
+
+        .key.delete:hover {
+            background: #feb2b2;
+        }
+
+        .submit-btn {
+            width: 100%;
+            padding: 15px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 12px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-bottom: 15px;
+        }
+
+        .submit-btn:hover {
+            background: #5a67d8;
+            transform: translateY(-2px);
+        }
+
+        .submit-btn:disabled {
+            background: #cbd5e0;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .cancel-btn {
+            width: 100%;
+            padding: 15px;
+            background: transparent;
+            color: #718096;
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .cancel-btn:hover {
+            background: #f7fafc;
+            color: #2d3748;
+        }
+
+        .error-message {
+            color: #e53e3e;
+            font-size: 14px;
+            margin-top: 10px;
+            display: none;
+        }
+
+        .success-message {
+            color: #38a169;
+            font-size: 14px;
+            margin-top: 10px;
+            display: none;
+        }
+
+        .loading {
+            display: none;
+            margin-top: 10px;
+        }
+
+        .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .security-note {
+            font-size: 12px;
+            color: #718096;
+            margin-top: 20px;
+            padding: 10px;
+            background: #f7fafc;
+            border-radius: 8px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="logo">Sofi AI</div>
+        <h1 class="title">Enter Your PIN</h1>
+        <p class="subtitle">Confirm your transaction with your 4-digit PIN</p>
+
+        <div class="transfer-details">
+            <h3>Transfer Details</h3>
+            <div class="detail-row">
+                <span class="detail-label">Amount:</span>
+                <span class="detail-value" id="amount">₦0.00</span>
+            </div>
+            <div class="detail-row">
+                <span class="detail-label">To:</span>
+                <span class="detail-value" id="recipient">Loading...</span>
+            </div>
+            <div class="detail-row">
+                <span class="detail-label">Account:</span>
+                <span class="detail-value" id="account">Loading...</span>
+            </div>
+        </div>
+
+        <div class="pin-container">
+            <div class="pin-input">
+                <input type="password" class="pin-digit" maxlength="1" readonly>
+                <input type="password" class="pin-digit" maxlength="1" readonly>
+                <input type="password" class="pin-digit" maxlength="1" readonly>
+                <input type="password" class="pin-digit" maxlength="1" readonly>
+            </div>
+
+            <div class="keypad">
+                <button class="key" data-digit="1">1</button>
+                <button class="key" data-digit="2">2</button>
+                <button class="key" data-digit="3">3</button>
+                <button class="key" data-digit="4">4</button>
+                <button class="key" data-digit="5">5</button>
+                <button class="key" data-digit="6">6</button>
+                <button class="key" data-digit="7">7</button>
+                <button class="key" data-digit="8">8</button>
+                <button class="key" data-digit="9">9</button>
+                <button class="key delete" data-action="delete">⌫</button>
+                <button class="key" data-digit="0">0</button>
+                <button class="key delete" data-action="clear">⌧</button>
+            </div>
+        </div>
+
+        <button class="submit-btn" id="submitBtn" disabled>Confirm Transfer</button>
+        <button class="cancel-btn" id="cancelBtn">Cancel</button>
+
+        <div class="error-message" id="errorMessage"></div>
+        <div class="success-message" id="successMessage"></div>
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <p>Processing your transfer...</p>
+        </div>
+
+        <div class="security-note">
+            🔒 Your PIN is encrypted and secure. This transaction is protected by bank-level security.
+        </div>
+    </div>
+
+    <script>
+        // Get URL parameters
+        const urlParams = new URLSearchParams(window.location.search);
+        const chatId = urlParams.get('chat_id');
+        const amount = urlParams.get('amount');
+        const account = urlParams.get('account');
+        const bankCode = urlParams.get('bank_code');
+        const recipient = urlParams.get('recipient');
+
+        // Display transfer details
+        document.getElementById('amount').textContent = `₦${parseFloat(amount).toLocaleString()}`;
+        document.getElementById('recipient').textContent = decodeURIComponent(recipient);
+        document.getElementById('account').textContent = account;
+
+        // PIN handling
+        let pin = '';
+        const pinDigits = document.querySelectorAll('.pin-digit');
+        const submitBtn = document.getElementById('submitBtn');
+        const errorMessage = document.getElementById('errorMessage');
+        const successMessage = document.getElementById('successMessage');
+        const loading = document.getElementById('loading');
+
+        // Keypad event listeners
+        document.querySelectorAll('.key').forEach(key => {
+            key.addEventListener('click', (e) => {
+                const digit = e.target.dataset.digit;
+                const action = e.target.dataset.action;
+
+                if (digit && pin.length < 4) {
+                    pin += digit;
+                    updatePinDisplay();
+                } else if (action === 'delete' && pin.length > 0) {
+                    pin = pin.slice(0, -1);
+                    updatePinDisplay();
+                } else if (action === 'clear') {
+                    pin = '';
+                    updatePinDisplay();
+                }
+            });
+        });
+
+        function updatePinDisplay() {
+            pinDigits.forEach((digit, index) => {
+                if (index < pin.length) {
+                    digit.value = '•';
+                    digit.classList.add('filled');
+                } else {
+                    digit.value = '';
+                    digit.classList.remove('filled');
+                }
+            });
+
+            submitBtn.disabled = pin.length !== 4;
+        }
+
+        // Submit PIN
+        submitBtn.addEventListener('click', async () => {
+            if (pin.length !== 4) return;
+
+            try {
+                loading.style.display = 'block';
+                submitBtn.disabled = true;
+                errorMessage.style.display = 'none';
+                successMessage.style.display = 'none';
+
+                const response = await fetch('/api/submit-pin', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        chat_id: chatId,
+                        pin: pin,
+                        amount: parseFloat(amount),
+                        account_number: account,
+                        bank_code: bankCode,
+                        recipient_name: recipient
+                    })
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    successMessage.textContent = 'Transfer completed successfully!';
+                    successMessage.style.display = 'block';
+                    
+                    // Close the web app after 2 seconds
+                    setTimeout(() => {
+                        if (window.Telegram?.WebApp) {
+                            window.Telegram.WebApp.close();
+                        } else {
+                            window.close();
+                        }
+                    }, 2000);
+                } else {
+                    errorMessage.textContent = result.error || 'Transfer failed. Please try again.';
+                    errorMessage.style.display = 'block';
+                    submitBtn.disabled = false;
+                }
+            } catch (error) {
+                errorMessage.textContent = 'Network error. Please try again.';
+                errorMessage.style.display = 'block';
+                submitBtn.disabled = false;
+            } finally {
+                loading.style.display = 'none';
+            }
+        });
+
+        // Cancel button
+        document.getElementById('cancelBtn').addEventListener('click', () => {
+            if (window.Telegram?.WebApp) {
+                window.Telegram.WebApp.close();
+            } else {
+                window.close();
+            }
+        });
+
+        // Initialize Telegram Web App
+        if (window.Telegram?.WebApp) {
+            window.Telegram.WebApp.ready();
+            window.Telegram.WebApp.expand();
+        }
+    </script>
+</body>
+</html>
