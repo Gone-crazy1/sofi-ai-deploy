@@ -11,6 +11,7 @@ from paystack.paystack_service import get_paystack_service
 from utils.secure_transfer_handler import SecureTransferHandler
 from datetime import datetime
 import uuid
+from flask import current_app as app
 
 logger = logging.getLogger(__name__)
 
@@ -226,10 +227,9 @@ async def send_money(chat_id: str, amount: float, narration: str = None, pin: st
                 "error": f"Insufficient balance. You need ₦{total_cost:,.2f} (₦{amount:,.2f} + ₦{total_fees:,.2f} fee) but have ₦{current_balance:,.2f}."
             }
         
-        # Check if PIN is provided - if not, trigger PIN entry flow
+        # Check if PIN is provided - if not, trigger web PIN entry flow
         if not pin:
-            # No PIN provided - start inline keyboard PIN entry flow
-            from utils.inline_pin_keyboard import inline_pin_manager
+            # No PIN provided - start web PIN entry flow
             
             # First verify the recipient account before showing PIN entry
             logger.info(f"🔍 Verifying recipient account: {recipient_account}")
@@ -248,7 +248,10 @@ async def send_money(chat_id: str, amount: float, narration: str = None, pin: st
             fee_calculation = await calculate_transfer_fee(amount)
             total_fees = fee_calculation["total_fee"]
             
-            # Start PIN entry session with complete transfer data
+            # Create transaction ID for web PIN entry
+            transaction_id = f"transfer_{chat_id}_{int(datetime.now().timestamp())}"
+            
+            # Store transfer data temporarily for PIN verification
             transfer_data = {
                 "account_number": recipient_account,
                 "bank_name": recipient_bank,
@@ -256,18 +259,38 @@ async def send_money(chat_id: str, amount: float, narration: str = None, pin: st
                 "recipient_name": recipient_name,
                 "narration": narration or f"Transfer from {user_data.get('full_name', 'Sofi User')}",
                 "fee": total_fees,
-                "temp_id": f"transfer_{chat_id}_{int(datetime.now().timestamp())}"
+                "transaction_id": transaction_id,
+                "chat_id": chat_id,
+                "user_id": user_data.get("id"),
+                "created_at": datetime.now().isoformat()
             }
             
-            session_id = inline_pin_manager.start_pin_session(chat_id, transfer_data)
+            # Store in temporary storage (you can use Redis or database)
+            # For now, we'll use a simple in-memory storage
+            if not hasattr(app, 'temp_transfers'):
+                app.temp_transfers = {}
+            app.temp_transfers[transaction_id] = transfer_data
             
-            # Return special response indicating PIN entry is needed
+            # Create PIN verification URL
+            pin_url = f"https://pipinstallsofi.com/verify-pin?txn_id={transaction_id}"
+            
+            # Return web PIN entry response
             return {
                 "success": False,
                 "requires_pin": True,
-                "show_inline_keyboard": True,
-                "message": inline_pin_manager.create_transfer_confirmation_message(transfer_data),
-                "keyboard": inline_pin_manager.create_pin_keyboard(),
+                "show_web_pin": True,
+                "message": f"""💸 You're about to send ₦{amount:,.0f} to:
+👤 Name: *{recipient_name}*
+🏦 Bank: {recipient_bank}
+🔢 Account: {recipient_account}
+💰 Fee: ₦{total_fees:,.0f}
+💵 Total: ₦{amount + total_fees:,.0f}
+
+🔐 To complete this transfer, please enter your PIN:
+{pin_url}
+
+⏰ This link expires in 5 minutes.""",
+                "pin_url": pin_url,
                 "transfer_data": transfer_data
             }
         

@@ -251,17 +251,17 @@ class SofiAssistant:
                         narration=reason
                     )
                 else:
-                    # No PIN provided - start inline PIN entry flow
+                    # No PIN provided - start web PIN entry flow
                     from functions.transfer_functions import send_money
                     
-                    # Call the transfer function without PIN to trigger the inline keyboard
+                    # Call the transfer function without PIN to trigger the web PIN flow
                     return await send_money(
                         chat_id=chat_id,
                         account_number=recipient_account,
                         bank_name=recipient_bank,
                         amount=float(amount),
                         narration=reason
-                        # No PIN provided - this will trigger the inline keyboard flow
+                        # No PIN provided - this will trigger the web PIN flow
                     )
             
             elif function_name == "check_balance":

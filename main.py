@@ -750,10 +750,24 @@ async def handle_message(chat_id: str, message: str, user_data: dict = None, vir
                 logger.info(f"🔧 DEBUG: Function data received: {json.dumps(function_data, indent=2, default=str)}")
                 for func_name, func_result in function_data.items():
                     if isinstance(func_result, dict) and func_result.get("requires_pin"):
-                        logger.info(f"🔐 Function {func_name} requires PIN entry - sending inline keyboard")
+                        logger.info(f"🔐 Function {func_name} requires PIN entry - sending web PIN link")
                         
-                        # Check if it's the new inline keyboard system
-                        if func_result.get("show_inline_keyboard"):
+                        # Check if it's the new web PIN system
+                        if func_result.get("show_web_pin"):
+                            # Send the PIN entry message with web link
+                            pin_message = func_result.get("message", "Please enter your PIN")
+                            
+                            # Debug logging
+                            logger.info(f"🔧 DEBUG: Sending web PIN link")
+                            logger.info(f"📱 PIN Message: {pin_message}")
+                            
+                            # Send message with PIN link
+                            send_reply(chat_id, pin_message)
+                            
+                            return  # Don't continue processing other functions
+                        
+                        # Legacy inline keyboard support (fallback)
+                        elif func_result.get("show_inline_keyboard"):
                             from utils.inline_pin_keyboard import inline_pin_manager
                             
                             # Send the PIN entry message with inline keyboard
@@ -778,6 +792,8 @@ async def handle_message(chat_id: str, message: str, user_data: dict = None, vir
                                 logger.info(f"💾 Stored message ID: {message_id}")
                             else:
                                 logger.error(f"❌ Failed to get message ID from response: {message_response}")
+                            
+                            return  # Don't continue processing other functions
                             
                             return "PIN keyboard sent"  # Prevent further processing
                         
@@ -1224,10 +1240,20 @@ def create_virtual_account():
         logger.error(f"Error creating virtual account: {str(e)}")
         return jsonify({"success": False, "error": "Internal server error"}), 500
 
+# Removed duplicate onboard route - using templates/onboarding.html (WORKING VERSION)
+
 @app.route("/onboard")
 def onboard_page():
-    """Serve onboarding page"""
-    return render_template("onboarding.html")
+    """Serve beautiful onboarding page"""
+    try:
+        with open('web_onboarding.html', 'r', encoding='utf-8') as f:
+            html_content = f.read()
+        return html_content, 200, {'Content-Type': 'text/html'}
+    except FileNotFoundError:
+        return "Onboarding page not found", 404
+    except Exception as e:
+        logger.error(f"Error serving onboarding page: {e}")
+        return "Internal server error", 500
 
 @app.route("/verify-pin")
 def pin_verification_page():
@@ -1236,21 +1262,31 @@ def pin_verification_page():
     
     if not transaction_id:
         return "Invalid transaction", 400
-      # Get transaction data
-    from utils.secure_pin_verification import secure_pin_verification
     
-    transaction = secure_pin_verification.get_pending_transaction(transaction_id)
+    # Get transaction data from temporary storage
+    if not hasattr(app, 'temp_transfers'):
+        app.temp_transfers = {}
+    
+    transaction = app.temp_transfers.get(transaction_id)
     if not transaction:
         return "Transaction expired or invalid", 400
     
-    transfer_data = transaction['transfer_data']
+    # Check if transaction is expired (5 minutes)
+    from datetime import datetime, timedelta
+    created_at = datetime.fromisoformat(transaction['created_at'])
+    if datetime.now() - created_at > timedelta(minutes=5):
+        # Remove expired transaction
+        del app.temp_transfers[transaction_id]
+        return "Transaction expired", 400
     
     return render_template("secure_pin_verification.html", 
                          transaction_id=transaction_id,
-                         amount=f"{transfer_data['amount']:,.2f}",
-                         recipient_name=transfer_data['recipient_name'],
-                         bank_name=transfer_data['bank'],
-                         account_number=transfer_data['account_number'])
+                         transfer_data={
+                             'amount': transaction['amount'],
+                             'recipient_name': transaction['recipient_name'],
+                             'bank': transaction['bank_name'],
+                             'account_number': transaction['account_number']
+                         })
 
 @app.route("/api/verify-pin", methods=["POST"])
 async def verify_pin_api():
@@ -1266,15 +1302,85 @@ async def verify_pin_api():
                 'error': 'Missing transaction ID or PIN'
             }), 400
         
-        from utils.secure_pin_verification import secure_pin_verification
+        # Get transaction data from temporary storage
+        if not hasattr(app, 'temp_transfers'):
+            app.temp_transfers = {}
         
-        result = await secure_pin_verification.verify_pin_and_process_transfer(
-            transaction_id, pin
+        transaction = app.temp_transfers.get(transaction_id)
+        if not transaction:
+            return jsonify({
+                'success': False,
+                'error': 'Transaction expired or invalid'
+            }), 400
+        
+        # Check if transaction is expired (5 minutes)
+        from datetime import datetime, timedelta
+        created_at = datetime.fromisoformat(transaction['created_at'])
+        if datetime.now() - created_at > timedelta(minutes=5):
+            # Remove expired transaction
+            del app.temp_transfers[transaction_id]
+            return jsonify({
+                'success': False,
+                'error': 'Transaction expired'
+            }), 400
+        
+        # Verify PIN
+        from functions.security_functions import verify_pin
+        pin_result = await verify_pin(chat_id=transaction['chat_id'], pin=pin)
+        
+        if not pin_result.get("valid"):
+            return jsonify({
+                'success': False,
+                'error': 'Invalid PIN'
+            }), 400
+        
+        # Execute the transfer
+        from functions.transfer_functions import send_money
+        result = await send_money(
+            chat_id=transaction['chat_id'],
+            account_number=transaction['account_number'],
+            bank_name=transaction['bank_name'],
+            amount=transaction['amount'],
+            pin=pin,
+            narration=transaction['narration']
         )
         
-        if result['success']:
-            return jsonify(result), 200
+        # Remove transaction from temporary storage
+        del app.temp_transfers[transaction_id]
+        
+        if result.get('success'):
+            # Send success notification to Telegram
+            success_message = f"""✅ Transfer Successful!
+
+💸 Amount: ₦{transaction['amount']:,.2f}
+👤 Recipient: {transaction['recipient_name']}
+🏦 Bank: {transaction['bank_name']}
+🔢 Account: {transaction['account_number']}
+📝 Reference: {result.get('reference', 'N/A')}
+
+Your transfer has been completed successfully."""
+            
+            send_reply(transaction['chat_id'], success_message)
+            
+            return jsonify({
+                'success': True,
+                'message': 'Transfer completed successfully',
+                'reference': result.get('reference')
+            }), 200
         else:
+            # Send error notification to Telegram
+            error_message = f"""❌ Transfer Failed
+
+{result.get('error', 'Unknown error occurred')}
+
+Please try again or contact support if the issue persists."""
+            
+            send_reply(transaction['chat_id'], error_message)
+            
+            return jsonify({
+                'success': False,
+                'error': result.get('error', 'Transfer failed')
+            }), 400
             return jsonify(result), 400
             
     except Exception as e:
@@ -1402,22 +1508,7 @@ def notify_onboarding_complete():
         logger.error(f"Error in onboarding notification: {e}")
         return jsonify({'success': False}), 500
 
-@app.route("/onboard", methods=["GET"])
-def serve_onboarding_form():
-    """Serve the web onboarding form"""
-    try:
-        with open('web_onboarding.html', 'r', encoding='utf-8') as f:
-            html_content = f.read()
-        return html_content, 200, {'Content-Type': 'text/html'}
-    except FileNotFoundError:
-        return jsonify({
-            'error': 'Onboarding form not found'
-        }), 404
-    except Exception as e:
-        logger.error(f"Error serving onboarding form: {e}")
-        return jsonify({
-            'error': 'Internal server error'
-        }), 500
+# Removed duplicate onboard route - using the working templates/onboarding.html above
 
 # Note: Old PIN entry web routes removed - now using inline keyboards
 

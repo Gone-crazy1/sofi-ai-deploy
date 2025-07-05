@@ -6,7 +6,13 @@
     <title>Sofi AI - Onboarding</title>
     <style>
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+            font-fa                case 'bvn':
+                    // BVN is optional, but if provided, must be valid
+                    if (value && (value.length !== 11 || !/^\d{11}$/.test(value))) {
+                        showError('bvnError', 'BVN must be exactly 11 digits');
+                        return false;
+                    }
+                    break;le-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
             line-height: 1.6;
             margin: 0;
             padding: 20px;
@@ -133,8 +139,8 @@
             </div>
             
             <div class="form-group">
-                <label for="bvn">BVN (Bank Verification Number)</label>
-                <input type="tel" id="bvn" name="bvn" maxlength="11" pattern="\d{11}" title="Please enter a valid 11-digit BVN" required>
+                <label for="bvn">BVN (Bank Verification Number) - Optional</label>
+                <input type="tel" id="bvn" name="bvn" maxlength="11" pattern="\d{11}" title="Please enter a valid 11-digit BVN">
                 <div class="error" id="bvnError"></div>
             </div>
               <div class="form-group">
@@ -318,7 +324,8 @@
             showError(field.id + 'Error', '');
             return true;
         }        // Add input event listeners for real-time validation
-        ['firstName', 'lastName', 'bvn', 'phone', 'email', 'pin', 'address', 'city', 'state', 'country'].forEach(id => {
+        // Form field validation - BVN is optional
+        ['firstName', 'lastName', 'phone', 'email', 'pin', 'address', 'city', 'state', 'country'].forEach(id => {
             const field = document.getElementById(id);
             field.addEventListener('input', () => validateField(field));
         });
@@ -327,7 +334,11 @@
             e.preventDefault();
             
             // Validate all fields
-            const fields = ['firstName', 'lastName', 'bvn', 'phone', 'email', 'pin', 'address', 'city', 'state', 'country'];
+            const fields = ['firstName', 'lastName', 'phone', 'email', 'pin', 'address', 'city', 'state', 'country'];
+            // BVN is optional, validate only if provided
+            if (document.getElementById('bvn').value) {
+                fields.push('bvn');
+            }
             const isValid = fields.every(id => validateField(document.getElementById(id)));
             
             if (!isValid) {
