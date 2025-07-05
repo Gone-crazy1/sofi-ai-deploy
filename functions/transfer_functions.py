@@ -228,26 +228,46 @@ async def send_money(chat_id: str, amount: float, narration: str = None, pin: st
         
         # Check if PIN is provided - if not, trigger PIN entry flow
         if not pin:
-            # No PIN provided - start PIN entry flow
-            from utils.pin_entry_system import pin_manager
+            # No PIN provided - start inline keyboard PIN entry flow
+            from utils.inline_pin_keyboard import inline_pin_manager
             
-            # Start PIN entry session
+            # First verify the recipient account before showing PIN entry
+            logger.info(f"🔍 Verifying recipient account: {recipient_account}")
+            
+            verify_result = paystack.verify_account_number(recipient_account, recipient_bank)
+            if not verify_result["success"] or not verify_result["verified"]:
+                return {
+                    "success": False,
+                    "error": f"Could not verify recipient account: {verify_result.get('error', 'Invalid account details')}"
+                }
+            
+            recipient_name = verify_result["account_name"]
+            logger.info(f"✅ Account verified: {recipient_name}")
+            
+            # Calculate transfer fees for display
+            fee_calculation = await calculate_transfer_fee(amount)
+            total_fees = fee_calculation["total_fee"]
+            
+            # Start PIN entry session with complete transfer data
             transfer_data = {
                 "account_number": recipient_account,
                 "bank_name": recipient_bank,
                 "amount": amount,
+                "recipient_name": recipient_name,
                 "narration": narration or f"Transfer from {user_data.get('full_name', 'Sofi User')}",
+                "fee": total_fees,
                 "temp_id": f"transfer_{chat_id}_{int(datetime.now().timestamp())}"
             }
             
-            pin_manager.start_pin_session(chat_id, "transfer", transfer_data)
+            session_id = inline_pin_manager.start_pin_session(chat_id, transfer_data)
             
             # Return special response indicating PIN entry is needed
             return {
                 "success": False,
                 "requires_pin": True,
-                "message": f"Please enter your 4-digit PIN to send ₦{amount:,.0f} to {recipient_account}",
-                "show_pin_keyboard": True,
+                "show_inline_keyboard": True,
+                "message": inline_pin_manager.create_transfer_confirmation_message(transfer_data),
+                "keyboard": inline_pin_manager.create_pin_keyboard(),
                 "transfer_data": transfer_data
             }
         

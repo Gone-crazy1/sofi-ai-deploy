@@ -313,81 +313,34 @@ class SofiUserOnboarding:
             return {'success': False, 'error': str(e)}
 
     async def send_welcome_notification(self, telegram_id: str, user_record: Dict) -> bool:
-        """Send comprehensive welcome notification with account details"""
+        """Send clean, single welcome notification with account details"""
         try:
             full_name = user_record.get('full_name', 'User')
-            # Show user's full name from Supabase, not the truncated account name
-            display_name = full_name  # Always use the full name from Supabase
             account_number = user_record.get('paystack_account_number')
-            bank_name = user_record.get('paystack_bank_name', 'Paystack Bank')
-            is_verified = user_record.get('is_verified', False)
-            daily_limit = user_record.get('daily_limit', 200000.00)
+            bank_name = user_record.get('paystack_bank_name', 'Wema Bank')
             
-            # Main welcome message with account details
-            welcome_message = f"""
-🎉 *Welcome to Sofi AI Wallet, {full_name}!*
+            # Single, clean welcome message
+            welcome_message = f"""✅ *Account Created Successfully!*
 
-Your virtual account has been created successfully! 🏦
-_Powered by Paystack - Nigeria's Leading Payment Infrastructure_
+Welcome to Sofi AI, {full_name}! 
 
-*📋 Your Account Details:*
-👤 *Account Name:* {display_name}
-🏦 *Bank Name:* {bank_name}
-🔢 *Account Number:* `{account_number}`
-💳 *Current Balance:* ₦0.00
+🏦 *Your Virtual Account:*
+`{account_number}` ({bank_name})
+� {full_name}
 
-*💰 Daily Transfer Limit:*
-{'₦1,000,000+ (Verified Account)' if is_verified else f'₦{daily_limit:,.2f} (Unverified)'}
+*Ready to use:*
+• Transfer money to any bank
+• Buy airtime & data instantly  
+• Check balance anytime
 
-*📱 How to Fund Your Account:*
-• Transfer money to your account number above
-• Use any Nigerian bank or mobile app
-• Funds are credited instantly!
+Fund your account by transferring to the number above from any bank.
 
-*💡 Available Services:*
-• 🏦 Bank Transfers
-• 📱 Airtime Purchase  
-• 🌐 Data Purchase
-• 💱 Crypto Trading (Buy/Sell USDT, BTC)
-• 💰 Balance Management
-
-*🔔 Important Notes:*
-• You'll receive instant notifications for all transactions
-• All transfers have small fees (transparently shown)
-• Your funds are secured with Paystack banking infrastructure
-
-Type /help to see all available commands!
-
-_Welcome to the future of digital banking! 🚀_
-            """
+_Powered by Pip install AI Technologies_ 🚀"""
             
-            # Send welcome message
+            # Send single clean message
             success = await notification_service.send_telegram_message(
                 telegram_id, welcome_message, "Markdown"
             )
-            
-            # Send additional upgrade message if not verified
-            if not is_verified:
-                upgrade_message = f"""
-⬆️ *Upgrade Your Account*
-
-Currently, your daily transfer limit is ₦{daily_limit:,.2f}.
-
-*Want to increase your limit to ₦1,000,000+?*
-📝 Provide your BVN for account verification
-
-*Benefits of Verification:*
-• Higher daily transfer limits
-• Priority customer support  
-• Access to premium features
-• Enhanced security
-
-Type /upgrade when you're ready to verify your account! 🔐
-                """
-                
-                await notification_service.send_telegram_message(
-                    telegram_id, upgrade_message, "Markdown"
-                )
             
             # Log the notification
             if success:

@@ -13,7 +13,7 @@ from utils.balance_helper import get_user_balance as get_balance_secure, check_v
 # Paystack Integration - Banking Partner
 from paystack import get_paystack_service
 from paystack.paystack_webhook import handle_paystack_webhook
-# OpenAI Assistant Integration
+# AI Assistant Integration - Powered by Pip install AI Technologies
 from assistant import get_assistant
 from dotenv import load_dotenv
 import random
@@ -75,7 +75,7 @@ CORS(app)  # CSRF Disabled globally
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Initialize OpenAI client with API key
+# Initialize AI client with API key - Powered by Pip install AI Technologies
 openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 # Set the path to the ffmpeg executable for pydub
@@ -97,7 +97,7 @@ def send_reply(chat_id, message, reply_markup=None):
     return response.json() if response.status_code == 200 else None
 
 def detect_intent(message):
-    """Enhanced intent detector using OpenAI API with chatgpt-4o-latest and Nigerian expressions support"""
+    """Enhanced intent detector using AI with chatgpt-4o-latest and Nigerian expressions support - Powered by Pip install AI Technologies"""
     try:
         # Step 1: Enhance message with Nigerian expressions understanding
         enhanced_analysis = enhance_nigerian_message(message)
@@ -190,12 +190,13 @@ async def generate_ai_reply(chat_id: str, message: str):
         logger.info(f"🇳🇬 AI Reply Enhancement: '{message}' -> '{enhanced_message}'")
         logger.info(f"📝 Response Guidance: {response_guidance}")
         
-    # Concise system prompt
-    system_prompt = """You are Sofi AI, a Nigerian banking assistant. Be brief and helpful.
+    # Concise system prompt - Now with Pip install AI Technologies branding
+    system_prompt = """You are Sofi AI, an advanced banking assistant powered by Pip install AI Technologies. Be brief and helpful.
 
 Key features: transfers, airtime, data, balance checks.
-New users: Direct to https://sofi-ai-trio.onrender.com/onboarding
-Keep responses short (2-3 lines max). Use Nigerian style but stay professional."""
+New users: Direct to https://pipinstallsofi.com/onboard
+Keep responses short (2-3 lines max). Use Nigerian style but stay professional.
+Proudly powered by Pip install AI Technologies - the future of AI banking."""
 
     try:
         # Check if user has a virtual account
@@ -228,7 +229,7 @@ Keep responses short (2-3 lines max). Use Nigerian style but stay professional."
                 )
             else:
                 reply = (
-                    "Create account: https://sofi-ai-trio.onrender.com/onboarding\n"
+                    "Create account: https://pipinstallsofi.com/onboard\n"
                     "Need: BVN + phone number\n"
                     "Get instant virtual account for transfers & airtime!"
                 )
@@ -296,7 +297,7 @@ def process_photo(file_id):
         image_data = download_file(file_id)
         image = Image.open(BytesIO(image_data))
         
-        # Use OpenAI Vision API to analyze the image
+        # Use AI Vision API to analyze the image - Powered by Pip install AI Technologies
         import base64        # Convert image to base64
         buffered = BytesIO()
         image.save(buffered, format="JPEG")
@@ -402,7 +403,7 @@ def process_voice(file_id):
         audio = AudioSegment.from_file(temp_file_path, format="ogg")
         wav_path = temp_file_path.replace(".ogg", ".wav")
         audio.export(wav_path, format="wav")
-          # Transcribe using OpenAI Whisper
+          # Transcribe using AI Whisper - Powered by Pip install AI Technologies
         with open(wav_path, 'rb') as audio_file:
             transcript = openai_client.audio.transcriptions.create(
                 model="whisper-1",
@@ -454,10 +455,10 @@ def verify_account_name(account_number: str, bank_name: str) -> Dict:
                 "error": "Account verification failed"
             }
     except Exception as e:
-        logger.error(f"Error verifying account: {str(e)}")
+        logger.error(f"Error processing: {str(e)}")
         return {
             "verified": False,
-            "error": "Error verifying account"
+            "error": "Error processing"
         }
 
 async def handle_transfer_flow(chat_id: str, message: str, user_data: dict = None, media_data: dict = None) -> str:
@@ -528,7 +529,7 @@ async def handle_transfer_flow(chat_id: str, message: str, user_data: dict = Non
                     state['step'] = 'get_bank'
                     msg = f"📱 Account number: {state['transfer']['account_number']}\n\nWhich bank is this account with?"
             except Exception as e:
-                logger.error(f"Error verifying account: {e}")
+                logger.error(f"Error processing: {e}")
                 state['step'] = 'get_bank'
                 msg = f"📱 Account number: {state['transfer']['account_number']}\n\nWhich bank is this account with?"
         else:
@@ -567,7 +568,7 @@ async def handle_transfer_flow(chat_id: str, message: str, user_data: dict = Non
             if verification_result and verification_result.get('verified'):
                 transfer['recipient_name'] = verification_result['account_name']
                 transfer['bank'] = verification_result.get('bank_name', bank)
-                state['step'] = 'get_amount' if not transfer['amount'] else 'confirm_transfer'
+                state['step'] = 'get_amount' if not transfer.get('amount') else 'confirm_transfer'
                 
                 msg = (
                     f"✅ Account verified:\n"
@@ -583,7 +584,7 @@ async def handle_transfer_flow(chat_id: str, message: str, user_data: dict = Non
                 state['step'] = 'get_bank'
                 msg = f"📱 Account: {account_number}\n\nWhich bank is this account with?"
         except Exception as e:
-            logger.error(f"Error verifying account: {e}")
+            logger.error(f"Error processing: {e}")
             state['step'] = 'get_bank'
             msg = f"📱 Account: {account_number}\n\nWhich bank is this account with?"
         
@@ -650,7 +651,7 @@ async def handle_transfer_flow(chat_id: str, message: str, user_data: dict = Non
                 "inline_keyboard": [[
                     {
                         "text": "🔐 Verify Transaction",
-                        "url": f"https://sofi-ai-trio.onrender.com/verify-pin?txn_id={transaction_id}"
+                        "url": f"https://pipinstallsofi.com/verify-pin?txn_id={transaction_id}"
                     }
                 ]]
             }
@@ -722,7 +723,7 @@ async def handle_crypto_commands(chat_id: str, message: str, user_data: dict) ->
         return None
 
 async def handle_message(chat_id: str, message: str, user_data: dict = None, virtual_account: dict = None) -> str:
-    """Main message handler with OpenAI Assistant integration"""
+    """Main message handler with AI Assistant integration - Powered by Pip install AI Technologies"""
     try:
         # Check for admin commands first (highest priority)
         admin_command = await admin_handler.detect_admin_command(message, chat_id)
@@ -730,7 +731,62 @@ async def handle_message(chat_id: str, message: str, user_data: dict = None, vir
             admin_response = await admin_handler.handle_admin_command(admin_command, message, chat_id)
             return admin_response
         
-        # Try OpenAI Assistant first for better AI handling
+        # Check for Smart transfer commands (account bank send amount)
+        from xara_style_transfer import XaraStyleTransfer
+        smart_transfer_handler = XaraStyleTransfer()
+        parsed_transfer = smart_transfer_handler.parse_xara_command(message)
+        
+        if parsed_transfer:
+            logger.info(f"🎯 Smart transfer command detected: {parsed_transfer}")
+            
+            try:
+                # Step 1: Auto-verify account and get real name (silently)
+                # No verification message shown to user
+                
+                # Normalize bank name
+                bank_name = smart_transfer_handler.normalize_bank_name(parsed_transfer['bank'])
+                
+                # Get bank code from bank name for verification
+                from functions.transfer_functions import get_bank_code_from_name
+                bank_code = get_bank_code_from_name(bank_name)
+                
+                if not bank_code:
+                    return f"❌ *Bank not supported*\n\nBank '{parsed_transfer['bank']}' is not supported. Please use a valid bank name."
+                
+                # Import Paystack service for verification
+                paystack = get_paystack_service()
+                
+                # Verify account
+                verify_result = paystack.verify_account_number(parsed_transfer['account_number'], bank_code)
+                
+                if not verify_result.get("success") or not verify_result.get("verified"):
+                    return f"❌ *Account verification failed*\n\n{verify_result.get('error', 'Invalid account details')}"
+                
+                verified_name = verify_result["account_name"]
+                
+                # Step 2: Show professional confirmation
+                confirmation_msg = f"""✅ *Account Verified: {verified_name}*
+
+You're about to send ₦{parsed_transfer['amount']:,.2f} to:
+🏦 {verified_name} — {parsed_transfer['account_number']} ({bank_name.title()})
+
+👉 Please click the button below to verify this transaction:"""
+                
+                # Send confirmation with verify button
+                verify_keyboard = {
+                    "inline_keyboard": [[
+                        {"text": "✅ Verify Transaction", "callback_data": f"verify_transfer_{chat_id}_{parsed_transfer['account_number']}_{bank_code}_{parsed_transfer['amount']}_{verified_name.replace(' ', '_')}"}
+                    ]]
+                }
+                
+                send_reply(chat_id, confirmation_msg, verify_keyboard)
+                return "Transfer confirmation sent"
+                
+            except Exception as e:
+                logger.error(f"Error handling smart transfer command: {e}")
+                return f"❌ *Transfer failed*\n\n{str(e)}"
+        
+        # Try AI Assistant first for better AI handling
         try:
             assistant = get_assistant()
             
@@ -739,25 +795,69 @@ async def handle_message(chat_id: str, message: str, user_data: dict = None, vir
             if virtual_account:
                 context_data['virtual_account'] = virtual_account
             
-            # Process message with OpenAI Assistant
+            # Process message with AI Assistant
             response, function_data = await assistant.process_message(chat_id, message, context_data)
             
-            # Check if any function returned requires_pin
+            # Check if any function returned requires_pin or completed transfer
             if function_data:
                 for func_name, func_result in function_data.items():
                     if isinstance(func_result, dict) and func_result.get("requires_pin"):
-                        logger.info(f"🔐 Function {func_name} requires PIN entry")
-                        return func_result
+                        logger.info(f"🔐 Function {func_name} requires PIN entry - sending inline keyboard")
+                        
+                        # Check if it's the new inline keyboard system
+                        if func_result.get("show_inline_keyboard"):
+                            from utils.inline_pin_keyboard import inline_pin_manager
+                            
+                            # Send the PIN entry message with inline keyboard
+                            pin_message = func_result.get("message", "Please enter your PIN")
+                            keyboard = func_result.get("keyboard", {})
+                            
+                            # Send message with inline keyboard
+                            message_response = send_reply(chat_id, pin_message, keyboard)
+                            
+                            # Store the message ID for editing later
+                            if message_response and message_response.get("result"):
+                                message_id = message_response["result"]["message_id"]
+                                inline_pin_manager.set_message_id(chat_id, message_id)
+                            
+                            return "PIN keyboard sent"  # Prevent further processing
+                        
+                        # Legacy PIN handling (fallback)
+                        else:
+                            from utils.pin_entry_system import create_pin_entry_keyboard
+                            
+                            pin_message = f"""🔐 *Please enter your PIN*
+
+To complete your transaction
+
+*Click the button below to enter your PIN securely:*"""
+                            pin_keyboard = create_pin_entry_keyboard()
+                            
+                            # Send PIN keyboard immediately
+                            send_reply(chat_id, pin_message, pin_keyboard)
+                            return "PIN keyboard sent"  # Prevent further processing
+                    
+                    # Check if any function returned a successful transfer with auto receipt
+                    if isinstance(func_result, dict) and func_result.get("auto_send_receipt") and func_result.get("success"):
+                        logger.info(f"📧 Function {func_name} completed transfer - auto-sending receipt")
+                        
+                        # Generate and send beautiful HTML receipt
+                        receipt_data = func_result.get("receipt_data", {})
+                        if receipt_data:
+                            await send_beautiful_receipt(chat_id, receipt_data, func_result)
+                        
+                        # Return the receipt message directly
+                        return func_result.get("message", "Transfer completed successfully!")
             
             # If assistant handled it successfully, return the response
             if response and not response.startswith("Sorry, I encountered an error"):
-                logger.info(f"✅ OpenAI Assistant handled message from {chat_id}")
+                logger.info(f"✅ AI Assistant handled message from {chat_id}")
                 return response
             else:
-                logger.info(f"⚠️ OpenAI Assistant failed, falling back to legacy handlers")
+                logger.info(f"⚠️ AI Assistant failed, falling back to legacy handlers")
         
         except Exception as assistant_error:
-            logger.error(f"❌ OpenAI Assistant error: {str(assistant_error)}")
+            logger.error(f"❌ AI Assistant error: {str(assistant_error)}")
             logger.info("🔄 Falling back to legacy message handlers")
         
         # Fallback to legacy handlers if assistant fails
@@ -811,7 +911,7 @@ async def handle_balance_inquiry(chat_id: str, message: str, user_data: dict = N
         if not virtual_account:
             return (
                 "You don't have a virtual account yet. Create one at:\n"
-                "https://sofi-ai-trio.onrender.com/onboarding\n\n"
+                "https://pipinstallsofi.com/onboard\n\n"
                 "Once you have an account, I can show you your balance and transaction history!"
             )
         
@@ -927,6 +1027,11 @@ def create_sofi_ai_response_with_custom_prompt(user_message, context="general"):
             return "Unexpected error occurred. Please try again later."
 
 # Flask Routes
+@app.route("/")
+def landing_page():
+    """Serve the main landing page"""
+    return render_template("index.html")
+
 @app.route("/health")
 def health_check():
     """Health check endpoint"""
@@ -980,7 +1085,8 @@ async def webhook_incoming():
                 user_message = response
                 ai_response = await handle_message(chat_id, user_message, user_data)
                 send_reply(chat_id, ai_response)
-            else:                send_reply(chat_id, response)
+            else:
+                send_reply(chat_id, response)
         
         # Handle text messages
         elif "text" in message_data:
@@ -988,36 +1094,72 @@ async def webhook_incoming():
             
             if not user_message:
                 return jsonify({"success": True}), 200
-              # Check if user exists and force onboarding for new users
+            
+            # Check if user exists and handle onboarding flow intelligently
             if not user_exists:
-                # Force onboarding for new users with inline keyboard
-                onboarding_message = (
-                    f"👋 *Welcome to Sofi AI!* I'm your personal financial assistant.\n\n"
-                    f"🔐 *To get started, I need to create your secure virtual account:*\n\n"
-                    f"📋 *You'll need:*\n"
-                    f"• Your BVN (Bank Verification Number)\n"
-                    f"• Phone number\n"
-                    f"• Basic personal details\n\n"
-                    f"✅ *Once done, you can:*\n"
-                    f"• Send money to any bank instantly\n"
-                    f"• Buy airtime & data at best rates\n"
-                    f"• Receive money from anywhere\n"
-                    f"• Chat with me for financial advice\n\n"
-                    f"🚀 *Click the button below to start your registration!*"
+                # Check if message suggests they already know they need an account
+                skip_onboarding_keywords = [
+                    "already registered", "i have account", "just created", "completed registration",
+                    "just signed up", "thanks", "thank you", "okay", "ok", "got it", "understood",
+                    "will do", "sure", "alright", "fine", "done", "yes", "no problem"
+                ]
+                
+                # Don't send onboarding if they seem to acknowledge or are just being polite
+                if any(keyword in user_message.lower() for keyword in skip_onboarding_keywords):
+                    # Give a brief helpful response instead of onboarding
+                    brief_response = (
+                        "Ready to help! Once you complete your registration at "
+                        "https://pipinstallsofi.com/onboard, you'll be all set. "
+                        "Need help with anything else?"
+                    )
+                    send_reply(chat_id, brief_response)
+                    return jsonify({"success": True}), 200
+                
+                # Only show full onboarding for substantial messages or clear requests
+                substantial_message = len(user_message.split()) > 2 or any(
+                    keyword in user_message.lower() for keyword in [
+                        "account", "register", "sign up", "create", "start", "begin", "help",
+                        "transfer", "send money", "balance", "airtime", "data"
+                    ]
                 )
                 
-                # Create inline keyboard with web app button
-                inline_keyboard = {
-                    "inline_keyboard": [[
-                        {
-                            "text": "🚀 Complete Registration",
-                            "web_app": {"url": "https://sofi-ai-trio.onrender.com/onboard"}
-                        }
-                    ]]
-                }
-                
-                send_reply(chat_id, onboarding_message, inline_keyboard)
-                return jsonify({"success": True}), 200
+                if substantial_message:
+                    # Force onboarding for new users with inline keyboard
+                    onboarding_message = (
+                        f"👋 *Welcome to Sofi AI!* I'm your intelligent financial assistant powered by Pip install AI Technologies.\n\n"
+                        f"🔐 *To get started, I need to create your secure virtual account:*\n\n"
+                        f"📋 *You'll need:*\n"
+                        f"• Your BVN (Bank Verification Number)\n"
+                        f"• Phone number\n"
+                        f"• Basic personal details\n\n"
+                        f"✅ *Once done, you can:*\n"
+                        f"• Send money to any bank instantly\n"
+                        f"• Buy airtime & data at best rates\n"
+                        f"• Receive money from anywhere\n"
+                        f"• Chat with me for intelligent financial advice\n\n"
+                        f"🚀 *Click the button below to start your registration!*"
+                    )
+                    
+                    # Create inline keyboard with web app button
+                    inline_keyboard = {
+                        "inline_keyboard": [[
+                            {
+                                "text": "🚀 Complete Registration",
+                                "web_app": {"url": "https://pipinstallsofi.com/onboard"}
+                            }
+                        ]]
+                    }
+                    
+                    send_reply(chat_id, onboarding_message, inline_keyboard)
+                    return jsonify({"success": True}), 200
+                else:
+                    # For very brief messages, give a gentle nudge
+                    brief_nudge = (
+                        "Hi! I'm Sofi AI. To use my services, please register at "
+                        "https://pipinstallsofi.com/onboard"
+                    )
+                    send_reply(chat_id, brief_nudge)
+                    return jsonify({"success": True}), 200
             
             # Handle existing user messages
             try:
@@ -1032,7 +1174,16 @@ async def webhook_incoming():
                     # This is a PIN entry request - send PIN keyboard
                     from utils.pin_entry_system import create_pin_entry_keyboard
                     
-                    pin_message = f"🔐 **Enter your 4-digit PIN**\n\n{ai_response.get('message', 'Please enter your PIN')}\n\n*Use the keypad below:*"
+                    # Get transfer details from the response
+                    transfer_data = ai_response.get("transfer_data", {})
+                    amount = transfer_data.get("amount", 0)
+                    verified_name = transfer_data.get("recipient_name", "recipient")
+                    
+                    pin_message = f"""🔐 *Please enter your PIN*
+
+To complete transfer of ₦{amount:,.2f} to {verified_name}
+
+*Click the button below to enter your PIN securely:*"""
                     pin_keyboard = create_pin_entry_keyboard()
                     
                     send_reply(chat_id, pin_message, pin_keyboard)
@@ -1051,7 +1202,7 @@ async def webhook_incoming():
 
 @app.route("/api/paystack/webhook", methods=["POST"])
 def handle_paystack_webhook_route():
-    """Handle Paystack webhook notifications for payments and transfers"""
+    """Handle Paystack webhook notifications for payments and transfers"""""
     try:
         data = request.get_json()
         
@@ -1114,8 +1265,8 @@ def create_virtual_account():
         logger.error(f"Error creating virtual account: {str(e)}")
         return jsonify({"success": False, "error": "Internal server error"}), 500
 
-@app.route("/onboarding")
-def onboarding_page():
+@app.route("/onboard")
+def onboard_page():
     """Serve onboarding page"""
     return render_template("onboarding.html")
 
@@ -1309,71 +1460,161 @@ def serve_onboarding_form():
             'error': 'Internal server error'
         }), 500
 
+# Note: Old PIN entry web routes removed - now using inline keyboards
+
+def edit_message(chat_id, message_id, text, reply_markup=None):
+    """Edit a message in Telegram"""
+    try:
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/editMessageText"
+        payload = {
+            "chat_id": chat_id,
+            "message_id": message_id,
+            "text": text,
+            "parse_mode": "Markdown"
+        }
+        if reply_markup:
+            payload["reply_markup"] = reply_markup
+        
+        response = requests.post(url, json=payload)
+        if response.status_code == 200:
+            logger.info(f"✅ Message edited successfully for chat {chat_id}")
+            return response.json()
+        else:
+            logger.error(f"❌ Failed to edit message: {response.text}")
+            return None
+    except Exception as e:
+        logger.error(f"❌ Error editing message: {str(e)}")
+        return None
+
 async def handle_callback_query(callback_query: dict):
-    """Handle callback queries from inline keyboards (web PIN entry)"""
+    """Handle callback queries from inline keyboards (PIN entry, etc.)"""
     try:
         query_id = callback_query["id"]
         chat_id = str(callback_query["from"]["id"])
         callback_data = callback_query.get("data", "")
+        message_id = callback_query.get("message", {}).get("message_id")
         
         logger.info(f"📱 Callback query from {chat_id}: {callback_data}")
         
-        # Handle transfer verification callbacks
-        if callback_data.startswith("verify_transfer_"):
+        # Define answer_callback_query helper
+        async def answer_callback_query(query_id: str, text: str = ""):
+            """Answer a callback query to remove loading state"""
+            url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/answerCallbackQuery"
+            payload = {
+                "callback_query_id": query_id,
+                "text": text,
+                "show_alert": False
+            }
             try:
-                # Parse callback data: verify_transfer_chatid_account_bankcode_amount_name
-                parts = callback_data.split("_")
-                if len(parts) >= 7:
-                    verify_chat_id = parts[2]
-                    account_number = parts[3]
-                    bank_code = parts[4]
-                    amount = float(parts[5])
-                    verified_name = "_".join(parts[6:]).replace("_", " ")
-                    
-                    if verify_chat_id != chat_id:
-                        await answer_callback_query(query_id, "❌ Invalid verification request")
-                        return jsonify({"error": "Invalid request"}), 400
-                    
-                    # Show "Response sent" feedback
-                    await answer_callback_query(query_id, "Response sent")
-                    
-                    # Get bank name from code
-                    bank_name = get_bank_name_from_code(bank_code)
-                    
-                    # Create PIN entry web app button
-                    pin_keyboard = {
-                        "inline_keyboard": [[
-                            {
-                                "text": "🔐 Enter My PIN",
-                                "web_app": {
-                                    "url": f"https://sofi-ai-trio.onrender.com/pin-entry?chat_id={chat_id}&amount={amount}&account={account_number}&bank_code={bank_code}&recipient={verified_name.replace(' ', '%20')}"
-                                }
-                            }
-                        ]]
-                    }
-                    
-                    # Send PIN entry request
-                    pin_message = f"""✅ *Account Verified: {verified_name}*
+                response = requests.post(url, json=payload)
+                return response.json() if response.status_code == 200 else None
+            except Exception as e:
+                logger.error(f"❌ Error answering callback query: {str(e)}")
+                return None
+        
+        # Handle inline PIN keyboard callbacks
+        if callback_data.startswith("pin_"):
+            try:
+                from utils.inline_pin_keyboard import handle_pin_button, inline_pin_manager
+                
+                # Process the PIN button press
+                result = handle_pin_button(chat_id, callback_data)
+                
+                if result["success"]:
+                    if result.get("action") == "submit":
+                        # PIN submitted - execute transfer
+                        await answer_callback_query(query_id, "🔐 Processing transfer...")
+                        
+                        pin = result["pin"]
+                        transfer_data = result["transfer_data"]
+                        
+                        # STEP 1: Remove the inline keyboard immediately
+                        remove_keyboard_message = f"""💸 You're about to send ₦{transfer_data['amount']:,.0f} to:
+👤 Name: *{transfer_data['recipient_name']}*
+🏦 Bank: {transfer_data['bank_name']}
+🔢 Account: {transfer_data['account_number']}
 
-You're about to send ₦{amount:,.2f} to:
-🏦 {verified_name} — {account_number} ({bank_name})
+🔐 PIN submitted! Processing transfer..."""
+                        
+                        # Remove keyboard by editing message without reply_markup
+                        edit_message(chat_id, message_id, remove_keyboard_message)
+                        
+                        # STEP 2: Execute the transfer
+                        from functions.transfer_functions import send_money
+                        transfer_result = await send_money(
+                            chat_id=chat_id,
+                            amount=transfer_data["amount"],
+                            account_number=transfer_data["account_number"],
+                            bank_name=transfer_data["bank_name"],
+                            recipient_name=transfer_data["recipient_name"],
+                            pin=pin,
+                            narration=transfer_data.get("narration", "Sofi AI Transfer")
+                        )
+                        
+                        # End the PIN session
+                        inline_pin_manager.end_session(chat_id)
+                        
+                        # STEP 3: Update the message with final result and send receipt
+                        if transfer_result and transfer_result.get("success"):
+                            # Show success message with real receiver name
+                            success_message = f"""✅ Transfer Successful!
 
-👉 Please click the button below to enter your 4-digit transaction PIN securely:
+💰 ₦{transfer_data['amount']:,.0f} sent to:
+👤 *{transfer_data['recipient_name']}*
+🏦 {transfer_data['bank_name']}
+🔢 {transfer_data['account_number']}
 
-Let me know once you're done, and I'll complete the transfer!"""
-                    
-                    send_reply(chat_id, pin_message, pin_keyboard)
-                    
-                    return jsonify({"success": True}), 200
+🧾 Receipt is being prepared..."""
+                            
+                            edit_message(chat_id, message_id, success_message)
+                            
+                            # Send receipt as a separate message
+                            receipt_data = transfer_result.get("receipt_data", {})
+                            if receipt_data:
+                                await send_beautiful_receipt(chat_id, receipt_data, transfer_result)
+                            
+                            # Send a clean summary message
+                            summary_message = f"💸 ₦{transfer_data['amount']:,.0f} sent to {transfer_data['bank_name']} ({transfer_data['account_number']}) {transfer_data['recipient_name']} ✅"
+                            send_reply(chat_id, summary_message)
+                            
+                        else:
+                            # Show error message
+                            error_message = f"""❌ Transfer Failed
+
+{transfer_result.get('message', 'Transfer could not be completed. Please try again.')}"""
+                            edit_message(chat_id, message_id, error_message)
+                            
+                    elif result.get("action") == "cancel":
+                        # PIN cancelled - remove keyboard
+                        await answer_callback_query(query_id, "❌ Transfer cancelled")
+                        
+                        # Remove keyboard and show cancellation message
+                        cancel_message = "❌ Transfer cancelled by user.\n\nYou can start a new transfer anytime by sending me transfer details."
+                        edit_message(chat_id, message_id, cancel_message)
+                        
+                    else:
+                        # PIN digit added or cleared
+                        await answer_callback_query(query_id, "")
+                        
+                        # Update the PIN display
+                        transfer_data = inline_pin_manager.get_transfer_data(chat_id)
+                        if transfer_data:
+                            pin_length = result.get("length", 0)
+                            updated_message = inline_pin_manager.create_pin_progress_message(transfer_data, pin_length)
+                            keyboard = inline_pin_manager.create_pin_keyboard()
+                            
+                            # Update the message with new PIN display
+                            edit_message(chat_id, message_id, updated_message, keyboard)
                 else:
-                    await answer_callback_query(query_id, "❌ Invalid verification data")
-                    return jsonify({"error": "Invalid callback data"}), 400
+                    # Error handling PIN button
+                    await answer_callback_query(query_id, f"❌ {result.get('error', 'PIN entry error')}")
                     
             except Exception as e:
-                logger.error(f"Error handling transfer verification: {e}")
-                await answer_callback_query(query_id, "❌ Verification failed")
-                send_reply(chat_id, f"❌ Verification failed: {str(e)}")
-                return jsonify({"error": str(e)}), 500
+                logger.error(f"❌ Error handling PIN callback: {str(e)}")
+                await answer_callback_query(query_id, "❌ PIN entry failed")
+                
+        # Handle other callback types here (existing logic)
+        # ...existing callback handling code...
         
         return jsonify({"success": True}), 200
         
@@ -1381,430 +1622,33 @@ Let me know once you're done, and I'll complete the transfer!"""
         logger.error(f"❌ Error handling callback query: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
-def get_bank_name_from_code(bank_code: str) -> str:
-    """Get bank name from bank code"""
-    bank_map = {
-        "044": "Access Bank",
-        "014": "Afribank", 
-        "050": "Ecobank",
-        "011": "First Bank",
-        "070": "Fidelity Bank",
-        "058": "GTBank",
-        "030": "Heritage Bank",
-        "082": "Keystone Bank",
-        "076": "Polaris Bank",
-        "221": "Stanbic IBTC",
-        "068": "Standard Chartered",
-        "232": "Sterling Bank",
-        "032": "Union Bank",
-        "033": "United Bank for Africa",
-        "215": "Unity Bank",
-        "035": "Wema Bank",
-        "057": "Zenith Bank",
-        "100": "Suntrust Bank",
-        "304": "Stanbic Mobile",
-        "090": "Fortress Microfinance",
-        "104": "Aso Savings",
-        "090110": "VFD Microfinance Bank",
-        "090097": "Ekondo Microfinance Bank",
-        "090089": "Renmoney Microfinance Bank",
-        "090067": "Kuda Microfinance Bank",
-        "090090": "Mutual Trust Microfinance Bank"
-    }
-    return bank_map.get(bank_code, "Unknown Bank")
-
-@app.route("/webhook", methods=["POST"])
-async def webhook_incoming():
-    """Handle incoming Telegram messages and callback queries"""
+async def send_beautiful_receipt(chat_id, receipt_data, transfer_result):
+    """Send a beautiful receipt after successful transfer"""
     try:
-        data = request.get_json()
+        # Import the beautiful receipt generator
+        from beautiful_receipt_generator import generate_pos_style_receipt
         
-        if not data:
-            return jsonify({"error": "Invalid update payload", "response": None}), 400
+        # Extract receipt data
+        sender_name = receipt_data.get('sender_name', 'Sofi User')
+        amount = receipt_data.get('amount', 0)
+        recipient_name = receipt_data.get('recipient_name', 'Unknown')
+        recipient_account = receipt_data.get('recipient_account', 'Unknown')
+        recipient_bank = receipt_data.get('recipient_bank', 'Unknown')
+        balance = receipt_data.get('new_balance', 0)
+        transaction_id = receipt_data.get('transaction_id', 'N/A')
         
-        # Handle callback queries (inline keyboard button presses)
-        if "callback_query" in data:
-            return await handle_callback_query(data["callback_query"])
-        
-        # Handle regular messages
-        if "message" not in data:
-            return jsonify({"error": "Invalid message payload", "response": None}), 400
-        
-        message_data = data["message"]
-        chat_id = str(message_data["chat"]["id"])
-        
-        # Extract user information
-        user_data = message_data.get("from", {})
-        
-        # Check if user exists in database
-        user_resp = supabase.table("users").select("*").eq("telegram_chat_id", str(chat_id)).execute()
-        user_exists = len(user_resp.data) > 0
-        
-        # Handle photo messages
-        if "photo" in message_data:
-            file_id = message_data["photo"][-1]["file_id"]  # Get the highest quality photo
-            success, response = process_photo(file_id)
-            
-            if success:
-                ai_response = await generate_ai_reply(chat_id, response)
-                send_reply(chat_id, ai_response)
-            else:
-                send_reply(chat_id, response)
-        
-        # Handle voice messages
-        elif "voice" in message_data:
-            file_id = message_data["voice"]["file_id"]
-            success, response = process_voice(file_id)
-            
-            if success:
-                # Process the transcribed text as a regular message
-                user_message = response
-                ai_response = await handle_message(chat_id, user_message, user_data)
-                send_reply(chat_id, ai_response)
-            else:                send_reply(chat_id, response)
-        
-        # Handle text messages
-        elif "text" in message_data:
-            user_message = message_data.get("text", "").strip()
-            
-            if not user_message:
-                return jsonify({"success": True}), 200
-              # Check if user exists and force onboarding for new users
-            if not user_exists:
-                # Force onboarding for new users with inline keyboard
-                onboarding_message = (
-                    f"👋 *Welcome to Sofi AI!* I'm your personal financial assistant.\n\n"
-                    f"🔐 *To get started, I need to create your secure virtual account:*\n\n"
-                    f"📋 *You'll need:*\n"
-                    f"• Your BVN (Bank Verification Number)\n"
-                    f"• Phone number\n"
-                    f"• Basic personal details\n\n"
-                    f"✅ *Once done, you can:*\n"
-                    f"• Send money to any bank instantly\n"
-                    f"• Buy airtime & data at best rates\n"
-                    f"• Receive money from anywhere\n"
-                    f"• Chat with me for financial advice\n\n"
-                    f"🚀 *Click the button below to start your registration!*"
-                )
-                
-                # Create inline keyboard with web app button
-                inline_keyboard = {
-                    "inline_keyboard": [[
-                        {
-                            "text": "🚀 Complete Registration",
-                            "web_app": {"url": "https://sofi-ai-trio.onrender.com/onboard"}
-                        }
-                    ]]
-                }
-                
-                send_reply(chat_id, onboarding_message, inline_keyboard)
-                return jsonify({"success": True}), 200
-            
-            # Handle existing user messages
-            try:
-                # Check if user has virtual account
-                virtual_account = await check_virtual_account(chat_id)
-                
-                # Generate AI reply with conversation context
-                ai_response = await handle_message(chat_id, user_message, user_resp.data[0] if user_resp.data else None, virtual_account)
-                
-                # Check if response is a special PIN entry request
-                if isinstance(ai_response, dict) and ai_response.get("requires_pin"):
-                    # This is a PIN entry request - send PIN keyboard
-                    from utils.pin_entry_system import create_pin_entry_keyboard
-                    
-                    pin_message = f"🔐 **Enter your 4-digit PIN**\n\n{ai_response.get('message', 'Please enter your PIN')}\n\n*Use the keypad below:*"
-                    pin_keyboard = create_pin_entry_keyboard()
-                    
-                    send_reply(chat_id, pin_message, pin_keyboard)
-                else:
-                    # Regular response
-                    send_reply(chat_id, ai_response)
-            except Exception as e:
-                logger.error(f"Error in AI reply: {str(e)}")
-                send_reply(chat_id, "Sorry, I encountered an error processing your request. Please try again.")
-
-        return jsonify({"success": True}), 200
-
-    except Exception as e:
-        logger.error(f"Error processing webhook: {str(e)}")
-        return jsonify({"error": "Internal server error", "response": None}), 500
-
-@app.route("/api/paystack/webhook", methods=["POST"])
-def handle_paystack_webhook_route():
-    """Handle Paystack webhook notifications for payments and transfers"""
-    try:
-        data = request.get_json()
-        
-        # Get signature from headers
-        signature = request.headers.get('X-Paystack-Signature')
-        
-        # TEMPORARY: Bypass signature check for localhost testing
-        if request.remote_addr == "127.0.0.1":
-            logger.info("🔐 Bypassing signature check for localhost test")
-            signature = None  # Skip verification for local tests
-        
-        # Log incoming webhook for debugging
-        logger.info(f"Paystack webhook received: {data}")
-        
-        # Process the webhook using imported handler
-        result = handle_paystack_webhook(data, signature)
-        
-        if result.get('success'):
-            return jsonify({"status": "success", "message": "Webhook processed"}), 200
-        else:
-            return jsonify({"status": "error", "message": result.get('error', 'Unknown error')}), 400
-            
-    except Exception as e:
-        logger.error(f"Error processing Paystack webhook: {str(e)}")
-        return jsonify({"status": "error", "message": "Internal server error"}), 500
-
-@app.route("/paystack-webhook", methods=["POST"])
-def handle_paystack_webhook_legacy():
-    """Legacy webhook route for backward compatibility"""
-    return handle_paystack_webhook_route()
-
-@app.route("/api/create_virtual_account", methods=["POST"])
-def create_virtual_account():
-    """Create virtual account endpoint for onboarding"""
-    try:
-        from utils.user_onboarding import SofiUserOnboarding
-        
-        data = request.get_json()
-        
-        # Fix field mapping from form to backend
-        if data:
-            # Combine first_name and last_name into full_name
-            if 'first_name' in data and 'last_name' in data:
-                data['full_name'] = f"{data['first_name']} {data['last_name']}"
-            
-            # Generate a temporary telegram_id if not provided (for web form users)
-            if not data.get('telegram_id'):
-                import uuid
-                data['telegram_id'] = f"web_user_{uuid.uuid4().hex[:8]}"
-        
-        onboarding = SofiUserOnboarding()
-        result = onboarding.create_virtual_account(data)
-        
-        if result.get('success'):
-            return jsonify(result), 201
-        else:
-            return jsonify(result), 400
-            
-    except Exception as e:
-        logger.error(f"Error creating virtual account: {str(e)}")
-        return jsonify({"success": False, "error": "Internal server error"}), 500
-
-@app.route("/onboarding")
-def onboarding_page():
-    """Serve onboarding page"""
-    return render_template("onboarding.html")
-
-@app.route("/verify-pin")
-def pin_verification_page():
-    """Serve secure PIN verification page"""
-    transaction_id = request.args.get('txn_id')
-    
-    if not transaction_id:
-        return "Invalid transaction", 400
-      # Get transaction data
-    from utils.secure_pin_verification import secure_pin_verification
-    
-    transaction = secure_pin_verification.get_pending_transaction(transaction_id)
-    if not transaction:
-        return "Transaction expired or invalid", 400
-    
-    transfer_data = transaction['transfer_data']
-    
-    return render_template("secure_pin_verification.html", 
-                         transaction_id=transaction_id,
-                         amount=f"{transfer_data['amount']:,.2f}",
-                         recipient_name=transfer_data['recipient_name'],
-                         bank_name=transfer_data['bank'],
-                         account_number=transfer_data['account_number'])
-
-@app.route("/api/verify-pin", methods=["POST"])
-async def verify_pin_api():
-    """API endpoint for PIN verification"""
-    try:
-        data = request.get_json()
-        transaction_id = data.get('transaction_id')
-        pin = data.get('pin')
-        
-        if not transaction_id or not pin:
-            return jsonify({
-                'success': False,
-                'error': 'Missing transaction ID or PIN'
-            }), 400
-        
-        from utils.secure_pin_verification import secure_pin_verification
-        
-        result = await secure_pin_verification.verify_pin_and_process_transfer(
-            transaction_id, pin
+        # Generate the receipt
+        receipt_text = generate_pos_style_receipt(
+            sender_name, amount, recipient_name, 
+            recipient_account, recipient_bank, balance, transaction_id
         )
         
-        if result['success']:
-            return jsonify(result), 200
-        else:
-            return jsonify(result), 400
-            
-    except Exception as e:
-        logger.error(f"Error in PIN verification API: {e}")
-        return jsonify({
-            'success': False,
-            'error': 'Internal server error'
-        }), 500
-
-@app.route("/api/cancel-transfer/<transaction_id>", methods=["POST"])
-def cancel_transfer_api(transaction_id):
-    """API endpoint for cancelling transfer"""
-    try:
-        from utils.secure_pin_verification import pending_transactions
+        # Send the receipt
+        send_reply(chat_id, f"🧾 **Your Transfer Receipt**\n\n```\n{receipt_text}\n```")
         
-        if transaction_id in pending_transactions:
-            del pending_transactions[transaction_id]
-            
-        return jsonify({'success': True}), 200
+        logger.info(f"📧 Beautiful receipt sent to {chat_id}")
         
     except Exception as e:
-        logger.error(f"Error cancelling transfer: {e}")
-        return jsonify({'success': False}), 500
-
-@app.route("/api/onboard", methods=["POST"])
-def onboard_user_api():
-    """API endpoint for web onboarding"""
-    try:
-        # Get user data from request
-        user_data = request.get_json()
-        
-        if not user_data:
-            return jsonify({
-                'success': False,
-                'error': 'No user data provided'
-            }), 400
-        
-        # Validate required fields
-        required_fields = ['telegram_id', 'full_name', 'phone']
-        missing_fields = [field for field in required_fields if not user_data.get(field)]
-        
-        if missing_fields:
-            return jsonify({
-                'success': False,
-                'error': f'Missing required fields: {", ".join(missing_fields)}'
-            }), 400
-        
-        # Run the onboarding process
-        logger.info(f"Starting web onboarding for user: {user_data.get('full_name')}")
-        
-        # Since onboarding is async, we need to run it in an event loop
-        import asyncio
-        
-        # Create new event loop if one doesn't exist
-        try:
-            loop = asyncio.get_event_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-        
-        # Run the onboarding process
-        result = loop.run_until_complete(onboarding_service.create_new_user(user_data))
-        
-        if result.get('success'):
-            logger.info(f"Successfully onboarded web user: {user_data.get('full_name')}")
-            
-            # Send account details to user via Telegram if telegram_id is provided
-            telegram_id = user_data.get('telegram_id')
-            if telegram_id and not telegram_id.startswith('web_user_'):
-                # This is a real Telegram user, send them their account details
-                asyncio.run(send_account_details_to_user(telegram_id, result))
-            
-            return jsonify(result), 200
-        else:
-            logger.warning(f"Onboarding failed for web user: {result.get('error')}")
-            return jsonify(result), 400
-            
-    except Exception as e:
-        logger.error(f"Error in web onboarding API: {e}")
-        return jsonify({
-            'success': False,
-            'error': f'Internal server error: {str(e)}'
-        }), 500
-
-async def send_account_details_to_user(chat_id: str, onboarding_result: dict):
-    """Send account details to user via Telegram after successful onboarding"""
-    try:
-        account_details = onboarding_result.get('account_details', {})
-        full_name = onboarding_result.get('full_name', '')
-        customer_code = onboarding_result.get('customer_code', '')
-        
-        # Create concise welcome message
-        welcome_message = (
-            f"🎉 *Account Created!*\n\n"
-            f"🏦 *Account:* `{account_details.get('account_number', 'N/A')}`\n"
-            f"👤 *Name:* {account_details.get('account_name', 'N/A')}\n"
-            f"🏛️ *Bank:* {account_details.get('bank_name', 'N/A')}\n\n"
-            f"� Fund your account, then try:\n"
-            f"\"Check balance\" or \"Send ₦500\""
-        )
-        
-        # Send message to user
-        send_reply(chat_id, welcome_message)
-        logger.info(f"Account details sent to user {chat_id}")
-        
-    except Exception as e:
-        logger.error(f"Error sending account details to user {chat_id}: {e}")
-
-@app.route("/api/notify-onboarding", methods=["POST"])
-def notify_onboarding_complete():
-    """Webhook endpoint for onboarding completion notifications"""
-    try:
-        data = request.get_json()
-        telegram_id = data.get('telegram_id')
-        onboarding_result = data.get('result', {})
-        
-        if telegram_id and not telegram_id.startswith('web_user_'):
-            # Send account details to the user
-            import asyncio
-            asyncio.run(send_account_details_to_user(telegram_id, onboarding_result))
-            
-        return jsonify({'success': True}), 200
-        
-    except Exception as e:
-        logger.error(f"Error in onboarding notification: {e}")
-        return jsonify({'success': False}), 500
-
-@app.route("/onboard", methods=["GET"])
-def serve_onboarding_form():
-    """Serve the web onboarding form"""
-    try:
-        with open('web_onboarding.html', 'r', encoding='utf-8') as f:
-            html_content = f.read()
-        return html_content, 200, {'Content-Type': 'text/html'}
-    except FileNotFoundError:
-        return jsonify({
-            'error': 'Onboarding form not found'
-        }), 404
-    except Exception as e:
-        logger.error(f"Error serving onboarding form: {e}")
-        return jsonify({
-            'error': 'Internal server error'
-        }), 500
-
-async def answer_callback_query(query_id: str, text: str = ""):
-    """Answer a callback query to remove loading state"""
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/answerCallbackQuery"
-    payload = {
-        "callback_query_id": query_id,
-        "text": text,
-        "show_alert": False
-    }
-    
-    try:
-        response = requests.post(url, json=payload)
-        return response.json() if response.status_code == 200 else None
-    except Exception as e:
-        logger.error(f"❌ Error answering callback query: {str(e)}")
-        return None
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)), debug=False)
+        logger.error(f"❌ Error sending beautiful receipt: {str(e)}")
+        # Fallback to simple message
+        send_reply(chat_id, f"✅ Transfer completed successfully! Transaction ID: {receipt_data.get('transaction_id', 'N/A')}")

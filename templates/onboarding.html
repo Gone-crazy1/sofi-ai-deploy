@@ -113,6 +113,13 @@
             <!-- Hidden field for Telegram chat ID -->
             <input type="hidden" id="telegramChatId" name="telegram_chat_id" value="">
             
+            <!-- Display Telegram ID -->
+            <div class="form-group">
+                <label for="displayTelegramId">Your Telegram ID</label>
+                <input type="text" id="displayTelegramId" name="display_telegram_id" readonly style="background-color: #f0f0f0; color: #666;" value="">
+                <div style="font-size: 12px; color: #666; margin-top: 5px;">✓ This is your unique Telegram identifier</div>
+            </div>
+            
             <div class="form-group">
                 <label for="firstName">First Name</label>
                 <input type="text" id="firstName" name="firstName" required>
@@ -200,6 +207,7 @@
             const chatId = urlParams.get('chat_id');
             if (chatId) {
                 document.getElementById('telegramChatId').value = chatId;
+                document.getElementById('displayTelegramId').value = chatId;
                 console.log('Chat ID detected:', chatId);
             }
         }
