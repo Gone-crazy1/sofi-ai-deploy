@@ -251,30 +251,18 @@ class SofiAssistant:
                         narration=reason
                     )
                 else:
-                    # No PIN provided - start PIN entry flow
-                    from utils.pin_entry_system import pin_manager
-                    from datetime import datetime
+                    # No PIN provided - start inline PIN entry flow
+                    from functions.transfer_functions import send_money
                     
-                    # Start PIN entry session
-                    transfer_data = {
-                        "account_number": recipient_account,  # Use new parameter name  
-                        "bank_name": recipient_bank,          # Use new parameter name
-                        "amount": float(amount),
-                        "narration": reason,
-                        "temp_id": f"transfer_{chat_id}_{int(datetime.now().timestamp())}"
-                    }
-                    
-                    pin_manager.start_pin_session(chat_id, "transfer", transfer_data)
-                    logger.info(f"🔐 PIN session started for transfer: ₦{amount} to {recipient_account}")
-                    
-                    # Return special response indicating PIN entry is needed
-                    return {
-                        "success": False,
-                        "requires_pin": True,
-                        "message": f"Please enter your 4-digit PIN to send ₦{amount:,.0f} to {recipient_account} at {recipient_bank}",
-                        "show_pin_keyboard": True,
-                        "transfer_data": transfer_data
-                    }
+                    # Call the transfer function without PIN to trigger the inline keyboard
+                    return await send_money(
+                        chat_id=chat_id,
+                        account_number=recipient_account,
+                        bank_name=recipient_bank,
+                        amount=float(amount),
+                        narration=reason
+                        # No PIN provided - this will trigger the inline keyboard flow
+                    )
             
             elif function_name == "check_balance":
                 # Use the balance functions directly
