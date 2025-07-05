@@ -731,60 +731,7 @@ async def handle_message(chat_id: str, message: str, user_data: dict = None, vir
             admin_response = await admin_handler.handle_admin_command(admin_command, message, chat_id)
             return admin_response
         
-        # Check for Smart transfer commands (account bank send amount)
-        from xara_style_transfer import XaraStyleTransfer
-        smart_transfer_handler = XaraStyleTransfer()
-        parsed_transfer = smart_transfer_handler.parse_xara_command(message)
-        
-        if parsed_transfer:
-            logger.info(f"🎯 Smart transfer command detected: {parsed_transfer}")
-            
-            try:
-                # Step 1: Auto-verify account and get real name (silently)
-                # No verification message shown to user
-                
-                # Normalize bank name
-                bank_name = smart_transfer_handler.normalize_bank_name(parsed_transfer['bank'])
-                
-                # Get bank code from bank name for verification
-                from functions.transfer_functions import get_bank_code_from_name
-                bank_code = get_bank_code_from_name(bank_name)
-                
-                if not bank_code:
-                    return f"❌ *Bank not supported*\n\nBank '{parsed_transfer['bank']}' is not supported. Please use a valid bank name."
-                
-                # Import Paystack service for verification
-                paystack = get_paystack_service()
-                
-                # Verify account
-                verify_result = paystack.verify_account_number(parsed_transfer['account_number'], bank_code)
-                
-                if not verify_result.get("success") or not verify_result.get("verified"):
-                    return f"❌ *Account verification failed*\n\n{verify_result.get('error', 'Invalid account details')}"
-                
-                verified_name = verify_result["account_name"]
-                
-                # Step 2: Show professional confirmation
-                confirmation_msg = f"""✅ *Account Verified: {verified_name}*
-
-You're about to send ₦{parsed_transfer['amount']:,.2f} to:
-🏦 {verified_name} — {parsed_transfer['account_number']} ({bank_name.title()})
-
-👉 Please click the button below to verify this transaction:"""
-                
-                # Send confirmation with verify button
-                verify_keyboard = {
-                    "inline_keyboard": [[
-                        {"text": "✅ Verify Transaction", "callback_data": f"verify_transfer_{chat_id}_{parsed_transfer['account_number']}_{bank_code}_{parsed_transfer['amount']}_{verified_name.replace(' ', '_')}"}
-                    ]]
-                }
-                
-                send_reply(chat_id, confirmation_msg, verify_keyboard)
-                return "Transfer confirmation sent"
-                
-            except Exception as e:
-                logger.error(f"Error handling smart transfer command: {e}")
-                return f"❌ *Transfer failed*\n\n{str(e)}"
+        # Legacy smart transfer code removed - now using AI Assistant
         
         # Try AI Assistant first for better AI handling
         try:
