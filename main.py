@@ -747,6 +747,7 @@ async def handle_message(chat_id: str, message: str, user_data: dict = None, vir
             
             # Check if any function returned requires_pin or completed transfer
             if function_data:
+                logger.info(f"🔧 DEBUG: Function data received: {json.dumps(function_data, indent=2, default=str)}")
                 for func_name, func_result in function_data.items():
                     if isinstance(func_result, dict) and func_result.get("requires_pin"):
                         logger.info(f"🔐 Function {func_name} requires PIN entry - sending inline keyboard")
@@ -759,13 +760,24 @@ async def handle_message(chat_id: str, message: str, user_data: dict = None, vir
                             pin_message = func_result.get("message", "Please enter your PIN")
                             keyboard = func_result.get("keyboard", {})
                             
+                            # Debug logging
+                            logger.info(f"🔧 DEBUG: Sending PIN keyboard")
+                            logger.info(f"📱 PIN Message: {pin_message}")
+                            logger.info(f"⌨️ Keyboard JSON: {json.dumps(keyboard, indent=2)}")
+                            
                             # Send message with inline keyboard
                             message_response = send_reply(chat_id, pin_message, keyboard)
+                            
+                            # Debug response
+                            logger.info(f"📤 Telegram API Response: {message_response}")
                             
                             # Store the message ID for editing later
                             if message_response and message_response.get("result"):
                                 message_id = message_response["result"]["message_id"]
                                 inline_pin_manager.set_message_id(chat_id, message_id)
+                                logger.info(f"💾 Stored message ID: {message_id}")
+                            else:
+                                logger.error(f"❌ Failed to get message ID from response: {message_response}")
                             
                             return "PIN keyboard sent"  # Prevent further processing
                         
