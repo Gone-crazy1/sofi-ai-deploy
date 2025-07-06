@@ -50,12 +50,8 @@ async def verify_pin(chat_id: str, pin: str, **kwargs) -> Dict[str, Any]:
                 "error": "No PIN set. Please set up your transaction PIN first."
             }
         
-        # Hash the provided PIN using the same method as onboarding (PBKDF2)
-        pin_hash = hashlib.pbkdf2_hmac('sha256', 
-                                     pin.encode('utf-8'), 
-                                     str(chat_id).encode('utf-8'), 
-                                     100000)  # 100,000 iterations
-        pin_hash = pin_hash.hex()
+        # Hash the provided PIN using the same method as storage (SHA256)
+        pin_hash = hashlib.sha256(pin.encode()).hexdigest()
         
         if pin_hash == stored_pin_hash:
             return {
@@ -107,12 +103,8 @@ async def set_pin(chat_id: str, pin: str, **kwargs) -> Dict[str, Any]:
                 "error": "User not found"
             }
         
-        # Hash the PIN using PBKDF2 (same as onboarding)
-        pin_hash = hashlib.pbkdf2_hmac('sha256', 
-                                     pin.encode('utf-8'), 
-                                     str(chat_id).encode('utf-8'), 
-                                     100000)  # 100,000 iterations
-        pin_hash = pin_hash.hex()
+        # Hash the PIN using SHA256 (same as storage)
+        pin_hash = hashlib.sha256(pin.encode()).hexdigest()
         
         # Update user record with correct column name
         update_result = supabase.table("users")\
