@@ -41,6 +41,32 @@
             font-size: 24px;
         }
         
+        .transfer-details {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            text-align: left;
+            border: 1px solid #e9ecef;
+        }
+        
+        .transfer-details h3 {
+            color: #667eea;
+            margin-bottom: 15px;
+            font-size: 18px;
+            text-align: center;
+        }
+        
+        .transfer-details p {
+            margin-bottom: 8px;
+            font-size: 14px;
+            color: #333;
+        }
+        
+        .transfer-details strong {
+            color: #667eea;
+        }
+        
         .pin-input {
             display: flex;
             justify-content: center;
@@ -100,6 +126,17 @@
 <body>
     <div class="container">
         <h1>Enter Your PIN</h1>
+        
+        <!-- Transfer Details -->
+        {% if transfer_data %}
+        <div class="transfer-details">
+            <h3>Transfer Details</h3>
+            <p><strong>Amount:</strong> ₦{{ "{:,.0f}".format(transfer_data.amount) }}</p>
+            <p><strong>To:</strong> {{ transfer_data.recipient_name }}</p>
+            <p><strong>Bank:</strong> {{ transfer_data.bank }}</p>
+            <p><strong>Account:</strong> {{ transfer_data.account_number }}</p>
+        </div>
+        {% endif %}
         
         <form id="pinForm">
             <div class="pin-input">
