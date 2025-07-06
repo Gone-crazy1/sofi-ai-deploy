@@ -114,10 +114,8 @@ class SecurityMiddleware:
             https_url = request.url.replace('http://', 'https://', 1)
             return redirect(https_url, code=301)
         
-        # Prefer non-www domain (only if not behind proxy)
-        if request.host.startswith('www.') and not request.headers.get('X-Forwarded-Proto'):
-            non_www_url = request.url.replace('www.', '', 1)
-            return redirect(non_www_url, code=301)
+        # Don't handle www/non-www redirects - let Cloudflare handle it
+        # This prevents redirect loops with proxy services
     
     def get_client_ip(self) -> str:
         """Get real client IP address"""
