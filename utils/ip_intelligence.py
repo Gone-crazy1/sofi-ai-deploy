@@ -36,6 +36,10 @@ class IPIntelligence:
         self.whitelist_patterns = [
             r'^127\.0\.0\.1$',  # localhost
             r'^::1$',  # IPv6 localhost
+            r'^35\.197\.37\.4$',  # Specific Google Cloud IP from the log
+            r'^34\.', r'^35\.', r'^104\.154\.', r'^130\.211\.',  # Common Google Cloud ranges
+            r'^149\.154\.', r'^91\.108\.', r'^95\.161\.',  # Telegram servers
+            r'^216\.58\.', r'^172\.217\.', r'^142\.250\.',  # Google services
         ]
         
         # ISP/hosting provider patterns (higher suspicion)
@@ -86,6 +90,12 @@ class IPIntelligence:
             r'linkedinbot',
             r'whatsapp',
             r'telegrambot',
+            r'go-http-client',  # Common legitimate HTTP client
+            r'render\.com',     # Render health checks
+            r'uptimerobot',     # Uptime monitoring
+            r'pingdom',         # Pingdom monitoring
+            r'newrelic',        # New Relic monitoring
+            r'datadog',         # Datadog monitoring
         ]
     
     def is_whitelisted_ip(self, ip: str) -> bool:
@@ -130,48 +140,41 @@ class IPIntelligence:
         
         user_agent_lower = user_agent.lower()
         
-        # Check for good bots first
+        # Check for good bots first (highest priority)
         for pattern in self.good_bots:
             if re.search(pattern, user_agent_lower):
                 result['is_bot'] = True
                 result['is_good_bot'] = True
                 result['confidence'] = 0.9
                 result['details']['bot_type'] = pattern
+                result['details']['reason'] = f'Legitimate bot: {pattern}'
                 return result
         
-        # Check for malicious bots
-        for pattern in self.bot_patterns:
+        # Check for malicious bots (high threat)
+        malicious_patterns = [
+            r'scanner', r'exploit', r'hack', r'attack', r'penetration',
+            r'nikto', r'sqlmap', r'nmap', r'dirb', r'gobuster', r'masscan', r'zmap'
+        ]
+        
+        for pattern in malicious_patterns:
             if re.search(pattern, user_agent_lower):
                 result['is_bot'] = True
-                result['confidence'] = 0.9
-                
-                # Determine if malicious
-                if pattern in ['python-requests', 'curl', 'wget', 'scanner', 'exploit', 'hack', 'attack', 'penetration', 'nikto', 'sqlmap', 'nmap', 'dirb', 'gobuster', 'masscan', 'zmap']:
-                    result['is_malicious_bot'] = True
-                    result['confidence'] = 0.95
-                
+                result['is_malicious_bot'] = True
+                result['confidence'] = 0.95
                 result['details']['bot_type'] = pattern
+                result['details']['reason'] = f'Malicious bot: {pattern}'
                 return result
         
-        # Check for suspicious patterns
+        # Check for suspicious patterns (low threat - log only)
         suspicious_patterns = [
-            r'java',
-            r'python',
-            r'php',
-            r'ruby',
-            r'node',
-            r'go-http',
-            r'libwww',
-            r'httpclient',
-            r'okhttp',
-            r'urllib',
-            r'requests',
+            r'java', r'python', r'php', r'ruby', r'node',
+            r'libwww', r'httpclient', r'okhttp', r'urllib', r'requests'
         ]
         
         for pattern in suspicious_patterns:
             if re.search(pattern, user_agent_lower):
                 result['is_bot'] = True
-                result['confidence'] = 0.7
+                result['confidence'] = 0.4  # Lower confidence - don't block
                 result['details']['reason'] = f'Suspicious pattern: {pattern}'
                 return result
         
@@ -311,11 +314,23 @@ class IPIntelligence:
             assessment['recommendation'] = 'block'
             assessment['factors'].append('malicious_bot')
         elif ua_analysis['is_good_bot']:
+            # Good bots are explicitly allowed
+            assessment['threat_level'] = 'low'
+            assessment['confidence'] = 0.1
+            assessment['recommendation'] = 'allow'
             assessment['factors'].append('good_bot')
-        elif ua_analysis['is_bot']:
+        elif ua_analysis['is_bot'] and ua_analysis['confidence'] >= 0.7:
+            # Only high-confidence suspicious bots get challenged
             assessment['threat_level'] = 'medium'
             assessment['confidence'] = max(assessment['confidence'], 0.7)
+            assessment['recommendation'] = 'challenge'
             assessment['factors'].append('suspicious_bot')
+        elif ua_analysis['is_bot']:
+            # Low-confidence bots are just logged
+            assessment['threat_level'] = 'low'
+            assessment['confidence'] = max(assessment['confidence'], 0.4)
+            assessment['recommendation'] = 'log'
+            assessment['factors'].append('possible_bot')
         
         # Get IP information
         ip_info = self.get_ip_info(ip)

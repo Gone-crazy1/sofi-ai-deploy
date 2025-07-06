@@ -207,6 +207,29 @@ class SecurityMiddleware:
                 'details': threat_analysis
             })
         
+        elif threat_analysis['recommendation'] == 'allow':
+            # Explicitly allowed - don't even log as suspicious
+            pass
+        
+        elif threat_analysis['recommendation'] == 'log':
+            # Just log for monitoring, don't alert
+            logger.info(f"📊 Possible automated traffic: {client_ip} - {threat_analysis['factors']}")
+        
+        else:
+            # Default: log suspicious activity for medium threats
+            logger.warning(f"⚠️ Suspicious activity detected: {client_ip} - {threat_analysis}")
+            
+            security_monitor.log_security_event({
+                'timestamp': datetime.now(),
+                'event_type': 'suspicious_activity',
+                'severity': AlertLevel.MEDIUM,
+                'ip_address': client_ip,
+                'user_agent': request.headers.get('User-Agent', ''),
+                'path': request.path,
+                'method': request.method,
+                'details': threat_analysis
+            })
+        
         # Legacy rate limiting as fallback
         current_time = time.time()
         path = request.path
