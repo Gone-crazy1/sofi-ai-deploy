@@ -104,13 +104,18 @@ class SecurityMiddleware:
         self.setup_error_handlers()
     
     def force_https(self):
-        """Force HTTPS redirect"""
-        if request.url.startswith('http://'):
+        """Force HTTPS redirect with proper proxy handling"""
+        # Skip HTTPS redirect on Render since it handles SSL termination
+        if request.headers.get('X-Forwarded-Proto') == 'https':
+            return  # Already HTTPS via proxy
+        
+        # Only redirect if we're actually on HTTP and not behind a proxy
+        if request.url.startswith('http://') and not request.headers.get('X-Forwarded-Proto'):
             https_url = request.url.replace('http://', 'https://', 1)
             return redirect(https_url, code=301)
         
-        # Prefer non-www domain
-        if request.host.startswith('www.'):
+        # Prefer non-www domain (only if not behind proxy)
+        if request.host.startswith('www.') and not request.headers.get('X-Forwarded-Proto'):
             non_www_url = request.url.replace('www.', '', 1)
             return redirect(non_www_url, code=301)
     
