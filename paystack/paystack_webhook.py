@@ -89,15 +89,29 @@ class PaystackWebhookHandler:
     async def handle_charge_success(self, data: Dict) -> Dict:
         """Handle successful payment to dedicated account"""
         try:
-            # Extract payment details
-            amount = data.get("amount", 0) / 100  # Convert from kobo
-            reference = data.get("reference")
-            customer = data.get("customer", {})
-            customer_code = customer.get("customer_code")
+            if not data or not isinstance(data, dict):
+                logger.error("❌ Invalid data received in charge.success handler")
+                return {"success": False, "error": "Invalid data format"}
             
-            # Extract sender information from the payment data
-            sender_name = data.get("payer_name") or data.get("customer", {}).get("email") or "Unknown Sender"
-            sender_bank = data.get("payer_bank_details", {}).get("bank_name") or data.get("source", {}).get("bank") or "Unknown Bank"
+            # Extract payment details with safe defaults
+            amount = data.get("amount", 0)
+            if amount:
+                amount = amount / 100  # Convert from kobo
+            
+            reference = data.get("reference", "")
+            customer = data.get("customer") or {}
+            customer_code = customer.get("customer_code", "") if isinstance(customer, dict) else ""
+            
+            # Extract sender information from the payment data  
+            sender_name = (data.get("payer_name") or 
+                          customer.get("email") if isinstance(customer, dict) else "" or 
+                          "Unknown Sender")
+            
+            payer_bank_details = data.get("payer_bank_details") or {}
+            source = data.get("source") or {}
+            sender_bank = (payer_bank_details.get("bank_name") if isinstance(payer_bank_details, dict) else "" or
+                          source.get("bank") if isinstance(source, dict) else "" or 
+                          "Unknown Bank")
             narration = data.get("narration") or data.get("description") or "Money Transfer"
             
             # Get account details

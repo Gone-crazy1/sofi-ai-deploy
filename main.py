@@ -1268,7 +1268,15 @@ async def webhook_incoming():
 def handle_paystack_webhook_route():
     """Handle Paystack webhook notifications for payments and transfers"""""
     try:
+        # Get raw data for debugging
+        raw_data = request.data.decode('utf-8')
+        logger.info(f"Raw Paystack webhook data: {raw_data[:200]}...")
+        
         data = request.get_json()
+        
+        if data is None:
+            logger.error("❌ Invalid JSON in Paystack webhook")
+            return jsonify({"status": "error", "message": "Invalid JSON payload"}), 400
         
         # Get signature from headers
         signature = request.headers.get('X-Paystack-Signature')
