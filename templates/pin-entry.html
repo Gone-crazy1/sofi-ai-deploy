@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Enter PIN - Sofi AI</title>
+    
+    <!-- Favicon -->
+    <link rel="icon" type="image/x-icon" href="/static/images/favicon.ico">
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: Arial, sans-serif;
+            background: #667eea;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 10px;
+            padding: 30px;
+            width: 100%;
+            max-width: 350px;
+            text-align: center;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+        
+        h1 {
+            color: #333;
+            margin-bottom: 20px;
+            font-size: 24px;
+        }
+        
+        .pin-input {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        
+        .pin-digit {
+            width: 50px;
+            height: 50px;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            text-align: center;
+            font-size: 24px;
+            font-weight: bold;
+        }
+        
+        .pin-digit:focus {
+            border-color: #667eea;
+            outline: none;
+        }
+        
+        .submit-btn {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 5px;
+            font-size: 16px;
+            cursor: pointer;
+            width: 100%;
+            margin-bottom: 10px;
+        }
+        
+        .submit-btn:hover {
+            background: #5a67d8;
+        }
+        
+        .submit-btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        
+        .error-message {
+            color: red;
+            font-size: 14px;
+            margin-bottom: 10px;
+            display: none;
+        }
+        
+        .loading {
+            display: none;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Enter Your PIN</h1>
+        
+        <form id="pinForm">
+            <div class="pin-input">
+                <input type="password" class="pin-digit" maxlength="1" id="pin1">
+                <input type="password" class="pin-digit" maxlength="1" id="pin2">
+                <input type="password" class="pin-digit" maxlength="1" id="pin3">
+                <input type="password" class="pin-digit" maxlength="1" id="pin4">
+            </div>
+            
+            <div class="error-message" id="errorMessage"></div>
+            
+            <button type="submit" class="submit-btn" id="submitBtn" disabled>Submit</button>
+        </form>
+        
+        <div class="loading" id="loadingDiv">
+            <p>Verifying...</p>
+        </div>
+    </div>
+    
+    <script>
+        const pinInputs = document.querySelectorAll('.pin-digit');
+        const submitBtn = document.getElementById('submitBtn');
+        const errorMessage = document.getElementById('errorMessage');
+        const loadingDiv = document.getElementById('loadingDiv');
+        
+        // Auto-focus and navigation
+        pinInputs.forEach((input, index) => {
+            input.addEventListener('input', function(e) {
+                this.value = this.value.replace(/\D/g, '');
+                
+                if (this.value && index < pinInputs.length - 1) {
+                    pinInputs[index + 1].focus();
+                }
+                
+                checkPinComplete();
+            });
+            
+            input.addEventListener('keydown', function(e) {
+                if (e.key === 'Backspace' && !this.value && index > 0) {
+                    pinInputs[index - 1].focus();
+                }
+            });
+        });
+        
+        function checkPinComplete() {
+            const pin = Array.from(pinInputs).map(input => input.value).join('');
+            submitBtn.disabled = pin.length !== 4;
+            
+            if (errorMessage.style.display === 'block') {
+                errorMessage.style.display = 'none';
+            }
+        }
+        
+        function showError(message) {
+            errorMessage.textContent = message;
+            errorMessage.style.display = 'block';
+            
+            pinInputs.forEach(input => input.value = '');
+            pinInputs[0].focus();
+        }
+        
+        document.getElementById('pinForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const pin = Array.from(pinInputs).map(input => input.value).join('');
+            
+            if (pin.length !== 4) {
+                showError('Please enter a 4-digit PIN');
+                return;
+            }
+            
+            submitBtn.disabled = true;
+            loadingDiv.style.display = 'block';
+            
+            try {
+                const urlParams = new URLSearchParams(window.location.search);
+                const transactionId = urlParams.get('txn_id');
+                
+                const response = await fetch('/api/verify-pin', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        pin: pin,
+                        transaction_id: transactionId
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    window.location.href = result.redirect_url || '/success';
+                } else {
+                    throw new Error(result.error || 'PIN verification failed');
+                }
+            } catch (error) {
+                showError(error.message || 'PIN verification failed. Please try again.');
+                submitBtn.disabled = false;
+                loadingDiv.style.display = 'none';
+            }
+        });
+        
+        pinInputs[0].focus();
+    </script>
+</body>
+</html>

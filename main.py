@@ -1373,7 +1373,7 @@ def pin_verification_page():
         del app.temp_transfers[transaction_id]
         return "Transaction expired", 400
     
-    return render_template("secure_pin_verification.html", 
+    return render_template("pin-entry.html", 
                          transaction_id=transaction_id,
                          transfer_data={
                              'amount': transaction['amount'],
