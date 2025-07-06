@@ -175,34 +175,35 @@ class SofiAssistant:
                     for func_name, func_result in function_data.items():
                         if func_name == "send_money" and isinstance(func_result, dict):
                             if func_result.get("requires_pin") and func_result.get("show_web_pin"):
-                                recipient_name = func_result.get("transfer_data", {}).get("recipient_name", "recipient")
-                                return f"🔐 I've verified the transfer details. Please use the secure PIN link I sent to complete your ₦{func_result.get('transfer_data', {}).get('amount', 0):,.0f} transfer to {recipient_name}.", function_data
+                                # Get the transfer data directly from the function result
+                                amount = func_result.get("amount", 0)
+                                recipient_name = func_result.get("recipient_name", "recipient")
+                                bank_name = func_result.get("bank_name", "bank")
+                                account_number = func_result.get("account_number", "account")
+                                
+                                response_text = f"""🔐 I've verified the transfer details. Please use the secure PIN link I sent to complete your ₦{amount:,.0f} transfer to {recipient_name} at {bank_name} (Account: {account_number}).
+
+Click the 'Enter PIN' button to proceed with the transfer."""
+                                break
                             elif func_result.get("success"):
-                                return func_result.get("message", "Transfer completed successfully!"), function_data
-                            else:
-                                return func_result.get("error", "Transfer failed. Please try again."), function_data
-                        
-                        elif func_name == "check_balance" and isinstance(func_result, dict):
-                            if func_result.get("success"):
-                                return func_result.get("message", f"Your balance is {func_result.get('formatted_balance', 'unavailable')}"), function_data
-                        
-                        elif func_name == "verify_account_name" and isinstance(func_result, dict):
-                            if func_result.get("success"):
-                                return f"✅ Account verified: {func_result.get('account_name')} at {func_result.get('bank_name')}", function_data
-                        
-                        elif func_name == "get_virtual_account" and isinstance(func_result, dict):
-                            if func_result.get("success"):
-                                return func_result.get("message", "Here are your account details"), function_data
+                                reference = func_result.get("reference", "N/A")
+                                response_text = f"✅ Transfer completed successfully! Reference: {reference}"
+                                break
+                            elif func_result.get("error"):
+                                response_text = f"❌ Transfer failed: {func_result.get('error')}"
+                                break
+                        elif func_name == "get_balance" and isinstance(func_result, dict):
+                            if func_result.get("balance") is not None:
+                                balance = func_result.get("balance", 0)
+                                response_text = f"💰 Your current balance is ₦{balance:,.2f}"
+                                break
                 
-                # Return the response if we have one, otherwise generate fallback
-                if response_text:
-                    return response_text, function_data
-                else:
-                    # Generate a generic helpful response
-                    if function_data:
-                        return "I've processed your request. Please check the information above.", function_data
-                    else:
-                        return "I'm here to help with your banking needs. What would you like to do?", function_data
+                # If still no response, provide a generic fallback
+                if not response_text:
+                    logger.warning("🚨 No valid response generated, using generic fallback")
+                    response_text = "I'm processing your request. Please check back in a moment."
+                
+                return response_text, function_data
             
             elif run.status == "requires_action":
                 # Handle function calls
