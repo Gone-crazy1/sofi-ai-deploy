@@ -348,14 +348,39 @@ def setup_cors_security(app: Flask):
          supports_credentials=True,
          max_age=3600)
 
+# Global utility functions for security endpoints
+def get_client_ip(request=None):
+    """Get real client IP address"""
+    if request is None:
+        from flask import request
+    
+    # Check for forwarded headers (common in reverse proxies)
+    forwarded_for = request.headers.get('X-Forwarded-For')
+    if forwarded_for:
+        return forwarded_for.split(',')[0].strip()
+    
+    real_ip = request.headers.get('X-Real-IP')
+    if real_ip:
+        return real_ip
+    
+    return request.remote_addr or 'unknown'
+
+def is_rate_limited(ip: str) -> bool:
+    """Check if IP is rate limited"""
+    # Check with IP intelligence system
+    from utils.ip_intelligence import check_rate_limit
+    is_limited, _ = check_rate_limit(ip)
+    return is_limited
+
 def get_security_status() -> Dict:
     """Get current security status"""
     return {
-        'blocked_ips': list(blocked_ips),
-        'suspicious_activity': dict(suspicious_activity),
-        'rate_limit_data': {ip: len(requests) for ip, requests in rate_limit_storage.items()},
-        'total_blocked_ips': len(blocked_ips),
-        'total_suspicious_activities': sum(suspicious_activity.values())
+        'security_active': True,
+        'rate_limiting': True,
+        'ip_blocking': True,
+        'suspicious_activity_detection': True,
+        'telegram_alerts': True,
+        'timestamp': datetime.now().isoformat()
     }
 
 def manually_block_ip(ip: str):

@@ -413,18 +413,34 @@ Stay secure! 🔒
         
         return None
     
-    def log_security_event(self, event: SecurityEvent):
+    def log_security_event(self, event):
         """Log security event and send alert if necessary"""
         try:
-            self.events.append(event)
-            self.stats[f'events_{event.severity.value}'] += 1
+            # Handle both SecurityEvent objects and dictionaries
+            if isinstance(event, dict):
+                # Convert dict to SecurityEvent
+                security_event = SecurityEvent(
+                    timestamp=event.get('timestamp', datetime.now()),
+                    event_type=event.get('event_type', 'unknown'),
+                    severity=event.get('severity', AlertLevel.LOW),
+                    ip_address=event.get('ip_address', 'unknown'),
+                    user_agent=event.get('user_agent', ''),
+                    path=event.get('path', ''),
+                    method=event.get('method', ''),
+                    details=event.get('details', {})
+                )
+            else:
+                security_event = event
+            
+            self.events.append(security_event)
+            self.stats[f'events_{security_event.severity.value}'] += 1
             
             # Log to file
-            logger.warning(f"🔒 Security Event: {event.event_type} - {event.severity.value} - {event.ip_address} - {event.path}")
+            logger.warning(f"🔒 Security Event: {security_event.event_type} - {security_event.severity.value} - {security_event.ip_address} - {security_event.path}")
             
             # Send alert for medium+ severity events
-            if event.severity in [AlertLevel.MEDIUM, AlertLevel.HIGH, AlertLevel.CRITICAL]:
-                self.send_security_alert(event)
+            if security_event.severity in [AlertLevel.MEDIUM, AlertLevel.HIGH, AlertLevel.CRITICAL]:
+                self.send_security_alert(security_event)
                 
         except Exception as e:
             logger.error(f"❌ Error logging security event: {str(e)}")
@@ -556,6 +572,20 @@ Stay secure! 🔒
     def is_ip_whitelisted(self, ip: str) -> bool:
         """Check if IP is whitelisted"""
         return ip in self.whitelist_ips
+    
+    def get_security_stats(self) -> Dict:
+        """Get current security statistics"""
+        return {
+            'total_events': len(self.events),
+            'stats': dict(self.stats),
+            'suspicious_ips': len(self.suspicious_ips),
+            'blocked_ips': len(self.blocked_ips),
+            'whitelisted_ips': len(self.whitelist_ips),
+            'alerts_sent': self.stats.get('alerts_sent', 0),
+            'last_24h_events': len([e for e in self.events if e.timestamp > datetime.now() - timedelta(hours=24)]),
+            'monitoring_active': True,
+            'last_updated': datetime.now().isoformat()
+        }
 
 # Global security monitor instance
 security_monitor = SecurityMonitor()
