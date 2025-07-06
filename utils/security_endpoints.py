@@ -37,7 +37,7 @@ def require_admin_auth():
     return False
 
 @security_bp.route('/health', methods=['GET'])
-def health_check():
+def security_health_check():
     """Health check endpoint"""
     try:
         # Get basic system stats

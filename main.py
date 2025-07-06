@@ -1086,11 +1086,6 @@ def security_events():
         logger.error(f"Error getting security events: {e}")
         return jsonify({"error": "Internal server error"}), 500
 
-@app.route("/health")
-def health_check():
-    """Health check endpoint"""
-    return jsonify({"status": "healthy", "timestamp": datetime.now().isoformat()})
-
 @app.route("/webhook", methods=["POST"])
 async def webhook_incoming():
     """Handle incoming Telegram messages and callback queries"""
@@ -1393,27 +1388,11 @@ def test_pin_page():
         'account_number': '0123456789'
     }
     
-    return render_template("secure_pin_verification.html", 
+    return render_template("pin-entry.html", 
                          transaction_id="test_demo",
                          transfer_data=sample_transaction)
 
-@app.route("/test-pin")
-def test_pin_page():
-    """Test PIN verification page with sample data"""
-    # Create sample transaction data
-    sample_transaction = {
-        'amount': 5000.00,
-        'recipient_name': 'John Doe',
-        'bank_name': 'First Bank',
-        'account_number': '1234567890',
-        'fee': 50.00,
-        'narration': 'Test Transfer',
-        'created_at': datetime.now().isoformat()
-    }
-    
-    return render_template("secure_pin_verification.html", 
-                         transaction_id="test_demo",
-                         transfer_data=sample_transaction)
+
 
 @app.route("/api/verify-pin", methods=["POST"])
 async def verify_pin_api():
