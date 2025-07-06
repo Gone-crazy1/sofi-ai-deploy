@@ -235,8 +235,12 @@
                 const tg = window.Telegram.WebApp;
                 tg.ready(); // Initialize the Web App
                 
+                console.log('Telegram WebApp data:', tg.initDataUnsafe);
+                
                 const user = tg.initDataUnsafe.user;
                 if (user && user.id) {
+                    console.log('Found Telegram user:', user);
+                    
                     // Also pre-fill user data if available
                     if (user.first_name && user.last_name) {
                         document.getElementById('fullName').value = `${user.first_name} ${user.last_name}`;
@@ -252,6 +256,23 @@
                     }
                     
                     return user.id.toString();
+                }
+                
+                // Try alternative way to get user ID
+                if (tg.initData) {
+                    const urlParams = new URLSearchParams(tg.initData);
+                    const userStr = urlParams.get('user');
+                    if (userStr) {
+                        try {
+                            const user = JSON.parse(userStr);
+                            if (user && user.id) {
+                                console.log('Found user via initData:', user);
+                                return user.id.toString();
+                            }
+                        } catch (e) {
+                            console.log('Error parsing user data:', e);
+                        }
+                    }
                 }
             }
             
@@ -341,7 +362,7 @@
                         <p>Welcome to Sofi AI! Your virtual account has been created.</p>
                         
                         <div class="account-details">
-                            <h3>� Your Account Details</h3>
+                            <h3>💳 Your Account Details</h3>
                             <div class="detail-item">
                                 <span class="detail-label">Account Number:</span>
                                 <span class="detail-value">${data.account_details?.account_number || 'Loading...'}</span>
@@ -364,9 +385,7 @@
                         <div style="background: #d1ecf1; padding: 15px; border-radius: 8px; margin-top: 15px;">
                             <h4>📱 Telegram Notification Sent!</h4>
                             <p>Your account details have been sent to your Telegram chat. You can now start using Sofi AI!</p>
-                            <button onclick="closeTelegramWebApp()" style="margin-top: 10px; padding: 8px 16px; background: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer;">
-                                ✅ Close & Return to Chat
-                            </button>
+                            <p style="margin-top: 10px;"><strong>This window will close automatically in 3 seconds...</strong></p>
                         </div>
                         ` : `
                         <p style="margin-top: 15px;">
@@ -378,6 +397,13 @@
                         </p>
                         `}
                     `;
+                    
+                    // Auto-close for real Telegram users after showing success
+                    if (isRealTelegramUser) {
+                        setTimeout(() => {
+                            closeTelegramWebApp();
+                        }, 3000); // Close after 3 seconds
+                    }
                 } else {
                     // Error
                     result.className = 'result error';

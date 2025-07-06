@@ -274,7 +274,7 @@ async def send_money(chat_id: str, amount: float, narration: str = None, pin: st
             # Create PIN verification URL
             pin_url = f"https://pipinstallsofi.com/verify-pin?txn_id={transaction_id}"
             
-            # Return web PIN entry response
+            # Return web PIN entry response with keyboard
             return {
                 "success": False,
                 "requires_pin": True,
@@ -286,11 +286,24 @@ async def send_money(chat_id: str, amount: float, narration: str = None, pin: st
 💰 Fee: ₦{total_fees:,.0f}
 💵 Total: ₦{amount + total_fees:,.0f}
 
-🔐 To complete this transfer, please enter your PIN:
-{pin_url}
-
-⏰ This link expires in 5 minutes.""",
+🔐 Tap the button below to enter your PIN and complete the transfer:""",
                 "pin_url": pin_url,
+                "keyboard": {
+                    "inline_keyboard": [
+                        [
+                            {
+                                "text": "🔐 Enter PIN",
+                                "web_app": {"url": pin_url}
+                            }
+                        ],
+                        [
+                            {
+                                "text": "❌ Cancel Transfer",
+                                "callback_data": f"cancel_transfer_{transaction_id}"
+                            }
+                        ]
+                    ]
+                },
                 "transfer_data": transfer_data
             }
         

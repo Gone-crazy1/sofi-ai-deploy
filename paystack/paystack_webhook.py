@@ -95,6 +95,11 @@ class PaystackWebhookHandler:
             customer = data.get("customer", {})
             customer_code = customer.get("customer_code")
             
+            # Extract sender information from the payment data
+            sender_name = data.get("payer_name") or data.get("customer", {}).get("email") or "Unknown Sender"
+            sender_bank = data.get("payer_bank_details", {}).get("bank_name") or data.get("source", {}).get("bank") or "Unknown Bank"
+            narration = data.get("narration") or data.get("description") or "Money Transfer"
+            
             # Get account details
             dedicated_account = data.get("authorization", {})
             account_number = dedicated_account.get("receiver_bank_account_number")
@@ -152,10 +157,12 @@ class PaystackWebhookHandler:
                 "amount": amount,
                 "reference": reference,
                 "status": "success",
-                "description": f"Paystack deposit to account {account_number}",
+                "description": f"Deposit from {sender_name} via {sender_bank}",
                 "bank_code": "999999",  # Paystack internal code
-                "bank_name": "Paystack",  # Add bank_name if required
-                "account_number": account_number,  # Add account number
+                "bank_name": sender_bank,  # Sender's bank name
+                "account_number": account_number,  # Recipient account number
+                "sender_name": sender_name,  # Store sender name
+                "narration": narration,  # Store narration/description
                 "created_at": data.get("created_at")
             }
             
@@ -176,8 +183,15 @@ class PaystackWebhookHandler:
             except Exception as e:
                 logger.warning(f"Could not update virtual account balance: {e}")
             
-            # Send notification to user via Telegram using chat ID
-            await self.send_credit_notification(telegram_chat_id, amount, new_balance)
+            # Send notification to user via Telegram with sender details
+            await self.send_credit_notification(
+                telegram_chat_id, 
+                amount, 
+                new_balance, 
+                sender_name, 
+                sender_bank, 
+                narration
+            )
             
             logger.info(f"✅ Credit processed: ₦{amount:,.2f} for user {telegram_chat_id}")
             return {"success": True, "message": "Credit processed successfully"}
@@ -292,32 +306,33 @@ class PaystackWebhookHandler:
             logger.error(f"Error getting user balance: {str(e)}")
             return 0.0
     
-    async def send_credit_notification(self, user_id: str, amount: float, new_balance: float):
-        """Send credit notification to user via Telegram"""
+    async def send_credit_notification(self, user_id: str, amount: float, new_balance: float, sender_name: str = "Unknown", sender_bank: str = "Unknown Bank", narration: str = "Transfer"):
+        """Send beautiful, friendly credit notification to user via Telegram"""
         try:
             from main import send_reply  # Import from main app
             
+            # Get user's first name for personalization
+            user_name = "there"  # Default greeting
+            try:
+                if self.supabase:
+                    user_query = self.supabase.table("users").select("full_name").eq("telegram_chat_id", user_id).execute()
+                    if user_query.data:
+                        full_name = user_query.data[0].get("full_name", "")
+                        user_name = full_name.split()[0] if full_name else "there"
+            except Exception as e:
+                logger.warning(f"Could not get user name: {e}")
+            
+            # Create short, friendly, emoji-rich message
             message = f"""
-💰 *Payment Received!*
+🎉 Hey {user_name}, you received ₦{amount:,.0f} from {sender_name} at {sender_bank}! 
 
-━━━━━━━━━━━━━━━━━━━━━
-💵 *Amount:* ₦{amount:,.2f}
-💳 *New Balance:* ₦{new_balance:,.2f}
-🕒 *Time:* {datetime.now().strftime("%d/%m/%Y %I:%M %p")}
-━━━━━━━━━━━━━━━━━━━━━
+� Your new balance: ₦{new_balance:,.0f}
 
-🎉 *Your account has been funded successfully!*
-
-💬 *Try saying:*
-• "Check my balance"
-• "Send money to John"
-• "Buy airtime"
-
-Thank you for using Sofi AI! 🤖
+Say "balance" to check your wallet or "transfer" to send money! 🚀
 """
             
             send_reply(user_id, message)
-            logger.info(f"📱 Credit notification sent to {user_id}")
+            logger.info(f"📱 Enhanced credit notification sent to {user_id}")
         
         except Exception as e:
             logger.error(f"Error sending notification: {str(e)}")

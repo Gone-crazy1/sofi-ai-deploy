@@ -647,6 +647,198 @@ Net Movement: ₦{total_in - total_out:,.2f}
             logger.error(f"❌ Error in send_money: {e}")
             return {"success": False, "error": f"Transfer error: {str(e)}"}
 
+    # =============================================================================
+    # MISSING FUNCTIONS FROM OPENAI DASHBOARD - ADDING NOW
+    # =============================================================================
+    
+    async def get_user_beneficiaries(self, telegram_chat_id: str, user_id: str) -> Dict[str, Any]:
+        """Get all saved beneficiaries for the user"""
+        try:
+            logger.info(f"📋 Getting beneficiaries for user {telegram_chat_id}")
+            
+            beneficiaries = self.supabase.table("beneficiaries").select("*").eq(
+                "user_id", telegram_chat_id
+            ).order("created_at", desc=True).execute()
+            
+            if not beneficiaries.data:
+                return {
+                    "success": True, 
+                    "beneficiaries": [], 
+                    "message": "No saved beneficiaries found. Send money to someone first to save them as a beneficiary."
+                }
+            
+            beneficiary_list = []
+            for ben in beneficiaries.data:
+                beneficiary_list.append({
+                    "id": ben["id"],
+                    "name": ben["beneficiary_name"],
+                    "account_number": ben["account_number"],
+                    "bank_name": ben["bank_name"],
+                    "bank_code": ben["bank_code"],
+                    "nickname": ben.get("nickname", ben["beneficiary_name"]),
+                    "last_used": ben.get("last_used", ben["created_at"])
+                })
+            
+            return {
+                "success": True,
+                "beneficiaries": beneficiary_list,
+                "count": len(beneficiary_list),
+                "message": f"Found {len(beneficiary_list)} saved beneficiaries"
+            }
+            
+        except Exception as e:
+            logger.error(f"❌ Error getting beneficiaries: {e}")
+            return {"success": False, "error": f"Beneficiaries retrieval error: {str(e)}"}
+
+    async def save_beneficiary(self, telegram_chat_id: str, user_id: str, name: str, 
+                             account_number: str, bank_name: str, nickname: str = None) -> Dict[str, Any]:
+        """Save a new beneficiary for quick future transfers"""
+        try:
+            logger.info(f"💾 Saving beneficiary {name} for user {telegram_chat_id}")
+            
+            # Check if beneficiary already exists
+            existing = self.supabase.table("beneficiaries").select("*").eq(
+                "user_id", telegram_chat_id
+            ).eq("account_number", account_number).execute()
+            
+            if existing.data:
+                return {
+                    "success": False, 
+                    "error": f"Beneficiary with account {account_number} already exists"
+                }
+            
+            # Get bank code if needed
+            bank_code = None
+            if bank_name:
+                # Use the same bank mapping from verify_account_name
+                bank_name_to_code = {
+                    "access bank": "044", "gtbank": "058", "uba": "033",
+                    "first bank": "011", "zenith bank": "057", "fidelity bank": "070",
+                    "opay": "999992", "moniepoint": "50515", "palmpay": "999991",
+                    "kuda bank": "50211", "carbon": "565", "vfd bank": "566",
+                    "fcmb": "214", "sterling bank": "232", "stanbic ibtc": "221",
+                    "union bank": "032", "polaris bank": "076", "wema bank": "035"
+                }
+                bank_code = bank_name_to_code.get(bank_name.lower(), bank_name)
+            
+            beneficiary_data = {
+                "user_id": telegram_chat_id,
+                "beneficiary_name": name,
+                "account_number": account_number,
+                "bank_name": bank_name,
+                "bank_code": bank_code,
+                "nickname": nickname or name,
+                "created_at": datetime.utcnow().isoformat(),
+                "last_used": datetime.utcnow().isoformat()
+            }
+            
+            result = self.supabase.table("beneficiaries").insert(beneficiary_data).execute()
+            
+            if result.data:
+                return {
+                    "success": True,
+                    "beneficiary_id": result.data[0]["id"],
+                    "message": f"✅ {name} saved as beneficiary! You can now send money quickly by saying 'send 5k to {nickname or name}'"
+                }
+            else:
+                return {"success": False, "error": "Failed to save beneficiary"}
+                
+        except Exception as e:
+            logger.error(f"❌ Error saving beneficiary: {e}")
+            return {"success": False, "error": f"Beneficiary saving error: {str(e)}"}
+
+    async def get_virtual_account(self, telegram_chat_id: str, user_id: str) -> Dict[str, Any]:
+        """Get user's virtual account details for receiving money"""
+        try:
+            logger.info(f"🏦 Getting virtual account for user {telegram_chat_id}")
+            
+            # Get user's virtual account from database
+            user_result = self.supabase.table("users").select(
+                "virtual_account_number, virtual_account_bank, full_name, phone_number"
+            ).eq("telegram_chat_id", telegram_chat_id).execute()
+            
+            if not user_result.data:
+                return {"success": False, "error": "User not found. Please complete registration first."}
+            
+            user = user_result.data[0]
+            
+            if not user.get("virtual_account_number"):
+                return {
+                    "success": False, 
+                    "error": "Virtual account not yet assigned. Please contact support.",
+                    "action_required": "contact_support"
+                }
+            
+            account_details = {
+                "account_number": user["virtual_account_number"],
+                "account_name": user.get("full_name", "Sofi AI User"),
+                "bank_name": user.get("virtual_account_bank", "Paystack Titan"),
+                "bank_code": "999991",  # Paystack Titan bank code
+                "phone_number": user.get("phone_number")
+            }
+            
+            return {
+                "success": True,
+                "virtual_account": account_details,
+                "message": f"""🏦 **Your Virtual Account Details**
+
+👤 **Account Name:** {account_details['account_name']}
+🔢 **Account Number:** {account_details['account_number']}
+🏛️ **Bank:** {account_details['bank_name']}
+
+💡 **How to use:**
+- Share these details to receive money
+- Money sent here appears in your Sofi wallet instantly
+- No charges for receiving money!
+
+⚡ Powered by Paystack"""
+            }
+            
+        except Exception as e:
+            logger.error(f"❌ Error getting virtual account: {e}")
+            return {"success": False, "error": f"Virtual account retrieval error: {str(e)}"}
+
+    async def set_transaction_pin_enhanced(self, telegram_chat_id: str, user_id: str, pin: str) -> Dict[str, Any]:
+        """Enhanced version of set_transaction_pin with proper validation"""
+        try:
+            logger.info(f"🔐 Setting transaction PIN for user {telegram_chat_id}")
+            
+            # Validate PIN format
+            if not pin or not pin.isdigit():
+                return {"success": False, "error": "PIN must contain only numbers"}
+            
+            if len(pin) != 4:
+                return {"success": False, "error": "PIN must be exactly 4 digits"}
+            
+            # Check for weak PINs
+            weak_pins = ["0000", "1111", "2222", "3333", "4444", "5555", "6666", "7777", "8888", "9999", "1234", "4321"]
+            if pin in weak_pins:
+                return {"success": False, "error": "Please choose a stronger PIN. Avoid sequences or repeated digits."}
+            
+            # Hash the PIN
+            pin_hash = hashlib.sha256(pin.encode()).hexdigest()
+            
+            # Update user record
+            result = self.supabase.table("users").update({
+                "pin_hash": pin_hash,
+                "pin_attempts": 0,
+                "pin_locked_until": None,
+                "pin_set_at": datetime.utcnow().isoformat(),
+                "updated_at": datetime.utcnow().isoformat()
+            }).eq("telegram_chat_id", telegram_chat_id).execute()
+            
+            if result.data:
+                return {
+                    "success": True,
+                    "message": "✅ Transaction PIN set successfully! Your transfers are now secured with your personal PIN."
+                }
+            else:
+                return {"success": False, "error": "Failed to set PIN. Please try again."}
+                
+        except Exception as e:
+            logger.error(f"❌ Error setting transaction PIN: {e}")
+            return {"success": False, "error": f"PIN setup error: {str(e)}"}
+
 # =============================================================================
 # HELPER FUNCTIONS FOR SOFI AI ASSISTANT
 # =============================================================================
@@ -790,6 +982,28 @@ async def execute_openai_function(function_name: str, function_args: dict, teleg
                 user_id=function_args.get("user_id", telegram_chat_id),
                 from_date=function_args.get("from_date"),
                 to_date=function_args.get("to_date")
+            )
+        
+        elif function_name == "get_user_beneficiaries":
+            return await service.get_user_beneficiaries(
+                telegram_chat_id=function_args.get("telegram_chat_id", telegram_chat_id),
+                user_id=function_args.get("user_id", telegram_chat_id)
+            )
+        
+        elif function_name == "save_beneficiary":
+            return await service.save_beneficiary(
+                telegram_chat_id=function_args.get("telegram_chat_id", telegram_chat_id),
+                user_id=function_args.get("user_id", telegram_chat_id),
+                name=function_args["name"],
+                account_number=function_args["account_number"],
+                bank_name=function_args["bank_name"],
+                nickname=function_args.get("nickname")
+            )
+        
+        elif function_name == "get_virtual_account":
+            return await service.get_virtual_account(
+                telegram_chat_id=function_args.get("telegram_chat_id", telegram_chat_id),
+                user_id=function_args.get("user_id", telegram_chat_id)
             )
         
         else:

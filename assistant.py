@@ -43,7 +43,15 @@ class SofiAssistant:
             for assistant in assistants.data:
                 if assistant.name == "Sofi AI Banking Assistant":
                     self.assistant_id = assistant.id
-                    logger.info(f"✅ Using existing assistant: {self.assistant_id}")
+                    logger.info(f"✅ Found existing assistant: {self.assistant_id}")
+                    
+                    # Update the assistant with latest instructions and functions
+                    self.client.beta.assistants.update(
+                        assistant_id=self.assistant_id,
+                        instructions=SOFI_MONEY_INSTRUCTIONS,
+                        tools=SOFI_MONEY_FUNCTIONS
+                    )
+                    logger.info(f"🔄 Updated assistant instructions and functions")
                     return
             
             # Create new assistant if not found
@@ -153,8 +161,48 @@ class SofiAssistant:
             if run.status == "completed":
                 # Get the response
                 messages = self.client.beta.threads.messages.list(thread_id=thread_id)
-                response = messages.data[0].content[0].text.value
-                return response, function_data
+                response_text = None
+                
+                if messages.data and messages.data[0].content:
+                    response = messages.data[0].content[0].text.value
+                    if response and response.strip() and response.strip().lower() not in ["null", "none", ""]:
+                        response_text = response
+                
+                # If no valid response but we have function data, generate appropriate response
+                if not response_text and function_data:
+                    logger.info("🔧 OpenAI returned null/empty response, generating fallback from function data")
+                    
+                    for func_name, func_result in function_data.items():
+                        if func_name == "send_money" and isinstance(func_result, dict):
+                            if func_result.get("requires_pin") and func_result.get("show_web_pin"):
+                                recipient_name = func_result.get("transfer_data", {}).get("recipient_name", "recipient")
+                                return f"🔐 I've verified the transfer details. Please use the secure PIN link I sent to complete your ₦{func_result.get('transfer_data', {}).get('amount', 0):,.0f} transfer to {recipient_name}.", function_data
+                            elif func_result.get("success"):
+                                return func_result.get("message", "Transfer completed successfully!"), function_data
+                            else:
+                                return func_result.get("error", "Transfer failed. Please try again."), function_data
+                        
+                        elif func_name == "check_balance" and isinstance(func_result, dict):
+                            if func_result.get("success"):
+                                return func_result.get("message", f"Your balance is {func_result.get('formatted_balance', 'unavailable')}"), function_data
+                        
+                        elif func_name == "verify_account_name" and isinstance(func_result, dict):
+                            if func_result.get("success"):
+                                return f"✅ Account verified: {func_result.get('account_name')} at {func_result.get('bank_name')}", function_data
+                        
+                        elif func_name == "get_virtual_account" and isinstance(func_result, dict):
+                            if func_result.get("success"):
+                                return func_result.get("message", "Here are your account details"), function_data
+                
+                # Return the response if we have one, otherwise generate fallback
+                if response_text:
+                    return response_text, function_data
+                else:
+                    # Generate a generic helpful response
+                    if function_data:
+                        return "I've processed your request. Please check the information above.", function_data
+                    else:
+                        return "I'm here to help with your banking needs. What would you like to do?", function_data
             
             elif run.status == "requires_action":
                 # Handle function calls
@@ -202,13 +250,73 @@ class SofiAssistant:
         try:
             logger.info(f"🔧 Function called: {function_name} with args: {function_args}")
             
+            # Initialize service
+            service = self.money_service
+            
             if function_name == "verify_account_name":
-                # Use the correct method from money service
-                from sofi_money_functions import SofiMoneyTransferService
-                service = SofiMoneyTransferService()
                 return await service.verify_account_name(
                     account_number=function_args.get("account_number"),
                     bank_code=function_args.get("bank_name") or function_args.get("bank_code")
+                )
+            
+            elif function_name == "check_balance":
+                return await service.check_user_balance(telegram_chat_id=chat_id)
+            
+            elif function_name == "get_virtual_account":
+                return await service.get_virtual_account(
+                    telegram_chat_id=chat_id,
+                    user_id=chat_id
+                )
+            
+            elif function_name == "get_transfer_history":
+                return await service.get_transfer_history(
+                    telegram_chat_id=chat_id,
+                    user_id=chat_id
+                )
+            
+            elif function_name == "get_wallet_statement":
+                return await service.get_wallet_statement(
+                    telegram_chat_id=chat_id,
+                    user_id=chat_id,
+                    from_date=function_args.get("from_date"),
+                    to_date=function_args.get("to_date")
+                )
+            
+            elif function_name == "calculate_transfer_fee":
+                return await service.calculate_transfer_fee(
+                    telegram_chat_id=chat_id,
+                    user_id=chat_id,
+                    amount=function_args.get("amount")
+                )
+            
+            elif function_name == "get_user_beneficiaries":
+                return await service.get_user_beneficiaries(
+                    telegram_chat_id=chat_id,
+                    user_id=chat_id
+                )
+            
+            elif function_name == "save_beneficiary":
+                return await service.save_beneficiary(
+                    telegram_chat_id=chat_id,
+                    user_id=chat_id,
+                    name=function_args.get("name"),
+                    account_number=function_args.get("account_number"),
+                    bank_name=function_args.get("bank_name"),
+                    nickname=function_args.get("nickname")
+                )
+            
+            elif function_name == "set_transaction_pin":
+                return await service.set_transaction_pin_enhanced(
+                    telegram_chat_id=chat_id,
+                    user_id=chat_id,
+                    pin=function_args.get("pin")
+                )
+            
+            elif function_name == "verify_pin":
+                return await service.verify_pin(
+                    telegram_chat_id=chat_id,
+                    user_id=chat_id,
+                    pin=function_args.get("pin")
                 )
             
             elif function_name == "send_money":

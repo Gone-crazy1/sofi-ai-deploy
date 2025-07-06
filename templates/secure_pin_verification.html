@@ -233,7 +233,7 @@
             <h3>Transfer Details</h3>
             <div class="transfer-detail">
                 <span class="label">Amount:</span>
-                <span class="value amount">₦{{ transfer_data.amount | number_format }}</span>
+                <span class="value amount">₦{{ "%.2f"|format(transfer_data.amount) }}</span>
             </div>
             <div class="transfer-detail">
                 <span class="label">To:</span>
