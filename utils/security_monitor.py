@@ -62,6 +62,9 @@ class SecurityMonitor:
         self.daily_alerts = defaultdict(int)
         self.last_daily_reset = datetime.now().date()
         
+        # Initialize security monitor components
+        self._initialize_security_monitor()
+        
     def send_telegram_alert(self, message: str, severity: AlertLevel = AlertLevel.MEDIUM):
         """Send security alert to admin via Telegram"""
         try:
@@ -139,6 +142,9 @@ Stay secure! 🔒
             logger.error(f"❌ Error sending Sofi security alert: {str(e)}")
             # Fallback to regular alert
             return self.send_telegram_alert(message, severity)
+    
+    def _initialize_security_monitor(self):
+        """Initialize security monitor components"""
         self.blocked_ips = set()
         self.whitelist_ips = set()
         
@@ -505,15 +511,51 @@ Stay secure! 🔒
         except Exception as e:
             logger.error(f"❌ Error monitoring PIN attempts: {str(e)}")
     
-    def get_security_stats(self) -> Dict:
-        """Get current security statistics"""
-        return {
-            'total_events': len(self.events),
-            'stats': dict(self.stats),
-            'suspicious_ips': len(self.suspicious_ips),
-            'alerts_sent': self.stats.get('alerts_sent', 0),
-            'last_24h_events': len([e for e in self.events if e.timestamp > datetime.now() - timedelta(hours=24)])
-        }
+    def get_stats(self) -> Dict:
+        """Get security statistics (alias for get_security_stats)"""
+        return self.get_security_stats()
+    
+    def get_recent_events(self, count: int = 100) -> List[Dict]:
+        """Get recent security events"""
+        events = list(self.events)[-count:]
+        return [event.to_dict() for event in events]
+    
+    def block_ip(self, ip: str, reason: str = "Security threat"):
+        """Block an IP address"""
+        self.blocked_ips.add(ip)
+        logger.warning(f"🚫 IP {ip} blocked: {reason}")
+        
+        # Log the block event
+        event = SecurityEvent(
+            timestamp=datetime.now(),
+            event_type='ip_blocked',
+            severity=AlertLevel.HIGH,
+            ip_address=ip,
+            user_agent='Security System',
+            path='/security/block-ip',
+            method='BLOCK',
+            details={'reason': reason}
+        )
+        self.log_security_event(event)
+    
+    def unblock_ip(self, ip: str):
+        """Unblock an IP address"""
+        if ip in self.blocked_ips:
+            self.blocked_ips.remove(ip)
+            logger.info(f"✅ IP {ip} unblocked")
+    
+    def is_ip_blocked(self, ip: str) -> bool:
+        """Check if IP is blocked"""
+        return ip in self.blocked_ips
+    
+    def whitelist_ip(self, ip: str):
+        """Add IP to whitelist"""
+        self.whitelist_ips.add(ip)
+        logger.info(f"✅ IP {ip} added to whitelist")
+    
+    def is_ip_whitelisted(self, ip: str) -> bool:
+        """Check if IP is whitelisted"""
+        return ip in self.whitelist_ips
 
 # Global security monitor instance
 security_monitor = SecurityMonitor()

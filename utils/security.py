@@ -14,7 +14,8 @@ from typing import Dict, Set, Optional
 import re
 import os
 from collections import defaultdict
-from utils.security_monitor import security_monitor, SecurityEvent, AlertLevel
+from utils.ip_intelligence import analyze_request_threat, check_rate_limit, is_ip_whitelisted
+from utils.security_monitor import security_monitor, AlertLevel
 
 logger = logging.getLogger(__name__)
 
@@ -127,18 +128,86 @@ class SecurityMiddleware:
         return request.remote_addr or 'unknown'
     
     def rate_limit(self):
-        """Rate limiting middleware"""
+        """Enhanced rate limiting with IP intelligence"""
         client_ip = self.get_client_ip()
         
         # Skip rate limiting for localhost during development
         if client_ip in ['127.0.0.1', 'localhost']:
             return
         
-        # Check if IP is blocked
-        if client_ip in blocked_ips:
+        # Check if IP is whitelisted
+        if is_ip_whitelisted(client_ip):
+            return
+        
+        # Check if IP is blocked by security monitor
+        if security_monitor.is_ip_blocked(client_ip):
             logger.warning(f"🚫 Blocked IP attempted access: {client_ip}")
             abort(403)
         
+        # Check rate limits using advanced rate limiter
+        is_limited, limit_info = check_rate_limit(client_ip)
+        if is_limited:
+            logger.warning(f"🚫 Rate limit exceeded: {client_ip} - {limit_info}")
+            
+            # Log security event
+            security_monitor.log_security_event({
+                'timestamp': datetime.now(),
+                'event_type': 'rate_limit_violation',
+                'severity': AlertLevel.MEDIUM,
+                'ip_address': client_ip,
+                'user_agent': request.headers.get('User-Agent', ''),
+                'path': request.path,
+                'method': request.method,
+                'details': limit_info
+            })
+            
+            abort(429)  # Too Many Requests
+        
+        # Analyze request for threats
+        threat_analysis = analyze_request_threat(
+            client_ip,
+            request.headers.get('User-Agent', ''),
+            request.path,
+            request.method
+        )
+        
+        # Handle threats based on recommendation
+        if threat_analysis['recommendation'] == 'block':
+            logger.warning(f"🚫 Threat detected, blocking IP: {client_ip} - {threat_analysis}")
+            
+            # Block IP in security monitor
+            security_monitor.block_ip(client_ip, f"Threat detected: {threat_analysis['threat_level']}")
+            
+            # Log critical security event
+            security_monitor.log_security_event({
+                'timestamp': datetime.now(),
+                'event_type': 'threat_detected',
+                'severity': AlertLevel.HIGH,
+                'ip_address': client_ip,
+                'user_agent': request.headers.get('User-Agent', ''),
+                'path': request.path,
+                'method': request.method,
+                'details': threat_analysis
+            })
+            
+            abort(403)
+        
+        elif threat_analysis['recommendation'] == 'challenge':
+            # For now, log but allow - could implement CAPTCHA here
+            logger.warning(f"⚠️ Suspicious activity detected: {client_ip} - {threat_analysis}")
+            
+            security_monitor.log_security_event({
+                'timestamp': datetime.now(),
+                'event_type': 'suspicious_activity',
+                'severity': AlertLevel.MEDIUM,
+                'ip_address': client_ip,
+                'user_agent': request.headers.get('User-Agent', ''),
+                'path': request.path,
+                'method': request.method,
+                'details': threat_analysis
+            })
+        
+        # Legacy rate limiting as fallback
         current_time = time.time()
         path = request.path
         

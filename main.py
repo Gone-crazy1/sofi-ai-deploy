@@ -32,6 +32,9 @@ from utils.security import init_security
 from utils.security_monitor import log_security_event, AlertLevel, get_security_stats
 from utils.security_config import get_security_config, TELEGRAM_SECURITY
 
+# 🔒 SECURITY ENDPOINTS
+from utils.security_endpoints import init_security_endpoints
+
 # Load environment variables from .env file
 load_dotenv()
 
@@ -52,6 +55,10 @@ logger = logging.getLogger(__name__)
 # 🔒 INITIALIZE SECURITY SYSTEM
 security_middleware = init_security(app)
 logger.info("🔒 Sofi AI Security System activated")
+
+# 🔒 INITIALIZE SECURITY ENDPOINTS
+init_security_endpoints(app)
+logger.info("🔒 Security endpoints initialized")
 
 # CORS configuration is now handled by security system
 
@@ -1327,7 +1334,7 @@ def create_virtual_account():
         logger.error(f"Error creating virtual account: {str(e)}")
         return jsonify({"success": False, "error": "Internal server error"}), 500
 
-# Removed duplicate onboard route - using templates/onboarding.html (WORKING VERSION)
+# Removed duplicate onboard route - now using templates/onboarding.html (WORKING VERSION)
 
 @app.route("/onboard")
 def onboard_page():
