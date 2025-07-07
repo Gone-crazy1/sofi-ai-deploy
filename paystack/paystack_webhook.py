@@ -103,15 +103,33 @@ class PaystackWebhookHandler:
             customer_code = customer.get("customer_code", "") if isinstance(customer, dict) else ""
             
             # Extract sender information from the payment data  
-            sender_name = (data.get("payer_name") or 
-                          customer.get("email") if isinstance(customer, dict) else "" or 
-                          "Unknown Sender")
-            
-            payer_bank_details = data.get("payer_bank_details") or {}
-            source = data.get("source") or {}
-            sender_bank = (payer_bank_details.get("bank_name") if isinstance(payer_bank_details, dict) else "" or
-                          source.get("bank") if isinstance(source, dict) else "" or 
-                          "Unknown Bank")
+            # Try all possible fields for sender name
+            sender_name = (
+                data.get("payer_name") or
+                data.get("sender_name") or
+                (customer.get("first_name", "") + " " + customer.get("last_name", "")).strip() if isinstance(customer, dict) and (customer.get("first_name") or customer.get("last_name")) else None or
+                customer.get("name") if isinstance(customer, dict) and customer.get("name") else None or
+                customer.get("email") if isinstance(customer, dict) and customer.get("email") else None or
+                data.get("sender") or
+                "Unknown Sender"
+            )
+
+            # Try all possible fields for sender bank
+            sender_bank = (
+                data.get("sender_bank") or
+                data.get("bank_name") or
+                payer_bank_details.get("bank_name") if isinstance(payer_bank_details, dict) and payer_bank_details.get("bank_name") else None or
+                source.get("bank") if isinstance(source, dict) and source.get("bank") else None or
+                data.get("bank") or
+                "Unknown Bank"
+            )
+
+            # Clean up None values
+            if not sender_name or sender_name.lower() == "none":
+                sender_name = "Unknown Sender"
+            if not sender_bank or sender_bank.lower() == "none":
+                sender_bank = "Unknown Bank"
+
             narration = data.get("narration") or data.get("description") or "Money Transfer"
             
             # Get account details
