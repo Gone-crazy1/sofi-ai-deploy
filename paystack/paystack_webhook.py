@@ -118,8 +118,6 @@ class PaystackWebhookHandler:
             sender_bank = (
                 data.get("sender_bank") or
                 data.get("bank_name") or
-                payer_bank_details.get("bank_name") if isinstance(payer_bank_details, dict) and payer_bank_details.get("bank_name") else None or
-                source.get("bank") if isinstance(source, dict) and source.get("bank") else None or
                 data.get("bank") or
                 "Unknown Bank"
             )

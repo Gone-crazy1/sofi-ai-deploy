@@ -621,7 +621,7 @@ async def handle_transfer_flow(chat_id: str, message: str, user_data: dict = Non
             if verification_result and verification_result.get('verified'):
                 transfer['recipient_name'] = verification_result['account_name']
                 transfer['bank'] = verification_result.get('bank_name', bank)
-                state['step'] = 'get_amount' if not transfer.get('amount') else 'confirm_transfer'
+                state['step'] = 'get_amount' if not transfer.get('amount') : 'confirm_transfer'
                 
                 msg = (
                     f"✅ Account verified:\n"
@@ -1393,7 +1393,7 @@ def pin_verification_page():
         # Remove expired transaction
         del app.temp_transfers[transaction_id]
         return "Transaction expired", 400
-    
+    # Render the PIN entry page with transaction details
     return render_template("pin-entry.html", 
                          transaction_id=transaction_id,
                          transfer_data={
@@ -1471,7 +1471,6 @@ async def verify_pin_api():
                 'success': False,
                 'error': 'Transaction expired'
             }), 400
-        
         # Verify PIN
         from functions.security_functions import verify_pin
         pin_result = await verify_pin(chat_id=transaction['chat_id'], pin=pin)
@@ -1633,18 +1632,9 @@ def onboard_user_api():
         # Run the onboarding process
         logger.info(f"Starting web onboarding for user: {user_data.get('full_name')}")
         
-        # Since onboarding is async, we need to run it in an event loop
         import asyncio
-        
-        # Create new event loop if one doesn't exist
-        try:
-            loop = asyncio.get_event_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-        
-        # Run the onboarding process
-        result = loop.run_until_complete(onboarding_service.create_new_user(user_data))
+        # Use asyncio.run to safely run the async onboarding function
+        result = asyncio.run(onboarding_service.create_new_user(user_data))
         
         if result.get('success'):
             logger.info(f"Successfully onboarded web user: {user_data.get('full_name')}")
@@ -1652,9 +1642,8 @@ def onboard_user_api():
             # Send account details to user via Telegram if telegram_id is provided
             telegram_id = user_data.get('telegram_id')
             if telegram_id and not telegram_id.startswith('web_user_'):
-                # This is a real Telegram user, send them their account details
                 try:
-                    loop.run_until_complete(send_account_details_to_user(telegram_id, result))
+                    asyncio.run(send_account_details_to_user(telegram_id, result))
                     logger.info(f"Account details sent to Telegram user {telegram_id}")
                 except Exception as e:
                     logger.error(f"Failed to send account details to {telegram_id}: {e}")
@@ -1793,28 +1782,27 @@ async def send_beautiful_receipt(chat_id, receipt_data, transfer_result):
         recipient_bank = receipt_data.get('recipient_bank', 'Unknown')
         balance = receipt_data.get('new_balance', 0)
         transaction_id = receipt_data.get('transaction_id', 'N/A')
-        
+        bank_name = recipient_bank
         # --- Ensure bank_name is always a human-readable name ---
-        # If transaction['bank_name'] is a code, resolve it to a name
+        # If bank_name is a code, resolve it to a name
         from functions.transfer_functions import get_bank_name_from_code
-        bank_name = transaction['bank_name']
         if bank_name.isdigit() or bank_name == bank_name.upper():
             resolved_name = get_bank_name_from_code(bank_name)
             if resolved_name:
-                transaction['bank_name'] = resolved_name
+                bank_name = resolved_name
         # --- End fix ---
         
         # Generate the receipt
         receipt_text = generate_pos_style_receipt(
             sender_name, amount, recipient_name, 
-            recipient_account, recipient_bank, balance, transaction_id
+            recipient_account, bank_name, balance, transaction_id
         )
         
         # Send the receipt
-        send_reply(chat_id, f"🧾 **Your Transfer Receipt**\n\n```\n{receipt_text}\n```")
+        send_reply(chat_id, f"🧾 **Your Transfer Receipt**\n\n```
+{receipt_text}\n```")
         
         logger.info(f"📧 Beautiful receipt sent to {chat_id}")
-        
     except Exception as e:
         logger.error(f"❌ Error sending beautiful receipt: {str(e)}")
         # Fallback to simple message
