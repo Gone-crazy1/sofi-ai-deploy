@@ -1794,6 +1794,16 @@ async def send_beautiful_receipt(chat_id, receipt_data, transfer_result):
         balance = receipt_data.get('new_balance', 0)
         transaction_id = receipt_data.get('transaction_id', 'N/A')
         
+        # --- Ensure bank_name is always a human-readable name ---
+        # If transaction['bank_name'] is a code, resolve it to a name
+        from functions.transfer_functions import get_bank_name_from_code
+        bank_name = transaction['bank_name']
+        if bank_name.isdigit() or bank_name == bank_name.upper():
+            resolved_name = get_bank_name_from_code(bank_name)
+            if resolved_name:
+                transaction['bank_name'] = resolved_name
+        # --- End fix ---
+        
         # Generate the receipt
         receipt_text = generate_pos_style_receipt(
             sender_name, amount, recipient_name, 

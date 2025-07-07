@@ -663,3 +663,13 @@ def get_bank_code_from_name(bank_name: str) -> Optional[str]:
             return bank_name_to_code[key]
     
     return None
+
+def get_bank_name_from_code(bank_code: str) -> str:
+    """Return the human-readable bank name for a given code."""
+    code_to_name = {v: k.title() for k, v in bank_name_to_code.items()}
+    # Prefer shortest name for each code
+    shortest = {}
+    for code, name in code_to_name.items():
+        if code not in shortest or len(name) < len(shortest[code]):
+            shortest[code] = name
+    return shortest.get(bank_code, bank_code)
