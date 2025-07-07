@@ -170,10 +170,14 @@ async def send_money(chat_id: str, amount: float, narration: str = None, pin: st
         }
         
         # If recipient_bank is a name, convert to code
+        bank_code = recipient_bank  # Default: assume it's already a code
         if recipient_bank.lower() in bank_name_to_code:
             bank_code = bank_name_to_code[recipient_bank.lower()]
             logger.info(f"🔄 Converted bank name '{recipient_bank}' to code '{bank_code}'")
             recipient_bank = bank_code
+        else:
+            # If not in mapping, assume it's already a bank code
+            bank_code = recipient_bank
         
         # Validate inputs
         if amount <= 0:

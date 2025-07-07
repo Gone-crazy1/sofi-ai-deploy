@@ -91,7 +91,7 @@ class SofiUserOnboarding:
             # Hash PIN if provided
             pin_hash = None
             if pin:
-                # Create a secure hash of the PIN with a salt
+                # Create a secure hash of the PIN with a salt (using telegram_id as the salt)
                 pin_hash = hashlib.pbkdf2_hmac('sha256', 
                                              pin.encode('utf-8'), 
                                              telegram_id.encode('utf-8'), 

@@ -115,6 +115,23 @@ def send_reply(chat_id, message, reply_markup=None):
     response = requests.post(url, json=payload)
     return response.json() if response.status_code == 200 else None
 
+def send_photo_to_telegram(chat_id, photo_data, caption=None):
+    """Send photo to Telegram chat"""
+    try:
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendPhoto"
+        
+        files = {'photo': photo_data}
+        data = {'chat_id': chat_id}
+        
+        if caption:
+            data['caption'] = caption
+            
+        response = requests.post(url, files=files, data=data)
+        return response.json() if response.status_code == 200 else None
+    except Exception as e:
+        logger.error(f"Error sending photo: {e}")
+        return None
+
 def detect_intent(message):
     """Enhanced intent detector using AI with chatgpt-4o-latest and Nigerian expressions support - Powered by Pip install AI Technologies"""
     try:
@@ -1483,18 +1500,69 @@ async def verify_pin_api():
         del app.temp_transfers[transaction_id]
         
         if result.get('success'):
-            # Send success notification to Telegram
-            success_message = f"""✅ Transfer Successful!
+            # Generate a professional receipt
+            from datetime import datetime
+            receipt = f"""🧾 **SOFI AI TRANSFER RECEIPT**
+═══════════════════════════════
 
-💸 Amount: ₦{transaction['amount']:,.2f}
-👤 Recipient: {transaction['recipient_name']}
-🏦 Bank: {transaction['bank_name']}
-🔢 Account: {transaction['account_number']}
-📝 Reference: {result.get('reference', 'N/A')}
+📋 **TRANSACTION DETAILS**
+Reference: {result.get('reference', 'N/A')}
+Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+Status: COMPLETED ✅
 
-Your transfer has been completed successfully."""
+💸 **TRANSFER SUMMARY**
+Amount: ₦{transaction['amount']:,.2f}
+Fee: ₦{transaction.get('fee', 20):,.2f}
+Total: ₦{transaction['amount'] + transaction.get('fee', 20):,.2f}
+
+👤 **RECIPIENT DETAILS**
+Name: {transaction['recipient_name']}
+Account: {transaction['account_number']}
+Bank: {transaction['bank_name']}
+
+═══════════════════════════════
+⚡ Powered by Sofi AI
+🔒 Secured by Paystack
+═══════════════════════════════
+
+Thank you for using Sofi! 💙"""
             
-            send_reply(transaction['chat_id'], success_message)
+            send_reply(transaction['chat_id'], receipt)
+            
+            # Generate and send image receipt
+            try:
+                from beautiful_receipt_generator import SofiReceiptGenerator
+                receipt_gen = SofiReceiptGenerator()
+                
+                receipt_data = {
+                    'user_name': 'Sofi User',  # You can get actual name from database
+                    'amount': transaction['amount'],
+                    'recipient_name': transaction['recipient_name'],
+                    'recipient_account': transaction['account_number'],
+                    'recipient_bank': transaction['bank_name'],
+                    'fee': transaction.get('fee', 20),
+                    'reference': result.get('reference', 'N/A'),
+                    'balance_before': result.get('balance_before', 0),
+                    'balance_after': result.get('balance_after', 0)
+                }
+                
+                image_receipt = receipt_gen.create_bank_transfer_receipt(receipt_data)
+                if image_receipt:
+                    # Send image receipt
+                    send_photo_to_telegram(transaction['chat_id'], image_receipt, 
+                                         "🧾 Your transfer receipt")
+                    
+            except Exception as e:
+                logger.error(f"Failed to generate image receipt: {e}")
+            
+            # Also send Sofi's acknowledgment
+            sofi_response = f"""Transfer completed successfully! ✅
+
+I've sent ₦{transaction['amount']:,.2f} to {transaction['recipient_name']} at {transaction['bank_name']}.
+
+Your receipt is above. Is there anything else I can help you with today?"""
+            
+            send_reply(transaction['chat_id'], sofi_response)
             
             return jsonify({
                 'success': True,
@@ -1515,7 +1583,6 @@ Please try again or contact support if the issue persists."""
                 'success': False,
                 'error': result.get('error', 'Transfer failed')
             }), 400
-            return jsonify(result), 400
             
     except Exception as e:
         logger.error(f"Error in PIN verification API: {e}")

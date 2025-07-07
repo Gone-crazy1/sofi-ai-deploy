@@ -175,16 +175,9 @@ class SofiAssistant:
                     for func_name, func_result in function_data.items():
                         if func_name == "send_money" and isinstance(func_result, dict):
                             if func_result.get("requires_pin") and func_result.get("show_web_pin"):
-                                # Get the transfer data directly from the function result
-                                amount = func_result.get("amount", 0)
-                                recipient_name = func_result.get("recipient_name", "recipient")
-                                bank_name = func_result.get("bank_name", "bank")
-                                account_number = func_result.get("account_number", "account")
-                                
-                                response_text = f"""🔐 I've verified the transfer details. Please use the secure PIN link I sent to complete your ₦{amount:,.0f} transfer to {recipient_name} at {bank_name} (Account: {account_number}).
-
-Click the 'Enter PIN' button to proceed with the transfer."""
-                                break
+                                # The PIN button is handled by main.py, so we don't send duplicate messages
+                                # Just return None to let main.py handle the response
+                                return None, function_data
                             elif func_result.get("success"):
                                 reference = func_result.get("reference", "N/A")
                                 response_text = f"✅ Transfer completed successfully! Reference: {reference}"

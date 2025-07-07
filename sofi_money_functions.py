@@ -153,7 +153,12 @@ class SofiMoneyTransferService:
                     "action_required": "set_pin"
                 }
             
-            pin_hash = hashlib.sha256(pin.encode()).hexdigest()
+            # Use the same hashing method as onboarding (pbkdf2_hmac with telegram_chat_id as salt)
+            pin_hash = hashlib.pbkdf2_hmac('sha256', 
+                                         pin.encode('utf-8'), 
+                                         str(telegram_chat_id).encode('utf-8'), 
+                                         100000)  # 100,000 iterations
+            pin_hash = pin_hash.hex()
             
             if pin_hash == user["pin_hash"]:
                 self.supabase.table("users").update({
@@ -357,7 +362,12 @@ Your money has been sent successfully.
             if new_pin != confirm_pin:
                 return {"success": False, "error": "PIN confirmation does not match"}
             
-            pin_hash = hashlib.sha256(new_pin.encode()).hexdigest()
+            # Use the same hashing method as onboarding (pbkdf2_hmac with telegram_chat_id as salt)
+            pin_hash = hashlib.pbkdf2_hmac('sha256', 
+                                         new_pin.encode('utf-8'), 
+                                         str(telegram_chat_id).encode('utf-8'), 
+                                         100000)  # 100,000 iterations
+            pin_hash = pin_hash.hex()
             
             result = self.supabase.table("users").update({
                 "pin_hash": pin_hash,
@@ -815,8 +825,12 @@ Net Movement: ₦{total_in - total_out:,.2f}
             if pin in weak_pins:
                 return {"success": False, "error": "Please choose a stronger PIN. Avoid sequences or repeated digits."}
             
-            # Hash the PIN
-            pin_hash = hashlib.sha256(pin.encode()).hexdigest()
+            # Hash the PIN using the same method as onboarding (pbkdf2_hmac with telegram_chat_id as salt)
+            pin_hash = hashlib.pbkdf2_hmac('sha256', 
+                                         pin.encode('utf-8'), 
+                                         str(telegram_chat_id).encode('utf-8'), 
+                                         100000)  # 100,000 iterations
+            pin_hash = pin_hash.hex()
             
             # Update user record
             result = self.supabase.table("users").update({
