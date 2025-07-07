@@ -246,9 +246,17 @@ class SofiUserOnboarding:
                 logger.warning(f"Could not save virtual account: {e}")
                 # Continue anyway since account was created
             
-            # Step 4: Send welcome notification (skip if no telegram integration)
+            # Step 4: Send welcome notification with account details
             try:
-                await self.send_welcome_notification(telegram_id, user_record)
+                # Pass complete account details to welcome notification
+                welcome_data = {
+                    **user_record,
+                    'account_number': account_number,
+                    'account_name': account_name,
+                    'bank_name': bank_name,
+                    'bank_code': bank_code
+                }
+                await self.send_welcome_notification(telegram_id, welcome_data)
             except Exception as e:
                 logger.warning(f"Could not send welcome notification: {e}")
             
@@ -316,8 +324,8 @@ class SofiUserOnboarding:
         """Send clean, single welcome notification with account details"""
         try:
             full_name = user_record.get('full_name', 'User')
-            account_number = user_record.get('paystack_account_number')
-            bank_name = user_record.get('paystack_bank_name', 'Wema Bank')
+            account_number = user_record.get('account_number')  # Fixed: Use correct field
+            bank_name = user_record.get('bank_name', 'Wema Bank')
             
             # Single, clean welcome message
             welcome_message = f"""✅ *Account Created Successfully!*
@@ -326,7 +334,7 @@ Welcome to Sofi AI, {full_name}!
 
 🏦 *Your Virtual Account:*
 `{account_number}` ({bank_name})
-� {full_name}
+♦ {full_name}
 
 *Ready to use:*
 • Transfer money to any bank
@@ -562,8 +570,9 @@ _Thank you for upgrading your Sofi AI Wallet! 🌟_
             if result.get('success'):
                 telegram_id = user_data.get('telegram_id')
                 if telegram_id:
-                    # Send account details automatically
-                    self._send_account_details_notification(result, telegram_id)
+                    # Account details are already sent in create_new_user welcome notification
+                    # No need to send duplicate notification
+                    pass
             
             return result
             

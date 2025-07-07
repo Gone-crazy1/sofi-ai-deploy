@@ -819,8 +819,8 @@ async def handle_message(chat_id: str, message: str, user_data: dict = None, vir
                             # Send message with PIN button
                             send_reply(chat_id, pin_message, pin_keyboard)
                             
-                            # Return the assistant's original response instead of generic message
-                            return response if response else "Transfer initiated. Please use the secure link to complete your transaction."
+                            # Return special marker to prevent duplicate message sending
+                            return "PIN_ALREADY_SENT"
                         
 
                         
@@ -1269,8 +1269,9 @@ async def webhook_incoming():
                 # Generate AI reply with conversation context
                 ai_response = await handle_message(chat_id, user_message, user_resp.data[0] if user_resp.data else None, virtual_account)
                 
-                # AI response is always a string now - no PIN keyboards needed
-                send_reply(chat_id, ai_response)
+                # Only send reply if it's not a PIN requirement (PIN messages are already sent in handle_message)
+                if ai_response and not ai_response.startswith("PIN_ALREADY_SENT"):
+                    send_reply(chat_id, ai_response)
             except Exception as e:
                 logger.error(f"Error in AI reply: {str(e)}")
                 send_reply(chat_id, "Sorry, I encountered an error processing your request. Please try again.")
