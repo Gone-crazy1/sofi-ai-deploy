@@ -100,8 +100,22 @@ openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 # Set the path to the ffmpeg executable for pydub
 AudioSegment.converter = which("ffmpeg")
 
+def send_typing_action(chat_id):
+    """Send 'typing...' action to Telegram chat"""
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendChatAction"
+    payload = {
+        "chat_id": chat_id,
+        "action": "typing"
+    }
+    try:
+        requests.post(url, json=payload)
+    except Exception as e:
+        logger.error(f"Failed to send typing action: {e}")
+
+
 def send_reply(chat_id, message, reply_markup=None):
     """Send reply message to Telegram chat with optional inline keyboard"""
+    send_typing_action(chat_id)
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     payload = {
         "chat_id": chat_id, 
@@ -621,8 +635,9 @@ async def handle_transfer_flow(chat_id: str, message: str, user_data: dict = Non
             if verification_result and verification_result.get('verified'):
                 transfer['recipient_name'] = verification_result['account_name']
                 transfer['bank'] = verification_result.get('bank_name', bank)
-                state['step'] = 'get_amount' if not transfer.get('amount') : 'confirm_transfer'
-                
+                state['step'] = 'get_amount' if not transfer.get('amount') else 'confirm_transfer'
+                state['step'] = 'get_amount' if not transfer.get('amount') else 'confirm_transfer'
+
                 msg = (
                     f"✅ Account verified:\n"
                     f"👤 Name: {verification_result['account_name']}\n"
@@ -1799,11 +1814,13 @@ async def send_beautiful_receipt(chat_id, receipt_data, transfer_result):
         )
         
         # Send the receipt
-        send_reply(chat_id, f"🧾 **Your Transfer Receipt**\n\n```
-{receipt_text}\n```")
-        
+        send_reply(chat_id, f"""🧾 **Your Transfer Receipt**\n\n```
+{receipt_text}
+```""")
         logger.info(f"📧 Beautiful receipt sent to {chat_id}")
     except Exception as e:
         logger.error(f"❌ Error sending beautiful receipt: {str(e)}")
-        # Fallback to simple message
-        send_reply(chat_id, f"✅ Transfer completed successfully! Transaction ID: {receipt_data.get('transaction_id', 'N/A')}")
+        # Fallback to simple reply
+        txn_id = receipt_data.get('transaction_id', 'N/A') if receipt_data else 'N/A'
+        send_reply(chat_id, f"✅ Transfer completed successfully!\nTransaction ID: {txn_id}")
+

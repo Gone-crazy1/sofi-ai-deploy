@@ -269,11 +269,12 @@
             <div class="pin-section">
                 <div class="pin-label">Enter your 4-digit PIN</div>
                 <input 
-                    type="password" 
+                    type="tel" 
+                    inputmode="numeric" 
+                    pattern="[0-9]*" 
                     id="pinInput" 
                     class="pin-input" 
                     maxlength="4" 
-                    pattern="[0-9]{4}" 
                     placeholder="••••"
                     required
                     autocomplete="off"
