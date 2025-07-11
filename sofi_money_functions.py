@@ -193,7 +193,7 @@ class SofiMoneyTransferService:
     
     async def execute_transfer(self, telegram_chat_id: str, recipient_data: Dict, 
                              amount: float, pin: str, reason: str = "Transfer") -> Dict[str, Any]:
-        """Execute complete money transfer with verification"""
+        """Execute complete money transfer with verification and clear success response"""
         try:
             logger.info(f"💸 Executing transfer: ₦{amount:,.2f} for user {telegram_chat_id}")
             
@@ -237,7 +237,7 @@ class SofiMoneyTransferService:
             
             new_balance = current_balance - total_amount
             
-            transaction_data = {
+            self.supabase.table("bank_transactions").insert({
                 "user_id": telegram_chat_id,
                 "transaction_type": "transfer_out",
                 "amount": -total_amount,
@@ -247,9 +247,7 @@ class SofiMoneyTransferService:
                 "paystack_data": transfer_result,
                 "wallet_balance_before": current_balance,
                 "wallet_balance_after": new_balance
-            }
-            
-            self.supabase.table("bank_transactions").insert(transaction_data).execute()
+            }).execute()
             self.supabase.table("users").update({"wallet_balance": new_balance}).eq("telegram_chat_id", telegram_chat_id).execute()
             
             receipt = await self.generate_transfer_receipt(
@@ -265,12 +263,14 @@ class SofiMoneyTransferService:
                 balance_after=new_balance
             )
             
+            # Always return a clear success response for frontend to close web app
             return {
                 "success": True,
                 "transfer_id": transfer_result.get("transfer_id"),
                 "reference": transfer_result.get("reference"),
                 "receipt": receipt,
-                "message": f"✅ Transfer successful! ₦{amount:,.2f} sent to {account_verification['account_name']}"
+                "message": f"✅ Transfer successful! ₦{amount:,.2f} sent to {account_verification['account_name']}",
+                "close_webapp": True  # Signal for frontend to close web app
             }
             
         except Exception as e:
@@ -334,19 +334,21 @@ Your money has been sent successfully.
             return f"Transfer completed successfully!\nReference: {reference}\nAmount: ₦{amount:,.2f}"
 
     async def check_user_balance(self, telegram_chat_id: str) -> Dict[str, Any]:
-        """Check user's current balance"""
+        """Check user's current balance (always fetch latest from DB)"""
         try:
             logger.info(f"💰 Checking balance for user {telegram_chat_id}")
-            
-            balance = await get_user_balance(telegram_chat_id)
-            
+            # Always fetch latest balance from Supabase, ignore any cache
+            user_result = self.supabase.table("users").select("wallet_balance").eq("telegram_chat_id", telegram_chat_id).execute()
+            if user_result.data and "wallet_balance" in user_result.data[0]:
+                balance = float(user_result.data[0]["wallet_balance"])
+            else:
+                balance = await get_user_balance(telegram_chat_id)
             return {
                 "success": True,
                 "balance": balance,
                 "formatted_balance": f"₦{balance:,.2f}",
                 "message": f"Your current balance is ₦{balance:,.2f}"
             }
-            
         except Exception as e:
             logger.error(f"❌ Error checking balance: {e}")
             return {"success": False, "error": f"Balance check error: {str(e)}"}
@@ -569,6 +571,41 @@ Net Movement: ₦{total_in - total_out:,.2f}
         except Exception as e:
             return {"success": False, "error": f"Statement generation error: {str(e)}"}
 
+    async def explain_spending(self, telegram_chat_id: str, limit: int = 20) -> str:
+        """Explain user's spending patterns in simple language"""
+        try:
+            result = self.supabase.table("bank_transactions").select(
+                "recipient_name, account_number, bank_name, amount, created_at, description"
+            ).eq("user_id", telegram_chat_id).order("created_at", desc=True).limit(limit).execute()
+            if not result.data:
+                return "No spending history found."
+            # Group by recipient and description
+            summary = {}
+            for txn in result.data:
+                recipient = txn.get('recipient_name', 'Unknown')
+                desc = txn.get('description', '').lower()
+                key = recipient
+                if 'bill' in desc:
+                    key = 'Bills & Utilities'
+                elif 'airtime' in desc or 'data' in desc:
+                    key = 'Airtime & Data'
+                elif 'transfer' in desc:
+                    key = recipient
+                summary.setdefault(key, 0)
+                summary[key] += abs(float(txn.get('amount', 0)))
+            # Find top categories/recipients
+            sorted_summary = sorted(summary.items(), key=lambda x: x[1], reverse=True)
+            lines = ["Here's how you've spent your money recently:"]
+            for i, (category, total) in enumerate(sorted_summary):
+                if i == 0:
+                    lines.append(f"- Most spent: {category} — ₦{total:,.2f}")
+                else:
+                    lines.append(f"- {category}: ₦{total:,.2f}")
+            lines.append("If you want a detailed statement, just ask for your wallet statement.")
+            return "\n".join(lines)
+        except Exception as e:
+            logger.error(f"Error explaining spending: {e}")
+            return "Sorry, I couldn't analyze your spending due to an error."
     # =============================================================================
     # SEND MONEY FUNCTION - Main function for OpenAI dashboard
     # =============================================================================
@@ -853,6 +890,28 @@ Net Movement: ₦{total_in - total_out:,.2f}
             logger.error(f"❌ Error setting transaction PIN: {e}")
             return {"success": False, "error": f"PIN setup error: {str(e)}"}
 
+    async def summarize_past_transfers(self, telegram_chat_id: str, limit: int = 20) -> str:
+        """Summarize user's past transfers by beneficiary and amount"""
+        try:
+            result = self.supabase.table("bank_transactions").select(
+                "recipient_name, account_number, bank_name, amount, created_at"
+            ).eq("user_id", telegram_chat_id).order("created_at", desc=True).limit(limit).execute()
+            if not result.data:
+                return "No past transfers found."
+            # Group by recipient
+            summary = {}
+            for txn in result.data:
+                key = f"{txn.get('recipient_name', 'Unknown')} ({txn.get('account_number', '')}, {txn.get('bank_name', '')})"
+                summary.setdefault(key, 0)
+                summary[key] += abs(float(txn.get('amount', 0)))
+            # Format summary
+            lines = [f"Past transfer summary for your last {limit} transactions:"]
+            for recipient, total in summary.items():
+                lines.append(f"- {recipient}: ₦{total:,.2f}")
+            return "\n".join(lines)
+        except Exception as e:
+            logger.error(f"Error summarizing past transfers: {e}")
+            return "Sorry, I couldn't summarize your past transfers due to an error."
 # =============================================================================
 # HELPER FUNCTIONS FOR SOFI AI ASSISTANT
 # =============================================================================

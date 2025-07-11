@@ -107,6 +107,64 @@ class SofiAssistant:
             logger.error(f"❌ Error processing message: {e}")
             return f"Sorry, I encountered an error: {str(e)}", {}
     
+    async def process_telegram_message(self, chat_id: str, message: str, user_data: Dict = None, chat_type: str = 'private', group_id: str = None, is_admin: bool = False, new_member: Dict = None) -> Tuple[str, Dict]:
+        """
+        Process Telegram message, handling group admin features for groups and wallet logic for private chats.
+        chat_type: 'private', 'group', or 'supergroup'
+        group_id: Telegram group ID (optional)
+        is_admin: True if sender is group admin
+        new_member: Dict with info about new member (if someone joined)
+        """
+        if chat_type in ['group', 'supergroup']:
+            # Welcome new member logic
+            if new_member:
+                welcome_text = f"👋 Welcome @{new_member.get('username', 'new_user')} to the group! Please check your private messages to complete onboarding and claim your rewards."
+                # Simulate sending private message for onboarding
+                # In real bot, you would use Telegram API to send DM
+                onboarding_text = (
+                    f"Hi @{new_member.get('username', 'new_user')}, welcome to Sofi!\n"
+                    "To start using your account and claim rewards, please complete onboarding here."
+                )
+                # You would call your DM function here
+                function_data = {
+                    'group_admin_action': 'welcome_new_member',
+                    'private_message': onboarding_text
+                }
+                return welcome_text, function_data
+            # Only respond if "sofi" is mentioned
+            if 'sofi' not in message.lower():
+                return None, {}
+            logger.info(f"👥 Group message detected from group {group_id} by user {chat_id}")
+            function_data = {}
+            response_text = None
+            # Admin commands (kick, promote, announce, update, tag)
+            if is_admin:
+                if 'kick' in message.lower():
+                    response_text = "🚫 User kicked (simulated)."
+                    function_data['group_admin_action'] = 'kick'
+                elif 'promote' in message.lower():
+                    response_text = "🎖️ User promoted to admin (simulated)."
+                    function_data['group_admin_action'] = 'promote'
+                elif 'announce' in message.lower():
+                    response_text = "📢 Announcement sent to group (simulated)."
+                    function_data['group_admin_action'] = 'announce'
+                elif 'update' in message.lower():
+                    response_text = "🔄 Group update sent (simulated)."
+                    function_data['group_admin_action'] = 'update'
+                elif 'tag' in message.lower():
+                    response_text = "🔔 Tagging all members: @all (simulated)."
+                    function_data['group_admin_action'] = 'tag_all'
+                else:
+                    response_text = "👋 Hello group! Sofi is here to help."
+                    function_data['group_admin_action'] = 'greet'
+            else:
+                response_text = "👋 Hi! Sofi is here. Mention me for group admin actions."
+                function_data['group_admin_action'] = 'greet'
+            return response_text, function_data
+        else:
+            # Private chat: run wallet/fintech logic
+            return await self.process_message(chat_id, message, user_data)
+    
     async def _get_or_create_thread(self, chat_id: str) -> str:
         """Get existing thread or create new one for user"""
         try:

@@ -8,7 +8,7 @@ ALTER COLUMN bank_code DROP NOT NULL;
 -- 2. Add missing columns if they don't exist
 ALTER TABLE bank_transactions 
 ADD COLUMN IF NOT EXISTS bank_code VARCHAR(10),
-ADD COLUMN IF NOT EXISTS bank_name VARCHAR(100),
+ADD COLUMN IF NOT EXISTsS bank_name VARCHAR(100),
 ADD COLUMN IF NOT EXISTS account_number VARCHAR(20),
 ADD COLUMN IF NOT EXISTS transaction_type VARCHAR(20) DEFAULT 'credit';
 

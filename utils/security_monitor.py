@@ -586,6 +586,33 @@ Stay secure! 🔒
             'monitoring_active': True,
             'last_updated': datetime.now().isoformat()
         }
+    
+    def is_telegram_user(self, user_id: str = None, user_agent: str = None) -> bool:
+        """Detect if user is a Telegram user (by ID or user agent)"""
+        # You can expand this logic as needed
+        if user_id and str(user_id).isdigit():
+            return True
+        if user_agent and 'Telegram' in user_agent:
+            return True
+        return False
+
+    def is_android_user(self, user_agent: str = None) -> bool:
+        """Detect if user is using Android device"""
+        if user_agent and 'Android' in user_agent:
+            return True
+        return False
+
+    def should_rate_limit(self, ip: str, user_id: str = None, user_agent: str = None) -> bool:
+        """Decide if rate limiting should apply to this user/IP"""
+        # Whitelist Telegram users and Android users
+        if self.is_telegram_user(user_id, user_agent):
+            logger.info(f"✅ Whitelisted Telegram user: {user_id} / {user_agent}")
+            return False
+        if self.is_android_user(user_agent):
+            logger.info(f"✅ Whitelisted Android user: {ip} / {user_agent}")
+            return False
+        # ...existing rate limit logic...
+        return True
 
 # Global security monitor instance
 security_monitor = SecurityMonitor()
