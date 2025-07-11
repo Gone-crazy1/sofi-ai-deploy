@@ -74,17 +74,18 @@ class SofiMoneyTransferService:
                     
                     for code, name in common_banks:
                         result = self.paystack.verify_account_number(account_number, code)
-                        if result.get("success"):
+                        logger.info(f"Paystack response for {code}: {result}")
+                        if result.get("success") and result.get("data"):
                             return {
                                 "success": True,
-                                "account_name": result["data"]["account_name"],
+                                "account_name": result["data"].get("account_name", "Unknown"),
                                 "account_number": account_number,
                                 "bank_code": code,
                                 "bank_name": name,
-                                "message": f"✅ Account verified: {result['data']['account_name']}"
+                                "message": f"✅ Account verified: {result['data'].get('account_name', 'Unknown')}"
                             }
-                    
-                    return {"success": False, "error": "Could not verify account. Please provide bank name or code."}
+                    # If no valid response, log and return error
+                    return {"success": False, "error": f"Could not verify account. Paystack response: {result}"}
                 else:
                     return {"success": False, "error": "Invalid account number format. Please check and try again."}
             else:
@@ -110,19 +111,18 @@ class SofiMoneyTransferService:
                         bank_code = bank_code_converted
                 
                 result = self.paystack.verify_account_number(account_number, bank_code)
-                
-                if result.get("success"):
+                logger.info(f"Paystack response for {bank_code}: {result}")
+                if result.get("success") and result.get("data"):
                     return {
                         "success": True,
-                        "account_name": result["data"]["account_name"],
+                        "account_name": result["data"].get("account_name", "Unknown"),
                         "account_number": account_number,
                         "bank_code": bank_code,
                         "bank_name": result["data"].get("bank_name", "Unknown Bank"),
-                        "message": f"✅ Account verified: {result['data']['account_name']}"
+                        "message": f"✅ Account verified: {result['data'].get('account_name', 'Unknown')}"
                     }
                 else:
-                    return {"success": False, "error": f"Account verification failed: {result.get('error', 'Unknown error')}"}
-                    
+                    return {"success": False, "error": f"Account verification failed. Paystack response: {result}"}
         except Exception as e:
             logger.error(f"❌ Error verifying account: {e}")
             return {"success": False, "error": f"Verification error: {str(e)}"}
@@ -766,7 +766,7 @@ Net Movement: ₦{total_in - total_out:,.2f}
                     "fcmb": "214", "sterling bank": "232", "stanbic ibtc": "221",
                     "union bank": "032", "polaris bank": "076", "wema bank": "035"
                 }
-                bank_code = bank_name_to_code.get(bank_name.lower(), bank_name)
+                bank_code = bank_name_to_code.get(bank_name.lower())
             
             beneficiary_data = {
                 "user_id": telegram_chat_id,
@@ -912,6 +912,59 @@ Net Movement: ₦{total_in - total_out:,.2f}
         except Exception as e:
             logger.error(f"Error summarizing past transfers: {e}")
             return "Sorry, I couldn't summarize your past transfers due to an error."
+    
+    # =============================================================================
+    # GROUP MANAGEMENT FUNCTIONS - FOR TELEGRAM GROUP ADMIN WIRING
+    # =============================================================================
+    
+    async def create_group(self, group_id: str, group_name: str, admin_group_id: str, admin_user_id: str, member_user_ids: list, settings: dict = None) -> dict:
+        """Create a new Telegram group record in Supabase"""
+        try:
+            group_data = {
+                "group_id": group_id,
+                "group_name": group_name,
+                "admin_group_id": admin_group_id,
+                "admin_user_id": admin_user_id,
+                "member_user_ids": member_user_ids,
+                "settings": settings or {},
+                "created_at": datetime.utcnow().isoformat(),
+                "updated_at": datetime.utcnow().isoformat()
+            }
+            result = self.supabase.table("telegram_groups").insert(group_data).execute()
+            return {"success": True, "group": result.data[0]} if result.data else {"success": False, "error": "Failed to create group"}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    async def get_group(self, group_id: str) -> dict:
+        """Fetch a Telegram group by group_id"""
+        try:
+            result = self.supabase.table("telegram_groups").select("*").eq("group_id", group_id).execute()
+            return {"success": True, "group": result.data[0]} if result.data else {"success": False, "error": "Group not found"}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    async def update_group_members(self, group_id: str, member_user_ids: list) -> dict:
+        """Update group members"""
+        try:
+            result = self.supabase.table("telegram_groups").update({
+                "member_user_ids": member_user_ids,
+                "updated_at": datetime.utcnow().isoformat()
+            }).eq("group_id", group_id).execute()
+            return {"success": True} if result.data else {"success": False, "error": "Update failed"}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    async def set_admin_group_id(self, group_id: str, admin_group_id: str) -> dict:
+        """Set or update the admin_group_id for a group"""
+        try:
+            result = self.supabase.table("telegram_groups").update({
+                "admin_group_id": admin_group_id,
+                "updated_at": datetime.utcnow().isoformat()
+            }).eq("group_id", group_id).execute()
+            return {"success": True} if result.data else {"success": False, "error": "Update failed"}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
 # =============================================================================
 # HELPER FUNCTIONS FOR SOFI AI ASSISTANT
 # =============================================================================
@@ -1079,9 +1132,48 @@ async def execute_openai_function(function_name: str, function_args: dict, teleg
                 user_id=function_args.get("user_id", telegram_chat_id)
             )
         
+        elif function_name == "create_group":
+            return await service.create_group(
+                group_id=function_args["group_id"],
+                group_name=function_args["group_name"],
+                admin_group_id=function_args["admin_group_id"],
+                admin_user_id=function_args["admin_user_id"],
+                member_user_ids=function_args["member_user_ids"],
+                settings=function_args.get("settings")
+            )
+        
+        elif function_name == "get_group":
+            return await service.get_group(
+                group_id=function_args["group_id"]
+            )
+        
+        elif function_name == "update_group_members":
+            return await service.update_group_members(
+                group_id=function_args["group_id"],
+                member_user_ids=function_args["member_user_ids"]
+            )
+        
+        elif function_name == "set_admin_group_id":
+            return await service.set_admin_group_id(
+                group_id=function_args["group_id"],
+                admin_group_id=function_args["admin_group_id"]
+            )
+        
         else:
             return {"success": False, "error": f"Unknown function: {function_name}"}
     
     except Exception as e:
         logger.error(f"❌ Error executing OpenAI function {function_name}: {e}")
         return {"success": False, "error": f"Function execution error: {str(e)}"}
+
+async def tag_all_group_members(usernames: list, group_name: str = None, max_tags: int = 50) -> str:
+    """Generate a message tagging all group members, with fallback for large groups."""
+    if not usernames:
+        return "No group members found to tag."
+    if len(usernames) > max_tags:
+        return (f"⚠️ Telegram only allows tagging a limited number of users at once. "
+                f"This group has {len(usernames)} members. "
+                "Please tag members in smaller batches or use @all if supported by your Telegram client.")
+    tags = " ".join([f"@{u}" for u in usernames if u])
+    group_label = f" in {group_name}" if group_name else ""
+    return f"👥 Tagging all members{group_label}:\n{tags}"

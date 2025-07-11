@@ -102,7 +102,7 @@ class PaystackWebhookHandler:
             customer = data.get("customer") or {}
             customer_code = customer.get("customer_code", "") if isinstance(customer, dict) else ""
             
-            # Extract sender information from the payment data  
+            # Extract sender information from the payment data
             # Try all possible fields for sender name
             sender_name = (
                 data.get("payer_name") or
@@ -113,20 +113,32 @@ class PaystackWebhookHandler:
                 data.get("sender") or
                 "Unknown Sender"
             )
+            # Fallback: Try to extract from narration or description if still unknown
+            if (not sender_name or sender_name.lower() in ["none", "unknown sender", ""]):
+                possible_narration = data.get("narration") or data.get("description") or ""
+                import re
+                match = re.search(r"from ([A-Za-z ]+)", possible_narration)
+                if match:
+                    sender_name = match.group(1).strip()
+            if not sender_name or sender_name.lower() in ["none", "unknown sender", ""]:
+                sender_name = "Sofi User"
 
             # Try all possible fields for sender bank
             sender_bank = (
                 data.get("sender_bank") or
                 data.get("bank_name") or
                 data.get("bank") or
-                "Unknown Bank"
+                None
             )
-
-            # Clean up None values
-            if not sender_name or sender_name.lower() == "none":
-                sender_name = "Unknown Sender"
-            if not sender_bank or sender_bank.lower() == "none":
-                sender_bank = "Unknown Bank"
+            # Fallback: Try to extract from narration or description if still unknown
+            if (not sender_bank or sender_bank.lower() in ["none", "unknown bank", ""]):
+                possible_narration = data.get("narration") or data.get("description") or ""
+                import re
+                match = re.search(r"via ([A-Za-z ]+)", possible_narration)
+                if match:
+                    sender_bank = match.group(1).strip()
+            if not sender_bank or sender_bank.lower() in ["none", "unknown bank", ""]:
+                sender_bank = "Paystack"
 
             narration = data.get("narration") or data.get("description") or "Money Transfer"
             

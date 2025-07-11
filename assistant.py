@@ -131,8 +131,8 @@ class SofiAssistant:
                     'private_message': onboarding_text
                 }
                 return welcome_text, function_data
-            # Only respond if "sofi" is mentioned
-            if 'sofi' not in message.lower():
+            # Only respond if "sofi" or "@getsofi_bot" is mentioned
+            if 'sofi' not in message.lower() and '@getsofi_bot' not in message.lower():
                 return None, {}
             logger.info(f"👥 Group message detected from group {group_id} by user {chat_id}")
             function_data = {}
