@@ -283,14 +283,21 @@ async def send_money(chat_id: str, amount: float, narration: str = None, pin: st
             # Create PIN verification URL
             pin_url = f"https://pipinstallsofi.com/verify-pin?txn_id={transaction_id}"
             
-            # Return web PIN entry response with keyboard
-            return {
-                "success": False,
-                "requires_pin": True,
-                "show_web_pin": True,
-                "message": f"""💸 You're about to send ₦{amount:,.0f} to:
+            # Return web PIN entry response with keyboard        # Convert bank code to bank name for display
+        display_bank_name = recipient_bank
+        if recipient_bank.isdigit() or len(recipient_bank) <= 6:
+            # It's likely a bank code, convert to name
+            display_bank_name = get_bank_name_from_code(recipient_bank)
+            if not display_bank_name or display_bank_name == recipient_bank:
+                display_bank_name = recipient_bank  # Fallback to original if conversion fails
+        
+        return {
+            "success": False,
+            "requires_pin": True,
+            "show_web_pin": True,
+            "message": f"""💸 You're about to send ₦{amount:,.0f} to:
 👤 Name: *{recipient_name}*
-🏦 Bank: {recipient_bank}
+🏦 Bank: {display_bank_name}
 🔢 Account: {recipient_account}
 💰 Fee: ₦{total_fees:,.0f}
 💵 Total: ₦{amount + total_fees:,.0f}

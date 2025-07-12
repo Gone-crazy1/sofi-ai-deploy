@@ -197,19 +197,34 @@ class PaystackWebhookHandler:
             return {"success": False, "error": str(e)}
     
     def _extract_sender_name(self, data: Dict, customer: Dict) -> str:
-        """Extract sender name from payment data with fallbacks"""
+        """Extract sender name from payment data with enhanced filtering"""
+        # Virtual account patterns to filter out (these are not real sender names)
+        virtual_account_patterns = [
+            r"mr\s+hawt",  # Common virtual account name
+            r"tobi\s*$",   # Single name "tobi"
+            r"sofi\s+user", # Generic sofi user
+            r"paystack",   # Paystack internal
+            r"dva\s*\d+",  # Dedicated virtual account patterns
+            r"virtual\s+account",
+            r"temp\s+account",
+            r"test\s+account"
+        ]
+        
         # Try all possible fields for sender name
         potential_names = [
             data.get("payer_name"),
             data.get("sender_name"),
-            data.get("account_name"),  # New field
-            data.get("originator_name"),  # New field
+            data.get("account_name"),
+            data.get("originator_name"),
+            data.get("sender_account_name"),  # Additional field
+            data.get("source_account_name"),  # Additional field
         ]
         
         # Try customer object fields
         if isinstance(customer, dict):
             potential_names.extend([
                 customer.get("name"),
+                customer.get("account_name"),
                 (customer.get("first_name", "") + " " + customer.get("last_name", "")).strip() if customer.get("first_name") or customer.get("last_name") else None,
                 customer.get("email")
             ])
@@ -219,32 +234,71 @@ class PaystackWebhookHandler:
         if isinstance(auth, dict):
             potential_names.extend([
                 auth.get("account_name"),
-                auth.get("sender_name")
+                auth.get("sender_name"),
+                auth.get("sender_account_name")
             ])
         
-        # Find first valid name
+        # Try metadata fields (sometimes contains real sender info)
+        metadata = data.get("metadata", {})
+        if isinstance(metadata, dict):
+            potential_names.extend([
+                metadata.get("sender_name"),
+                metadata.get("originator_name"),
+                metadata.get("real_sender")
+            ])
+        
+        import re
+        
+        # Find first valid name that's not a virtual account pattern
         for name in potential_names:
             if name and name.strip() and name.lower() not in ["none", "unknown", "", "null"]:
-                return name.strip()
+                clean_name = name.strip()
+                
+                # Check if this looks like a virtual account name
+                is_virtual_account = False
+                for pattern in virtual_account_patterns:
+                    if re.search(pattern, clean_name.lower()):
+                        is_virtual_account = True
+                        break
+                
+                # Also check for very short names or obvious test patterns
+                if len(clean_name) < 3 or clean_name.lower() in ["user", "temp", "test", "demo"]:
+                    is_virtual_account = True
+                
+                if not is_virtual_account and len(clean_name) > 2:
+                    return clean_name
         
-        # Fallback: Try to extract from narration or description
+        # Enhanced fallback: Try to extract real sender from narration/description
         possible_narration = data.get("narration") or data.get("description") or ""
-        import re
-        patterns = [
-            r"from ([A-Za-z ]+)",
-            r"transfer from ([A-Za-z ]+)",
-            r"sent by ([A-Za-z ]+)",
-            r"credit from ([A-Za-z ]+)"
+        
+        # Patterns to extract real sender names from transaction descriptions
+        narration_patterns = [
+            r"transfer\s+from\s+([A-Za-z\s]{3,30}?)(?:\s+to|\s*$)",
+            r"credit\s+from\s+([A-Za-z\s]{3,30}?)(?:\s+to|\s*$)",
+            r"payment\s+from\s+([A-Za-z\s]{3,30}?)(?:\s+to|\s*$)",
+            r"sent\s+by\s+([A-Za-z\s]{3,30}?)(?:\s+to|\s*$)",
+            r"from:\s*([A-Za-z\s]{3,30}?)(?:\s+to|\s*$)",
+            r"sender:\s*([A-Za-z\s]{3,30}?)(?:\s+to|\s*$)",
+            r"originator:\s*([A-Za-z\s]{3,30}?)(?:\s+to|\s*$)"
         ]
         
-        for pattern in patterns:
+        for pattern in narration_patterns:
             match = re.search(pattern, possible_narration, re.IGNORECASE)
             if match:
-                name = match.group(1).strip()
-                if len(name) > 2:  # Reasonable name length
-                    return name
+                extracted_name = match.group(1).strip()
+                
+                # Validate extracted name isn't a virtual account pattern
+                is_virtual = False
+                for vpattern in virtual_account_patterns:
+                    if re.search(vpattern, extracted_name.lower()):
+                        is_virtual = True
+                        break
+                
+                if not is_virtual and len(extracted_name) > 2:
+                    return extracted_name
         
-        return "Sofi User"  # Final fallback
+        # Final fallback: Return "Bank Transfer" instead of confusing virtual account names
+        return "Bank Transfer"
 
     def _extract_sender_bank(self, data: Dict) -> str:
         """Extract sender bank from payment data with fallbacks"""
@@ -404,13 +458,18 @@ class PaystackWebhookHandler:
             except Exception as e:
                 logger.warning(f"Could not get user name: {e}")
             
-            # Enhanced message with better sender info
-            if sender_name and sender_name != "Unknown" and sender_name != "Sofi User":
-                sender_info = f"💸 *From:* {sender_name}"
+            # Enhanced message with better sender info and clearer fallbacks
+            if sender_name and sender_name not in ["Unknown", "Bank Transfer"]:
                 if sender_bank and sender_bank not in ["Unknown Bank", "Paystack"]:
-                    sender_info += f" ({sender_bank})"
+                    sender_info = f"💸 *From:* {sender_name} ({sender_bank})"
+                else:
+                    sender_info = f"💸 *From:* {sender_name}"
             else:
-                sender_info = "💸 *From:* Bank Transfer"
+                # When we can't identify the real sender, be more honest about it
+                if sender_bank and sender_bank not in ["Unknown Bank", "Paystack"]:
+                    sender_info = f"💸 *From:* Bank Transfer via {sender_bank}"
+                else:
+                    sender_info = "💸 *From:* Bank Transfer"
             
             message = f"""🎉 *Money Alert!*
 

@@ -35,12 +35,11 @@ class TransactionSummarizer:
             if not transactions:
                 return """📊 **2-Month Transaction Summary**
 
-You haven't made any transactions in the past 2 months. When you start using Sofi for transfers, crypto trading, or airtime purchases, I'll provide detailed insights here!
+You haven't made any transactions in the past 2 months. When you start using Sofi for transfers or crypto trading, I'll provide detailed insights here!
 
 💡 **Get started with:**
 • Money transfers to family & friends
 • Cryptocurrency trading
-• Airtime & data purchases
 • Account balance management"""
             
             # Analyze transactions
@@ -289,8 +288,7 @@ You haven't made any transactions in the past 2 months. When you start using Sof
                 percentage = (amount / analysis['total_spent']) * 100 if analysis['total_spent'] > 0 else 0
                 category_name = {
                     'bank': 'Money Transfers',
-                    'crypto': 'Crypto Trading',
-                    'airtime': 'Airtime & Data'
+                    'crypto': 'Crypto Trading'
                 }.get(category, category.title())
                 
                 report += f"• {category_name}: ₦{amount:,.2f} ({percentage:.1f}%)\n"

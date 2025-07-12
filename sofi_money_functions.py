@@ -268,13 +268,13 @@ class SofiMoneyTransferService:
                 balance_after=new_balance
             )
             
-            # Always return a clear success response for frontend to close web app
+            # Always return a SHORT success response to save tokens
             return {
                 "success": True,
                 "transfer_id": transfer_result.get("transfer_id"),
                 "reference": transfer_result.get("reference"),
                 "receipt": receipt,
-                "message": f"✅ Transfer successful! ₦{amount:,.2f} sent to {account_verification['account_name']}",
+                "message": f"✅ Transfer completed! ₦{amount:,.2f} sent to {account_verification['account_name']}",
                 "close_webapp": True  # Signal for frontend to close web app
             }
             
