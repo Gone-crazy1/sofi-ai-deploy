@@ -706,6 +706,9 @@ class PaystackService:
             # Digital/Fintech Banks
             "opay": "999992", "opay digital services": "999992",
             "moniepoint": "50515", "moniepoint mfb": "50515",
+            "monie point": "50515", "moniepoint bank": "50515",
+            "moniepoint microfinance bank": "50515",
+            "moniepont": "50515", "moniepiont": "50515",
             "palmpay": "999991", "palmpay limited": "999991",
             "kuda": "50211", "kuda bank": "50211", "kuda microfinance bank": "50211",
             "carbon": "565", "carbon microfinance bank": "565",
@@ -715,6 +718,9 @@ class PaystackService:
             "rubies": "125", "rubies microfinance bank": "125",
             "sparkle": "51310", "sparkle microfinance bank": "51310",
             "mint": "50304", "mint fintech": "50304",
+            "9psb": "120001", "9 psb": "120001", "9mobile psb": "120001",
+            "9mobile": "120001", "9payment service bank": "120001",
+            "9mobile 9payment service bank": "120001",
             "eyowo": "50126", "eyowo microfinance bank": "50126",
             
             # Specialized Banks
@@ -752,6 +758,7 @@ class PaystackService:
             "OPay": "999992", "Moniepoint": "50515", "PalmPay": "999991",
             "Kuda Bank": "50211", "Carbon": "565", "FairMoney": "51318",
             "VFD Bank": "566", "Mint": "50304", "Eyowo": "50126",
+            "9PSB": "120001", "9mobile PSB": "120001",
             
             # Specialized Banks  
             "Jaiz Bank": "301", "Providus Bank": "101", "SunTrust Bank": "100",

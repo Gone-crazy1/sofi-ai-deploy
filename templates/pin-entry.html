@@ -120,6 +120,22 @@
         .loading {
             display: none;
             margin-top: 10px;
+            color: #667eea;
+        }
+        
+        .loading-spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin: 10px auto;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
         }
     </style>
 </head>
@@ -152,7 +168,8 @@
         </form>
         
         <div class="loading" id="loadingDiv">
-            <p>Verifying...</p>
+            <div class="loading-spinner"></div>
+            <p>Verifying PIN...</p>
         </div>
     </div>
     
@@ -215,6 +232,10 @@
                 const urlParams = new URLSearchParams(window.location.search);
                 const transactionId = urlParams.get('txn_id');
                 
+                // Add timeout to prevent hanging
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+                
                 const response = await fetch('/api/verify-pin', {
                     method: 'POST',
                     headers: {
@@ -223,18 +244,34 @@
                     body: JSON.stringify({
                         pin: pin,
                         transaction_id: transactionId
-                    })
+                    }),
+                    signal: controller.signal
                 });
                 
+                clearTimeout(timeoutId);
                 const result = await response.json();
                 
-                if (response.ok) {
-                    window.location.href = result.redirect_url || '/success';
+                if (response.ok && result.success) {
+                    // Show success message briefly before redirect
+                    loadingDiv.innerHTML = '<div class="loading-spinner"></div><p>✅ Success! Redirecting...</p>';
+                    
+                    // Redirect after short delay
+                    setTimeout(() => {
+                        if (result.redirect_url) {
+                            window.location.href = result.redirect_url;
+                        } else {
+                            window.location.href = '/success';
+                        }
+                    }, 1000);
                 } else {
                     throw new Error(result.error || 'PIN verification failed');
                 }
             } catch (error) {
-                showError(error.message || 'PIN verification failed. Please try again.');
+                if (error.name === 'AbortError') {
+                    showError('Request timed out. Please try again.');
+                } else {
+                    showError(error.message || 'PIN verification failed. Please try again.');
+                }
                 submitBtn.disabled = false;
                 loadingDiv.style.display = 'none';
             }

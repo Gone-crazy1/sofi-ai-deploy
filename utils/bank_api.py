@@ -209,10 +209,14 @@ class BankAPI:
             "standard chartered": "068",
             
             # Fintech & Digital Banks
-            "opay": "999991",  # ✅ OPAY BANK CODE - THIS WAS MISSING!
-            "palmpay": "999992",
+            "opay": "999992",  # ✅ FIXED: Was 999991, now correct 999992
+            "palmpay": "999991",  # ✅ CORRECT: PalmPay code
             "kuda": "50211", "kuda bank": "50211",
             "moniepoint": "50515", "moniepoint mfb": "50515",
+            "monie point": "50515", "moniepoint bank": "50515",
+            "moniepoint microfinance bank": "50515",
+            "moniepont": "50515",  # common typo
+            "moniepiont": "50515",  # common typo
             "carbon": "565", "carbon microfinance bank": "565",
             "rubies": "125", "rubies mfb": "125",
             "sparkle": "51310", "sparkle microfinance bank": "51310",
@@ -221,7 +225,10 @@ class BankAPI:
             "taj": "302", "taj bank": "302",
             "lotus": "303", "lotus bank": "303",
             "coronation": "559", "coronation merchant bank": "559",
-            "rand": "305", "rand merchant bank": "305"
+            "rand": "305", "rand merchant bank": "305",
+            "9psb": "120001", "9 psb": "120001", "9mobile psb": "120001",
+            "9mobile": "120001", "9payment service bank": "120001",
+            "9mobile 9payment service bank": "120001"
         }
         
         return bank_codes.get(bank_name.lower().strip())

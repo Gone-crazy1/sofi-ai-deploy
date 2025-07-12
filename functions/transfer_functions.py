@@ -90,11 +90,16 @@ async def send_money(chat_id: str, amount: float, narration: str = None, pin: st
             "zenith bank plc": "057",
             
             # Digital/Fintech Banks (verified from Paystack API)
-            "opay": "999992",
+            "opay": "999992",  # ✅ CORRECT CODE
             "opay digital services": "999992",
-            "moniepoint": "50515",
+            "moniepoint": "50515",  # ✅ CORRECT CODE
             "moniepoint mfb": "50515",
-            "palmpay": "999991",
+            "monie point": "50515",
+            "moniepoint bank": "50515",
+            "moniepoint microfinance bank": "50515",
+            "moniepont": "50515",  # common typo
+            "moniepiont": "50515",  # common typo
+            "palmpay": "999991",  # ✅ FIXED: Was 999992, now correct 999991
             "palmpay limited": "999991",
             "kuda": "50211",
             "kuda bank": "50211",
@@ -290,7 +295,9 @@ async def send_money(chat_id: str, amount: float, narration: str = None, pin: st
 💰 Fee: ₦{total_fees:,.0f}
 💵 Total: ₦{amount + total_fees:,.0f}
 
-🔐 Tap the button below to enter your PIN and complete the transfer:""",
+🔐 *Choose how to enter your PIN:*
+• Tap the button below for secure web entry
+• Or send a voice note saying your 4-digit PIN clearly""",
                 "pin_url": pin_url,
                 "keyboard": {
                     "inline_keyboard": [

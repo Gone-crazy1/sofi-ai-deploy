@@ -49,6 +49,7 @@ class SofiMoneyTransferService:
                         ("50515", "Moniepoint MFB"),
                         ("999991", "PalmPay"),
                         ("50211", "Kuda Bank"),
+                        ("120001", "9PSB"),
                         ("058", "GTBank"), 
                         ("044", "Access Bank"),
                         ("011", "First Bank"),
@@ -97,12 +98,16 @@ class SofiMoneyTransferService:
                         "access bank": "044", "gtbank": "058", "uba": "033",
                         "first bank": "011", "zenith bank": "057", "fidelity bank": "070",
                         "opay": "999992", "moniepoint": "50515", "palmpay": "999991",
+                        "monie point": "50515", "moniepoint bank": "50515",
+                        "moniepoint microfinance bank": "50515", "moniepoint mfb": "50515",
                         "kuda bank": "50211", "carbon": "565", "vfd bank": "566",
                         "fcmb": "214", "sterling bank": "232", "stanbic ibtc": "221",
                         "union bank": "032", "polaris bank": "076", "wema bank": "035",
                         "heritage bank": "030", "keystone bank": "082", "unity bank": "215",
                         "jaiz bank": "301", "providus bank": "101", "taj bank": "302",
-                        "suntrust bank": "100", "ecobank": "050", "citibank": "023"
+                        "suntrust bank": "100", "ecobank": "050", "citibank": "023",
+                        "9psb": "120001", "9 psb": "120001", "9mobile psb": "120001",
+                        "9mobile 9payment service bank": "120001", "9payment service bank": "120001"
                     }
                     
                     bank_code_converted = bank_name_to_code.get(bank_code.lower(), bank_code)
@@ -762,6 +767,8 @@ Net Movement: ₦{total_in - total_out:,.2f}
                     "access bank": "044", "gtbank": "058", "uba": "033",
                     "first bank": "011", "zenith bank": "057", "fidelity bank": "070",
                     "opay": "999992", "moniepoint": "50515", "palmpay": "999991",
+                    "monie point": "50515", "moniepoint bank": "50515",
+                    "moniepoint microfinance bank": "50515", "moniepoint mfb": "50515",
                     "kuda bank": "50211", "carbon": "565", "vfd bank": "566",
                     "fcmb": "214", "sterling bank": "232", "stanbic ibtc": "221",
                     "union bank": "032", "polaris bank": "076", "wema bank": "035"
@@ -979,7 +986,9 @@ async def sofi_verify_account(account_number: str, bank_name: str = None) -> str
             bank_mappings = {
                 "opay": "999992", "gtbank": "058", "gtb": "058",
                 "access": "044", "access bank": "044", "first bank": "011",
-                "firstbank": "011", "uba": "033", "zenith": "057", "fidelity": "070"
+                "firstbank": "011", "uba": "033", "zenith": "057", "fidelity": "070",
+                "9psb": "120001", "9 psb": "120001", "9mobile psb": "120001",
+                "9mobile": "120001", "9payment service bank": "120001"
             }
             bank_code = bank_mappings.get(bank_name.lower())
         

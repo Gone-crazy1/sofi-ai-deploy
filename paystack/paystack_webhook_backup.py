@@ -16,7 +16,27 @@ from supabase import create_client
 logger = logging.getLogger(__name__)
 
 class PaystackWebhookHandler:
-    """Handle Paystack webhooks for Sofi AI"""
+    """Handle Paystack webhoo            # Enhanced message with better sender info
+            if sender_name and sender_name != "Unknown" and sender_name != "Sofi User":
+                sender_info = f"💸 *From:* {sender_name}"
+                if sender_bank and sender_bank not in ["Unknown Bank", "Paystack"]:
+                    sender_info += f" ({sender_bank})"
+            else:
+                sender_info = "💸 *From:* Bank Transfer"
+            
+            message = f"""
+🎉 *Money Alert!*
+
+Hi {user_name}! You just received ₦{amount:,.0f}
+
+{sender_info}
+💰 *New Balance:* ₦{new_balance:,.0f}
+
+Say "balance" to check your wallet or "transfer" to send money! 🚀
+"""
+            
+            send_reply(user_id, message)
+            logger.info(f"📱 Enhanced credit notification sent to {user_id}: {sender_name} via {sender_bank}") AI"""
     
     def __init__(self):
         """Initialize webhook handler"""
@@ -49,33 +69,35 @@ class PaystackWebhookHandler:
             
             return hmac.compare_digest(expected_signature, signature)
         except Exception as e:
-            logger.error(f"Error verifying signature: {str(e)}")
+            logger.error(f"Error verifying webhook signature: {e}")
             return False
     
-    async def handle_webhook(self, data: Dict, signature: str = None) -> Dict:
-        """Main webhook handler"""
+    async def handle_webhook(self, payload: Dict, signature: str = None) -> Dict:
+        """Handle incoming Paystack webhook"""
         try:
-            event = data.get("event")
-            data_payload = data.get("data", {})
+            event = payload.get("event")
+            data = payload.get("data", {})
             
-            logger.info(f"📥 Webhook received: {event}")
+            logger.info(f"🔔 Received Paystack webhook: {event}")
             
-            # Verify signature if provided
-            if signature and not self.verify_signature(json.dumps(data).encode(), signature):
-                logger.error("❌ Invalid webhook signature")
-                return {"success": False, "error": "Invalid signature"}
+            # Skip signature verification for development (webhook secret not configured)
+            if signature and self.webhook_secret:
+                payload_bytes = json.dumps(payload, separators=(',', ':')).encode('utf-8')
+                if not self.verify_signature(payload_bytes, signature):
+                    logger.error("❌ Invalid webhook signature")
+                    return {"success": False, "error": "Invalid signature"}
             else:
                 logger.info("⚠️ Skipping webhook signature verification (development mode)")
             
             # Route to appropriate handler
             if event == "charge.success":
-                return await self.handle_charge_success(data_payload)
+                return await self.handle_charge_success(data)
             elif event == "transfer.success":
-                return await self.handle_transfer_success(data_payload)
+                return await self.handle_transfer_success(data)
             elif event == "transfer.failed":
-                return await self.handle_transfer_failed(data_payload)
+                return await self.handle_transfer_failed(data)
             elif event == "dedicated_account.assign":
-                return await self.handle_dedicated_account_assign(data_payload)
+                return await self.handle_dedicated_account_assign(data)
             else:
                 logger.info(f"📝 Unhandled webhook event: {event}")
                 return {"success": True, "message": f"Unhandled event: {event}"}
@@ -113,89 +135,6 @@ class PaystackWebhookHandler:
             logger.info(f"💰 Payment received: ₦{amount:,.2f} to account {account_number}")
             logger.info(f"👤 Sender: {sender_name} via {sender_bank}")
             
-            if not self.supabase:
-                logger.error("Supabase not configured")
-                return {"success": False, "error": "Database not configured"}
-            
-            # Find user by customer code or account number and get their UUID
-            user_query = self.supabase.table("users").select("id, telegram_chat_id, wallet_balance").eq("paystack_customer_code", customer_code).execute()
-            
-            if not user_query.data:
-                # Try finding by account number via virtual_accounts table
-                account_query = self.supabase.table("virtual_accounts").select("telegram_chat_id").eq("account_number", account_number).execute()
-                
-                if not account_query.data:
-                    logger.error(f"User not found for payment: {reference}")
-                    return {"success": False, "error": "User not found"}
-                
-                # Get telegram_chat_id from virtual_accounts, then find user
-                telegram_chat_id = account_query.data[0]["telegram_chat_id"]
-                user_query = self.supabase.table("users").select("id, telegram_chat_id, wallet_balance").eq("telegram_chat_id", telegram_chat_id).execute()
-                
-                if not user_query.data:
-                    logger.error(f"User not found for telegram_chat_id: {telegram_chat_id}")
-                    return {"success": False, "error": "User not found"}
-                
-                user_data = user_query.data[0]
-            else:
-                # User found directly
-                user_data = user_query.data[0]
-            
-            user_uuid = user_data["id"]  # This is the actual UUID
-            telegram_chat_id = user_data["telegram_chat_id"]  # This is the Telegram ID for notifications
-            current_balance = float(user_data.get("wallet_balance", 0))
-            new_balance = current_balance + amount
-            
-            # Record transaction with correct UUID and all required fields
-            transaction_data = {
-                "user_id": user_uuid,  # Use actual UUID from users table
-                "transaction_type": "credit",  # This is a deposit/credit
-                "amount": amount,
-                "reference": reference,
-                "status": "success",
-                "description": f"Deposit from {sender_name} via {sender_bank}",
-                "bank_code": "999999",  # Paystack internal code
-                "bank_name": sender_bank,  # Sender's bank name
-                "account_number": account_number,  # Recipient account number
-                "sender_name": sender_name,  # Store sender name
-                "narration": narration,  # Store narration/description
-                "created_at": data.get("created_at")
-            }
-            
-            try:
-                self.supabase.table("bank_transactions").insert(transaction_data).execute()
-                logger.info(f"✅ Transaction recorded for user {user_uuid}")
-            except Exception as e:
-                logger.warning(f"Could not record transaction: {e}")
-                # Continue anyway - the balance update is more important
-            
-            # Update user balance using UUID
-            self.supabase.table("users").update({"wallet_balance": new_balance}).eq("id", user_uuid).execute()
-            
-            # ALSO update virtual_accounts balance for consistency
-            try:
-                self.supabase.table("virtual_accounts").update({"balance": new_balance}).eq("account_number", account_number).execute()
-                logger.info(f"✅ Virtual account balance updated: ₦{new_balance:,.2f}")
-            except Exception as e:
-                logger.warning(f"Could not update virtual account balance: {e}")
-            
-            # Send notification to user via Telegram with sender details
-            await self.send_credit_notification(
-                telegram_chat_id, 
-                amount, 
-                new_balance, 
-                sender_name, 
-                sender_bank, 
-                narration
-            )
-            
-            logger.info(f"✅ Credit processed: ₦{amount:,.2f} for user {telegram_chat_id}")
-            return {"success": True, "message": "Credit processed successfully"}
-        
-        except Exception as e:
-            logger.error(f"❌ Error processing charge success: {str(e)}")
-            return {"success": False, "error": str(e)}
-    
     def _extract_sender_name(self, data: Dict, customer: Dict) -> str:
         """Extract sender name from payment data with fallbacks"""
         # Try all possible fields for sender name
@@ -287,6 +226,99 @@ class PaystackWebhookHandler:
                     return bank
         
         return "Paystack"  # Final fallback
+            if not self.supabase:
+                logger.error("Supabase not configured")
+                return {"success": False, "error": "Database not configured"}
+            
+            # Find user by customer code or account number
+            user_query = self.supabase.table("users").select("*").eq("paystack_customer_code", customer_code).execute()
+            
+            if not user_query.data:
+                # Try finding by account number
+                user_query = self.supabase.table("virtual_accounts").select("*, users(*)").eq("account_number", account_number).execute()
+                
+                if not user_query.data:
+                    logger.error(f"User not found for payment: {reference}")
+                    return {"success": False, "error": "User not found"}
+            
+            # Find user by customer code or account number and get their UUID
+            user_query = self.supabase.table("users").select("id, telegram_chat_id, wallet_balance").eq("paystack_customer_code", customer_code).execute()
+            
+            if not user_query.data:
+                # Try finding by account number via virtual_accounts table
+                account_query = self.supabase.table("virtual_accounts").select("telegram_chat_id").eq("account_number", account_number).execute()
+                
+                if not account_query.data:
+                    logger.error(f"User not found for payment: {reference}")
+                    return {"success": False, "error": "User not found"}
+                
+                # Get telegram_chat_id from virtual_accounts, then find user
+                telegram_chat_id = account_query.data[0]["telegram_chat_id"]
+                user_query = self.supabase.table("users").select("id, telegram_chat_id, wallet_balance").eq("telegram_chat_id", telegram_chat_id).execute()
+                
+                if not user_query.data:
+                    logger.error(f"User not found for telegram_chat_id: {telegram_chat_id}")
+                    return {"success": False, "error": "User not found"}
+                
+                user_data = user_query.data[0]
+            else:
+                # User found directly
+                user_data = user_query.data[0]
+            
+            user_uuid = user_data["id"]  # This is the actual UUID
+            telegram_chat_id = user_data["telegram_chat_id"]  # This is the Telegram ID for notifications
+            current_balance = float(user_data.get("wallet_balance", 0))
+            new_balance = current_balance + amount
+            
+            # Record transaction with correct UUID and all required fields
+            transaction_data = {
+                "user_id": user_uuid,  # Use actual UUID from users table
+                "transaction_type": "credit",  # This is a deposit/credit
+                "amount": amount,
+                "reference": reference,
+                "status": "success",
+                "description": f"Deposit from {sender_name} via {sender_bank}",
+                "bank_code": "999999",  # Paystack internal code
+                "bank_name": sender_bank,  # Sender's bank name
+                "account_number": account_number,  # Recipient account number
+                "sender_name": sender_name,  # Store sender name
+                "narration": narration,  # Store narration/description
+                "created_at": data.get("created_at")
+            }
+            
+            try:
+                self.supabase.table("bank_transactions").insert(transaction_data).execute()
+                logger.info(f"✅ Transaction recorded for user {user_uuid}")
+            except Exception as e:
+                logger.warning(f"Could not record transaction: {e}")
+                # Continue anyway - the balance update is more important
+            
+            # Update user balance using UUID
+            self.supabase.table("users").update({"wallet_balance": new_balance}).eq("id", user_uuid).execute()
+            
+            # ALSO update virtual_accounts balance for consistency
+            try:
+                self.supabase.table("virtual_accounts").update({"balance": new_balance}).eq("account_number", account_number).execute()
+                logger.info(f"✅ Virtual account balance updated: ₦{new_balance:,.2f}")
+            except Exception as e:
+                logger.warning(f"Could not update virtual account balance: {e}")
+            
+            # Send notification to user via Telegram with sender details
+            await self.send_credit_notification(
+                telegram_chat_id, 
+                amount, 
+                new_balance, 
+                sender_name, 
+                sender_bank, 
+                narration
+            )
+            
+            logger.info(f"✅ Credit processed: ₦{amount:,.2f} for user {telegram_chat_id}")
+            return {"success": True, "message": "Credit processed successfully"}
+        
+        except Exception as e:
+            logger.error(f"❌ Error processing charge success: {str(e)}")
+            return {"success": False, "error": str(e)}
     
     async def handle_transfer_success(self, data: Dict) -> Dict:
         """Handle successful outgoing transfer"""
@@ -316,19 +348,25 @@ class PaystackWebhookHandler:
             reference = data.get("reference")
             amount = data.get("amount", 0) / 100
             
-            logger.info(f"❌ Transfer failed: ₦{amount:,.2f} - {reference}")
+            logger.warning(f"❌ Transfer failed: ₦{amount:,.2f} - {reference}")
             
             if not self.supabase:
                 return {"success": False, "error": "Database not configured"}
             
-            # Update transaction status
-            self.supabase.table("bank_transactions").update({"status": "failed"}).eq("reference", reference).execute()
-            
-            # Refund user (basic implementation)
-            transaction_query = self.supabase.table("bank_transactions").select("user_id").eq("reference", reference).execute()
+            # Update transaction status and potentially refund user
+            transaction_query = self.supabase.table("bank_transactions") \
+                .select("*") \
+                .eq("reference", reference) \
+                .execute()
             
             if transaction_query.data:
-                user_id = transaction_query.data[0]["user_id"]
+                transaction = transaction_query.data[0]
+                user_id = transaction.get("user_id")
+                
+                # Update status with available columns
+                self.supabase.table("bank_transactions").update({"status": "failed"}).eq("reference", reference).execute()
+                
+                # Refund user balance and record the refund
                 current_balance = await self.get_user_balance(user_id)
                 new_balance = current_balance + amount
                 
@@ -404,25 +442,17 @@ class PaystackWebhookHandler:
             except Exception as e:
                 logger.warning(f"Could not get user name: {e}")
             
-            # Enhanced message with better sender info
-            if sender_name and sender_name != "Unknown" and sender_name != "Sofi User":
-                sender_info = f"💸 *From:* {sender_name}"
-                if sender_bank and sender_bank not in ["Unknown Bank", "Paystack"]:
-                    sender_info += f" ({sender_bank})"
-            else:
-                sender_info = "💸 *From:* Bank Transfer"
-            
-            message = f"""🎉 *Money Alert!*
+            # Create short, friendly, emoji-rich message
+            message = f"""
+🎉 Hey {user_name}, you received ₦{amount:,.0f} from {sender_name} at {sender_bank}! 
 
-Hi {user_name}! You just received ₦{amount:,.0f}
+� Your new balance: ₦{new_balance:,.0f}
 
-{sender_info}
-💰 *New Balance:* ₦{new_balance:,.0f}
-
-Say "balance" to check your wallet or "transfer" to send money! 🚀"""
+Say "balance" to check your wallet or "transfer" to send money! 🚀
+"""
             
             send_reply(user_id, message)
-            logger.info(f"📱 Enhanced credit notification sent to {user_id}: {sender_name} via {sender_bank}")
+            logger.info(f"📱 Enhanced credit notification sent to {user_id}")
         
         except Exception as e:
             logger.error(f"Error sending notification: {str(e)}")

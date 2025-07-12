@@ -46,6 +46,15 @@ admin_handler = AdminCommandHandler()
 from utils.user_onboarding import SofiUserOnboarding
 onboarding_service = SofiUserOnboarding()
 
+# Import beneficiary management system
+from utils.beneficiary_manager import beneficiary_manager
+
+# Import transaction history system
+from utils.transaction_history import handle_transaction_history_query
+
+# Import enhanced transaction summarizer
+from utils.transaction_summarizer import transaction_summarizer
+
 app = Flask(__name__)
 
 # Initialize logging first
@@ -207,16 +216,18 @@ IMPORTANT NIGERIAN CONTEXT:
         return {"intent": "general", "details": {}}
 
 async def get_user_balance(chat_id):
-    """Get user's current balance from virtual account using secure method"""
+    """Get user's current balance using enhanced helper with force sync"""
     try:
-        return await get_balance_secure(str(chat_id))
+        from utils.balance_helper import get_user_balance as get_balance_secure
+        return await get_balance_secure(str(chat_id), force_sync=True)
     except Exception as e:
         logger.error(f"Error getting user balance: {e}")
         return 0.0
 
 async def check_virtual_account(chat_id):
-    """Check if user has a virtual account using secure method"""
+    """Check if user has a virtual account using enhanced helper"""
     try:
+        from utils.balance_helper import check_virtual_account as check_virtual_account_secure
         return await check_virtual_account_secure(str(chat_id))
     except Exception as e:
         logger.error(f"Error checking virtual account: {e}")
@@ -260,23 +271,39 @@ Proudly powered by Pip install AI Technologies - the future of AI banking."""
                 # Debug info
                 logger.info(f"DEBUG: Virtual account data = {virtual_account}")
                 
-                # Get user's full name from Supabase instead of truncated bank name
-                from utils.user_onboarding import onboarding_service
-                user_profile = await onboarding_service.get_user_profile(str(chat_id))
+                account_status = virtual_account.get("status", "unknown")
                 
-                # Safe access to account details with fallbacks
-                account_number = virtual_account.get("accountNumber") or virtual_account.get("account_number", "Not available")
-                bank_name = virtual_account.get("bankName") or virtual_account.get("bank_name", "Not available")
-                
-                # Use full name from Supabase, not truncated bank account name
-                display_name = user_profile.get('full_name') if user_profile else virtual_account.get("accountName", "Not available")
-                
-                reply = (
-                    f"✅ You have an account:\n"
-                    f"🏦 {account_number} ({bank_name})\n"
-                    f"👤 {display_name}\n\n"
-                    f"What do you need?"
-                )
+                if account_status == "active":
+                    # Get user's full name from Supabase instead of truncated bank name
+                    from utils.user_onboarding import onboarding_service
+                    user_profile = await onboarding_service.get_user_profile(str(chat_id))
+                    
+                    # Safe access to account details with fallbacks
+                    account_number = virtual_account.get("accountNumber") or virtual_account.get("account_number", "Not available")
+                    bank_name = virtual_account.get("bankName") or virtual_account.get("bank_name", "Not available")
+                    
+                    # Use full name from Supabase, not truncated bank account name
+                    display_name = user_profile.get('full_name') if user_profile else virtual_account.get("accountName", "Not available")
+                    
+                    reply = (
+                        f"✅ *Your Account Details:*\n\n"
+                        f"🏦 *Account:* {account_number}\n"
+                        f"🏛️ *Bank:* {bank_name}\n"
+                        f"👤 *Name:* {display_name}\n\n"
+                        f"What would you like to do?"
+                    )
+                elif account_status == "incomplete_setup":
+                    reply = (
+                        "⏳ *Account Setup in Progress*\n\n"
+                        "Your virtual account is being created. This usually takes a few minutes.\n\n"
+                        "I'll notify you once it's ready!"
+                    )
+                else:
+                    # Handle other statuses or fallback
+                    reply = (
+                        "🔄 *Checking Your Account*\n\n"
+                        "Let me verify your account status..."
+                    )
             else:
                 # New user - send web app button instead of naked link
                 reply = (
@@ -556,6 +583,43 @@ async def handle_transfer_flow(chat_id: str, message: str, user_data: dict = Non
         else:
             details = intent_data.get('details', {})
         
+        # Check for beneficiary first before asking for account details
+        recipient_name = details.get('recipient') or details.get('recipient_name')
+        if recipient_name and user_data and not details.get('account'):
+            # Try to find beneficiary by name
+            beneficiary = await beneficiary_manager.find_beneficiary_by_name(user_data.get('id'), recipient_name)
+            if beneficiary:
+                # Found beneficiary! Populate details
+                details['account'] = beneficiary['account_number']
+                details['recipient'] = beneficiary['account_name']
+                details['bank'] = beneficiary['bank_name'] or beneficiary['bank_code']
+                
+                # If we have both beneficiary and amount, proceed to confirmation
+                if details.get('amount'):
+                    state = {
+                        'transfer': {
+                            'amount': details['amount'],
+                            'recipient_name': beneficiary['account_name'],
+                            'account_number': beneficiary['account_number'],
+                            'bank': beneficiary['bank_name'] or beneficiary['bank_code'],
+                            'narration': details.get('narration', f"Transfer to {beneficiary['name']}")
+                        },
+                        'step': 'confirm_transfer',
+                        'using_beneficiary': True,
+                        'beneficiary_nickname': beneficiary['name']
+                    }
+                    
+                    conversation_state.set_state(chat_id, state)
+                    
+                    return f"""💳 **Transfer to {beneficiary['name']}**
+
+**Recipient:** {beneficiary['account_name']}
+**Account:** {beneficiary['account_number']}
+**Bank:** {beneficiary['bank_name'] or beneficiary['bank_code']}
+**Amount:** ₦{details['amount']:,.2f}
+
+Is this correct? Reply 'yes' to continue or 'no' to cancel."""
+        
         state = {
             'transfer': {
                 'amount': details.get('amount'),
@@ -731,11 +795,66 @@ async def handle_transfer_flow(chat_id: str, message: str, user_data: dict = Non
         except ValueError:
             return "Please enter a valid amount (e.g., 5000):"
     
+    elif current_step == 'confirm_transfer':
+        # Handle confirmation for beneficiary transfers
+        response_lower = message.lower().strip()
+        
+        if response_lower in ['yes', 'y', 'confirm', 'ok', 'proceed']:
+            # User confirmed - proceed to PIN verification
+            state['step'] = 'secure_pin_verification'
+            
+            # Generate unique transaction ID
+            import uuid
+            transaction_id = f"TX{uuid.uuid4().hex[:8].upper()}"
+            
+            # Store transaction for secure verification
+            from utils.secure_pin_verification import secure_pin_verification
+            secure_pin_verification.store_pending_transaction(transaction_id, {
+                'chat_id': chat_id,
+                'user_data': user_data,
+                'transfer_data': transfer,
+                'amount': transfer['amount']
+            })
+            
+            # Create secure PIN verification message with inline keyboard
+            msg = (
+                f"✅ *Transfer confirmed!*\n"
+                f"Click the button below to complete transfer of ₦{transfer['amount']:,.2f} to:\n\n"
+                f"👤 *{transfer['recipient_name']}*\n"
+                f"🏦 *{transfer['bank']}* ({transfer['account_number']})\n\n"
+                f"🔐 *Secure PIN verification required*"
+            )
+            
+            # Create inline keyboard for secure PIN verification
+            pin_keyboard = {
+                "inline_keyboard": [[
+                    {
+                        "text": "🔐 Verify Transaction",
+                        "url": f"https://pipinstallsofi.com/verify-pin?txn_id={transaction_id}"
+                    }
+                ]]
+            }
+            
+            conversation_state.set_state(chat_id, state)
+            send_reply(chat_id, msg, pin_keyboard)
+            return None  # Don't send additional message
+            
+        elif response_lower in ['no', 'n', 'cancel', 'stop']:
+            # User cancelled
+            conversation_state.clear_state(chat_id)
+            
+            beneficiary_name = state.get('beneficiary_nickname', 'recipient')
+            return f"❌ Transfer to {beneficiary_name} cancelled. Is there anything else I can help you with?"
+        else:
+            return "Please reply 'yes' to confirm the transfer or 'no' to cancel."
+    
     elif current_step == 'secure_pin_verification':
-        # User is trying to type in chat instead of using web app
+        # User is trying to type in chat instead of using web app or voice
         return (
-            "🔐 Please use the secure web app to enter your PIN.\n\n"
-            "Click the 'Verify Transaction' button above to complete your transfer securely."
+            "🔐 Please choose how to enter your PIN:\n\n"
+            "1️⃣ **Web App**: Click the 'Verify Transaction' button above\n"
+            "2️⃣ **Voice Note**: Send a voice message saying your 4-digit PIN\n\n"
+            "Both options are secure and encrypted."
         )
     
     return "I didn't understand that. Please try again."
@@ -865,6 +984,23 @@ async def handle_message(chat_id: str, message: str, user_data: dict = None, vir
             logger.info("🔄 Falling back to legacy message handlers")
         
         # Fallback to legacy handlers if assistant fails
+        # Check for beneficiary commands first (before other handlers)
+        beneficiary_response = await beneficiary_manager.handle_beneficiary_command(chat_id, message, user_data or {})
+        if beneficiary_response:
+            return beneficiary_response
+        
+        # Check for transaction history queries
+        history_response = await handle_transaction_history_query(chat_id, message, user_data)
+        if history_response:
+            return history_response
+        
+        # Check for 2-month summary requests
+        summary_keywords = ['2 month', 'two month', 'monthly summary', 'financial summary', 'spending summary', 
+                           'transaction summary', 'summarize my transactions', 'past 2 months', 'last 2 months']
+        if any(keyword in message.lower() for keyword in summary_keywords):
+            summary_response = await transaction_summarizer.get_2_month_summary(chat_id, user_data)
+            return summary_response
+        
         # Check for balance inquiry
         balance_response = await handle_balance_inquiry(chat_id, message, user_data, virtual_account)
         if balance_response:
@@ -1172,15 +1308,45 @@ async def webhook_incoming():
         # Handle voice messages
         elif "voice" in message_data:
             file_id = message_data["voice"]["file_id"]
-            success, response = process_voice(file_id)
             
-            if success:
-                # Process the transcribed text as a regular message
-                user_message = response
-                ai_response = await handle_message(chat_id, user_message, user_data)
-                send_reply(chat_id, ai_response)
+            # Check if user is in PIN verification mode
+            state = conversation_state.get_state(chat_id)
+            if state and state.get('step') == 'secure_pin_verification':
+                # Process voice PIN
+                from utils.voice_pin_processor import VoicePinProcessor
+                
+                voice_processor = VoicePinProcessor()
+                result = await voice_processor.process_voice_pin(file_id, chat_id)
+                
+                if result['success']:
+                    extracted_pin = result['pin']
+                    
+                    # Process the PIN using the secure transfer system
+                    from utils.secure_transfer_handler import handle_secure_transfer_confirmation
+                    transfer_data = state.get('transfer', {})
+                    
+                    # Handle the PIN as if it was typed
+                    response = await handle_secure_transfer_confirmation(
+                        chat_id=chat_id,
+                        message=extracted_pin,
+                        user_data=user_data,
+                        transfer_data=transfer_data
+                    )
+                    send_reply(chat_id, response)
+                else:
+                    send_reply(chat_id, result['error'])
+                    
             else:
-                send_reply(chat_id, response)
+                # Normal voice processing for general conversation
+                success, response = process_voice(file_id)
+                
+                if success:
+                    # Process the transcribed text as a regular message
+                    user_message = response
+                    ai_response = await handle_message(chat_id, user_message, user_data)
+                    send_reply(chat_id, ai_response)
+                else:
+                    send_reply(chat_id, response)
         
         # Handle text messages
         elif "text" in message_data:
@@ -1418,6 +1584,22 @@ def pin_verification_page():
                              'account_number': transaction['account_number']
                          })
 
+@app.route("/success")
+def success_page():
+    """Success page with receipt after successful transfer"""
+    # Get receipt data from URL parameters
+    receipt_data = {
+        'amount': float(request.args.get('amount', 0)),
+        'recipient_name': request.args.get('recipient_name', ''),
+        'bank': request.args.get('bank', ''),
+        'account_number': request.args.get('account_number', ''),
+        'reference': request.args.get('reference', ''),
+        'fee': float(request.args.get('fee', 20)),
+        'timestamp': request.args.get('timestamp', '')
+    }
+    
+    return render_template("success.html", receipt_data=receipt_data)
+
 @app.route("/test-pin")
 def test_pin_page():
     """Test PIN page with sample data"""
@@ -1544,7 +1726,7 @@ Thank you for using Sofi! 💙"""
             
             send_reply(transaction['chat_id'], receipt)
             
-            # Generate and send image receipt
+            # Generate and send beautiful receipt
             try:
                 from beautiful_receipt_generator import SofiReceiptGenerator
                 receipt_gen = SofiReceiptGenerator()
@@ -1555,34 +1737,65 @@ Thank you for using Sofi! 💙"""
                     'recipient_name': transaction['recipient_name'],
                     'recipient_account': transaction['account_number'],
                     'recipient_bank': transaction['bank_name'],
-                    'fee': transaction.get('fee', 20),
-                    'reference': result.get('reference', 'N/A'),
-                    'balance_before': result.get('balance_before', 0),
-                    'balance_after': result.get('balance_after', 0)
+                    'transfer_fee': transaction.get('fee', 20),
+                    'new_balance': result.get('balance_after', 0),
+                    'reference': result.get('reference', 'N/A')
                 }
                 
-                image_receipt = receipt_gen.create_bank_transfer_receipt(receipt_data)
-                if image_receipt:
-                    # Send image receipt
-                    send_photo_to_telegram(transaction['chat_id'], image_receipt, 
-                                         "🧾 Your transfer receipt")
+                beautiful_receipt = receipt_gen.create_bank_transfer_receipt(receipt_data)
+                if beautiful_receipt:
+                    # Send beautiful text receipt
+                    send_reply(transaction['chat_id'], beautiful_receipt)
+                    logger.info(f"📧 Beautiful receipt sent to {transaction['chat_id']}")
                     
             except Exception as e:
-                logger.error(f"Failed to generate image receipt: {e}")
+                logger.error(f"Failed to generate beautiful receipt: {e}")
             
-            # Also send Sofi's acknowledgment
+            # Also send Sofi's acknowledgment with friendly bank name
+            from utils.bank_name_converter import get_bank_name_from_code
+            
+            # Convert bank code to friendly name
+            friendly_bank_name = get_bank_name_from_code(transaction.get('bank_code', ''))
+            display_bank_name = friendly_bank_name if friendly_bank_name != "Unknown Bank" else transaction['bank_name']
+            
             sofi_response = f"""Transfer completed successfully! ✅
 
-I've sent ₦{transaction['amount']:,.2f} to {transaction['recipient_name']} at {transaction['bank_name']}.
+I've sent ₦{transaction['amount']:,.2f} to {transaction['recipient_name']} at {display_bank_name}.
 
-Your receipt is above. Is there anything else I can help you with today?"""
+💾 Would you like to save {transaction['recipient_name']} as a beneficiary for quick future transfers? 
+
+Just reply "Save as [nickname]" - for example:
+• "Save as Mom"
+• "Save as John" 
+• "Save as Business Partner"
+
+This will make future transfers faster! Just say "Send 5k to Mom" next time.
+
+Is there anything else I can help you with today?"""
             
             send_reply(transaction['chat_id'], sofi_response)
+            
+            # Create URL parameters for success page
+            from urllib.parse import urlencode
+            from datetime import datetime
+            
+            success_params = {
+                'amount': transaction['amount'],
+                'recipient_name': transaction['recipient_name'],
+                'bank': transaction['bank_name'],
+                'account_number': transaction['account_number'],
+                'reference': result.get('reference', 'N/A'),
+                'fee': transaction.get('fee', 20),
+                'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            }
+            
+            redirect_url = f"/success?{urlencode(success_params)}"
             
             return jsonify({
                 'success': True,
                 'message': 'Transfer completed successfully',
-                'reference': result.get('reference')
+                'reference': result.get('reference'),
+                'redirect_url': redirect_url
             }), 200
         else:
             # Send error notification to Telegram
@@ -1787,7 +2000,7 @@ async def send_beautiful_receipt(chat_id, receipt_data, transfer_result):
     """Send a beautiful receipt after successful transfer"""
     try:
         # Import the beautiful receipt generator
-        from beautiful_receipt_generator import generate_pos_style_receipt
+        from beautiful_receipt_generator import SofiReceiptGenerator
         
         # Extract receipt data
         sender_name = receipt_data.get('sender_name', 'Sofi User')
@@ -1797,7 +2010,9 @@ async def send_beautiful_receipt(chat_id, receipt_data, transfer_result):
         recipient_bank = receipt_data.get('recipient_bank', 'Unknown')
         balance = receipt_data.get('new_balance', 0)
         transaction_id = receipt_data.get('transaction_id', 'N/A')
+        transfer_fee = receipt_data.get('transfer_fee', 30)
         bank_name = recipient_bank
+        
         # --- Ensure bank_name is always a human-readable name ---
         # If bank_name is a code, resolve it to a name
         from functions.transfer_functions import get_bank_name_from_code
@@ -1807,17 +2022,28 @@ async def send_beautiful_receipt(chat_id, receipt_data, transfer_result):
                 bank_name = resolved_name
         # --- End fix ---
         
-        # Generate the receipt
-        receipt_text = generate_pos_style_receipt(
-            sender_name, amount, recipient_name, 
-            recipient_account, bank_name, balance, transaction_id
-        )
+        # Create receipt generator instance
+        receipt_generator = SofiReceiptGenerator()
+        
+        # Prepare transaction data for receipt generation
+        transaction_data = {
+            'user_name': sender_name,
+            'amount': amount,
+            'recipient_name': recipient_name,
+            'recipient_account': recipient_account,
+            'recipient_bank': bank_name,
+            'transfer_fee': transfer_fee,
+            'new_balance': balance,
+            'reference': transaction_id
+        }
+        
+        # Generate the beautiful receipt
+        receipt_text = receipt_generator.create_bank_transfer_receipt(transaction_data)
         
         # Send the receipt
-        send_reply(chat_id, f"""🧾 **Your Transfer Receipt**\n\n```
-{receipt_text}
-```""")
+        send_reply(chat_id, receipt_text)
         logger.info(f"📧 Beautiful receipt sent to {chat_id}")
+        
     except Exception as e:
         logger.error(f"❌ Error sending beautiful receipt: {str(e)}")
         # Fallback to simple reply
