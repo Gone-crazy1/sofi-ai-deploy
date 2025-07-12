@@ -200,27 +200,31 @@ class PaystackWebhookHandler:
         """Extract sender name from payment data with enhanced filtering"""
         # Virtual account patterns to filter out (these are not real sender names)
         virtual_account_patterns = [
-            r"mr\s+hawt",  # Common virtual account name
+            r"mr\s+hawt",  # Your Sofi virtual account name - NOT the real sender!
             r"tobi\s*$",   # Single name "tobi"
             r"sofi\s+user", # Generic sofi user
             r"paystack",   # Paystack internal
             r"dva\s*\d+",  # Dedicated virtual account patterns
             r"virtual\s+account",
             r"temp\s+account",
-            r"test\s+account"
+            r"test\s+account",
+            r"sofi\s+ai",  # Sofi AI patterns
+            r"virtual\s+acc"
         ]
         
-        # Try all possible fields for sender name
+        # Try ALL possible fields for the REAL sender name (not virtual account names)
         potential_names = [
-            data.get("payer_name"),
-            data.get("sender_name"),
-            data.get("account_name"),
-            data.get("originator_name"),
-            data.get("sender_account_name"),  # Additional field
-            data.get("source_account_name"),  # Additional field
+            # Primary sender fields (most likely to have real sender)
+            data.get("real_sender_name"),  # Custom field for real sender
+            data.get("originator_name"),   # Bank originator
+            data.get("sender_account_name"), # Actual sender account name
+            data.get("source_account_name"), # Source account holder
+            data.get("payer_name"),        # Who actually paid
+            data.get("sender_name"),       # General sender
+            data.get("account_name"),      # Account holder name
         ]
         
-        # Try customer object fields
+        # Try customer object fields (these might have real sender info)
         if isinstance(customer, dict):
             potential_names.extend([
                 customer.get("name"),
@@ -229,13 +233,14 @@ class PaystackWebhookHandler:
                 customer.get("email")
             ])
         
-        # Try authorization fields (for bank transfers)
+        # Try authorization fields (for bank transfers - often has real sender)
         auth = data.get("authorization", {})
         if isinstance(auth, dict):
             potential_names.extend([
-                auth.get("account_name"),
+                auth.get("account_name"),      # Most important - real account holder
                 auth.get("sender_name"),
-                auth.get("sender_account_name")
+                auth.get("sender_account_name"),
+                auth.get("originator_name")    # Bank originator name
             ])
         
         # Try metadata fields (sometimes contains real sender info)
@@ -244,34 +249,38 @@ class PaystackWebhookHandler:
             potential_names.extend([
                 metadata.get("sender_name"),
                 metadata.get("originator_name"),
-                metadata.get("real_sender")
+                metadata.get("real_sender"),
+                metadata.get("account_holder_name")
             ])
         
         import re
         
-        # Find first valid name that's not a virtual account pattern
+        # Find first valid name that's NOT a virtual account pattern
         for name in potential_names:
             if name and name.strip() and name.lower() not in ["none", "unknown", "", "null"]:
                 clean_name = name.strip()
                 
-                # Check if this looks like a virtual account name
+                # Check if this looks like a virtual account name (IGNORE these!)
                 is_virtual_account = False
                 for pattern in virtual_account_patterns:
                     if re.search(pattern, clean_name.lower()):
                         is_virtual_account = True
+                        logger.info(f"🚫 Ignoring virtual account name: {clean_name}")
                         break
                 
                 # Also check for very short names or obvious test patterns
                 if len(clean_name) < 3 or clean_name.lower() in ["user", "temp", "test", "demo"]:
                     is_virtual_account = True
                 
+                # If this is NOT a virtual account name, it's probably the real sender
                 if not is_virtual_account and len(clean_name) > 2:
+                    logger.info(f"✅ Real sender found: {clean_name}")
                     return clean_name
         
         # Enhanced fallback: Try to extract real sender from narration/description
         possible_narration = data.get("narration") or data.get("description") or ""
         
-        # Patterns to extract real sender names from transaction descriptions
+        # Patterns to extract REAL sender names from transaction descriptions
         narration_patterns = [
             r"transfer\s+from\s+([A-Za-z\s]{3,30}?)(?:\s+to|\s*$)",
             r"credit\s+from\s+([A-Za-z\s]{3,30}?)(?:\s+to|\s*$)",
@@ -295,10 +304,95 @@ class PaystackWebhookHandler:
                         break
                 
                 if not is_virtual and len(extracted_name) > 2:
+                    logger.info(f"✅ Real sender extracted from narration: {extracted_name}")
                     return extracted_name
         
         # Final fallback: Return "Bank Transfer" instead of confusing virtual account names
+        logger.warning("⚠️ Could not identify real sender - using 'Bank Transfer'")
         return "Bank Transfer"
+
+    def _normalize_bank_name(self, bank_name: str) -> str:
+        """Normalize bank names to show user-friendly versions"""
+        if not bank_name or not bank_name.strip():
+            return bank_name
+            
+        bank_name = bank_name.strip()
+        
+        # Define bank name mappings for cleaner display
+        bank_mappings = {
+            # OPay variations
+            "opay digital services limited (opay)": "OPay",
+            "opay digital services limited": "OPay", 
+            "opay digital services": "OPay",
+            "opay (opay digital services limited)": "OPay",
+            
+            # Moniepoint variations
+            "moniepoint microfinance bank": "Moniepoint",
+            "moniepoint mfb": "Moniepoint",
+            "moniepoint inc": "Moniepoint",
+            
+            # PalmPay variations
+            "palmpay limited": "PalmPay",
+            "palmpay": "PalmPay",
+            
+            # Kuda variations
+            "kuda microfinance bank": "Kuda Bank",
+            "kuda mfb": "Kuda Bank",
+            
+            # Major banks
+            "guaranty trust bank plc": "GTBank",
+            "access bank plc": "Access Bank",
+            "united bank for africa plc": "UBA",
+            "first bank of nigeria limited": "First Bank",
+            "zenith bank plc": "Zenith Bank",
+            "union bank of nigeria plc": "Union Bank",
+            "sterling bank plc": "Sterling Bank",
+            "fidelity bank plc": "Fidelity Bank",
+            "first city monument bank limited": "FCMB",
+            "ecobank nigeria limited": "Ecobank",
+            "wema bank plc": "Wema Bank",
+            "stanbic ibtc bank plc": "Stanbic IBTC",
+            
+            # Other fintech
+            "carbon": "Carbon",
+            "fairmoney microfinance bank": "FairMoney",
+            "vfd microfinance bank": "VFD Bank",
+            "providus bank limited": "Providus Bank",
+        }
+        
+        # Check for exact match (case insensitive)
+        bank_lower = bank_name.lower()
+        if bank_lower in bank_mappings:
+            return bank_mappings[bank_lower]
+        
+        # Check for partial matches and clean up
+        for full_name, clean_name in bank_mappings.items():
+            if full_name in bank_lower or bank_lower in full_name:
+                return clean_name
+        
+        # Generic cleanup for unmatched banks
+        # Remove common suffixes and cleanup
+        cleaned = bank_name
+        
+        # Remove common bank suffixes
+        suffixes_to_remove = [
+            " plc", " limited", " ltd", " inc", " microfinance bank", 
+            " mfb", " bank", " nigeria", " digital services"
+        ]
+        
+        for suffix in suffixes_to_remove:
+            if cleaned.lower().endswith(suffix):
+                cleaned = cleaned[:-len(suffix)].strip()
+        
+        # Remove parenthetical duplicates like "Bank Name (Bank)"
+        import re
+        # Remove patterns like "(something)" at the end
+        cleaned = re.sub(r'\s*\([^)]+\)$', '', cleaned)
+        
+        # Capitalize properly
+        cleaned = ' '.join(word.capitalize() for word in cleaned.split())
+        
+        return cleaned if cleaned else bank_name
 
     def _extract_sender_bank(self, data: Dict) -> str:
         """Extract sender bank from payment data with fallbacks"""
@@ -319,10 +413,12 @@ class PaystackWebhookHandler:
                 auth.get("bank_name")
             ])
         
-        # Find first valid bank
+        # Find first valid bank and normalize it
         for bank in potential_banks:
             if bank and bank.strip() and bank.lower() not in ["none", "unknown", "", "null"]:
-                return bank.strip()
+                # Normalize the bank name for better display
+                normalized_bank = self._normalize_bank_name(bank.strip())
+                return normalized_bank
         
         # Fallback: Try to extract from narration or description
         possible_narration = data.get("narration") or data.get("description") or ""
@@ -338,7 +434,9 @@ class PaystackWebhookHandler:
             if match:
                 bank = match.group(1).strip()
                 if len(bank) > 2:  # Reasonable bank name length
-                    return bank
+                    # Normalize the extracted bank name
+                    normalized_bank = self._normalize_bank_name(bank)
+                    return normalized_bank
         
         return "Paystack"  # Final fallback
     
@@ -461,9 +559,10 @@ class PaystackWebhookHandler:
             # Enhanced message with better sender info and clearer fallbacks
             if sender_name and sender_name not in ["Unknown", "Bank Transfer"]:
                 if sender_bank and sender_bank not in ["Unknown Bank", "Paystack"]:
-                    sender_info = f"💸 *From:* {sender_name} ({sender_bank})"
+                    # Better formatting: Emphasize sender name, show bank as secondary info
+                    sender_info = f"💸 *From:* **{sender_name}**\n🏦 *via* {sender_bank}"
                 else:
-                    sender_info = f"💸 *From:* {sender_name}"
+                    sender_info = f"💸 *From:* **{sender_name}**"
             else:
                 # When we can't identify the real sender, be more honest about it
                 if sender_bank and sender_bank not in ["Unknown Bank", "Paystack"]:
