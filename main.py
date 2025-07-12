@@ -147,7 +147,7 @@ Nigerian context:
 """
         
         response = openai_client.chat.completions.create(
-            model="gpt-3.5-turbo",  # Use faster, cheaper model for intent detection
+            model="gpt-4o-mini",  # Switch to available model that works with current quota
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": f"Message: {enhanced_message}"}
@@ -331,9 +331,41 @@ Let's get started! 🚀"""
         else:
             # Use AI assistant for complex queries
             assistant = get_assistant()
-            response = assistant.process_message(chat_id, text)
-            send_telegram_message(chat_id, response)
-            return jsonify({'status': 'ai_response_sent'})
+            
+            # Fix async/await issue - properly await the coroutine
+            try:
+                # Create event loop if none exists
+                try:
+                    loop = asyncio.get_event_loop()
+                except RuntimeError:
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                
+                # Properly await the async function
+                if loop.is_running():
+                    # If loop is already running, use asyncio.run_coroutine_threadsafe
+                    import concurrent.futures
+                    with concurrent.futures.ThreadPoolExecutor() as executor:
+                        future = executor.submit(asyncio.run, assistant.process_message(chat_id, text))
+                        response = future.result()
+                else:
+                    # If no loop is running, use asyncio.run
+                    response = asyncio.run(assistant.process_message(chat_id, text))
+                
+                # Handle tuple response (response, function_data)
+                if isinstance(response, tuple):
+                    response_text = response[0]
+                else:
+                    response_text = response
+                    
+                send_telegram_message(chat_id, response_text)
+                return jsonify({'status': 'ai_response_sent'})
+                
+            except Exception as async_error:
+                logger.error(f"Async processing error: {async_error}")
+                # Fallback to simple response
+                send_telegram_message(chat_id, "I'm processing your request. Please wait a moment! 🤖")
+                return jsonify({'status': 'fallback_sent'})
     
     except Exception as e:
         logger.error(f"Error processing message: {e}")
@@ -389,6 +421,67 @@ def process_callback_query(callback_query):
     except Exception as e:
         logger.error(f"Callback error: {e}")
         return jsonify({'status': 'callback_error'})
+
+@memory_efficient
+def send_reply(chat_id, message, reply_markup=None):
+    """Send reply message to user (alias for send_telegram_message)"""
+    return send_telegram_message(chat_id, message, reply_markup=reply_markup)
+
+# Security middleware to block attacks
+@app.before_request
+def security_middleware():
+    """Block malicious requests and WordPress vulnerability scans"""
+    path = request.path.lower()
+    user_agent = request.headers.get('User-Agent', '').lower()
+    
+    # Block WordPress vulnerability scanning attempts
+    wordpress_patterns = [
+        'wp-includes', 'wp-admin', 'wp-content', 'wp-config',
+        'xmlrpc.php', 'wlwmanifest.xml', 'wordpress', 
+        '/blog/', '/wp/', '/web/', '/news/', '/shop/',
+        '/test/', '/website/', '/wp1/'
+    ]
+    
+    # Block common attack patterns
+    attack_patterns = [
+        'eval(', 'base64_decode', 'shell_exec', 'system(',
+        'phpinfo', 'etc/passwd', '../', '.env', 'config.php',
+        'admin/config', 'backup.sql', '.git/', '.htaccess'
+    ]
+    
+    # Check for WordPress attacks
+    for pattern in wordpress_patterns:
+        if pattern in path:
+            logger.warning(f"🚫 Blocked WordPress attack: {request.remote_addr} -> {path}")
+            return jsonify({
+                'error': 'Not Found',
+                'message': 'This is not a WordPress site. This is Sofi AI - Smart Banking Assistant.',
+                'status': 404
+            }), 404
+    
+    # Check for other attack patterns
+    for pattern in attack_patterns:
+        if pattern in path or pattern in request.args.get('q', ''):
+            logger.warning(f"🚫 Blocked attack attempt: {request.remote_addr} -> {path}")
+            return jsonify({
+                'error': 'Forbidden',
+                'message': 'Malicious request detected',
+                'status': 403
+            }), 403
+    
+    # Block suspicious user agents
+    suspicious_agents = [
+        'sqlmap', 'nikto', 'nmap', 'masscan', 'zap',
+        'burp', 'dirbuster', 'gobuster', 'wpscan'
+    ]
+    
+    for agent in suspicious_agents:
+        if agent in user_agent:
+            logger.warning(f"🚫 Blocked suspicious user agent: {request.remote_addr}")
+            return jsonify({
+                'error': 'Forbidden', 
+                'status': 403
+            }), 403
 
 # Periodic memory monitoring
 @app.before_request
