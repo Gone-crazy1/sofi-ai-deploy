@@ -167,7 +167,7 @@ Nigerian context:
 """
             
             response = openai_client.chat.completions.create(
-                model="gpt-3.5-turbo",  # Switch back to reliable model that works
+                model="chatgpt-4o-latest",  # Use the latest ChatGPT-4o model
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": f"Message: {enhanced_message}"}
