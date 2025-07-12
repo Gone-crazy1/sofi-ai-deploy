@@ -86,9 +86,28 @@ TELEGRAM_CHAT_ID = os.getenv("ADMIN_TELEGRAM_CHAT_ID")
 BASE_URL = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
 
 @memory_efficient
-def send_telegram_message(chat_id, message, parse_mode="Markdown", reply_markup=None):
-    """Memory-efficient Telegram message sending"""
+def send_telegram_message(chat_id, message, parse_mode="HTML", reply_markup=None):
+    """Memory-efficient Telegram message sending with HTML parsing for safety"""
     try:
+        # Clean up message to prevent HTML parsing errors
+        if parse_mode == "HTML":
+            # Fix markdown to HTML conversion
+            import re
+            
+            # Convert **bold** to <b>bold</b>
+            message = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', message)
+            
+            # Convert *italic* to <i>italic</i>
+            message = re.sub(r'\*(.*?)\*', r'<i>\1</i>', message)
+            
+            # Escape any remaining problematic characters
+            message = message.replace('&', '&amp;')
+            message = message.replace('<', '&lt;').replace('>', '&gt;')
+            
+            # Restore our HTML tags
+            message = message.replace('&lt;b&gt;', '<b>').replace('&lt;/b&gt;', '</b>')
+            message = message.replace('&lt;i&gt;', '<i>').replace('&lt;/i&gt;', '</i>')
+        
         url = f"{BASE_URL}/sendMessage"
         data = {
             'chat_id': chat_id,
@@ -113,7 +132,7 @@ def send_telegram_message(chat_id, message, parse_mode="Markdown", reply_markup=
 
 @memory_efficient
 def detect_intent(message):
-    """Memory-efficient intent detection with caching"""
+    """Memory-efficient intent detection with OpenAI fallback and local backup"""
     try:
         # Check cache first
         cache_key = f"intent_{hash(message)}"
@@ -127,11 +146,12 @@ def detect_intent(message):
         enhanced_analysis = enhance_nigerian_message(message)
         enhanced_message = enhanced_analysis["enhanced_message"]
         
-        # Use lightweight intent detection
-        openai_client = get_openai_client()
-        
-        # Optimized system prompt
-        system_prompt = """You are Sofi AI intent detector. Respond with JSON only:
+        # Try OpenAI first, with fallback to local detection
+        try:
+            openai_client = get_openai_client()
+            
+            # Optimized system prompt
+            system_prompt = """You are Sofi AI intent detector. Respond with JSON only:
 {
   "intent": "transfer|balance|history|help|greeting|other",
   "confidence": 0.95,
@@ -145,30 +165,102 @@ Nigerian context:
 - "check balance" = balance inquiry
 - "abeg" = please
 """
-        
-        response = openai_client.chat.completions.create(
-            model="gpt-4o-mini",  # Switch to available model that works with current quota
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"Message: {enhanced_message}"}
-            ],
-            temperature=0.1,
-            max_tokens=200  # Limit response size
-        )
-        
-        result = json.loads(response.choices[0].message.content)
-        
-        # Cache the result
-        cache_manager.set(cache_key, result)
-        
-        return result
+            
+            response = openai_client.chat.completions.create(
+                model="gpt-3.5-turbo",  # Switch back to reliable model that works
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": f"Message: {enhanced_message}"}
+                ],
+                temperature=0.1,
+                max_tokens=200  # Limit response size
+            )
+            
+            result = json.loads(response.choices[0].message.content)
+            
+            # Cache the result
+            cache_manager.set(cache_key, result)
+            return result
+            
+        except Exception as openai_error:
+            logger.warning(f"OpenAI intent detection failed: {openai_error}, using local fallback")
+            
+            # LOCAL FALLBACK INTENT DETECTION (when OpenAI fails)
+            return detect_intent_locally(message, enhanced_message)
         
     except Exception as e:
         logger.error(f"Intent detection error: {e}")
+        return detect_intent_locally(message, message)
+
+def detect_intent_locally(original_message, enhanced_message):
+    """Local intent detection when OpenAI is unavailable"""
+    message_lower = enhanced_message.lower()
+    
+    # Transfer patterns
+    transfer_keywords = ['send', 'transfer', 'pay', 'give', 'money', 'naira', '₦']
+    amount_patterns = [r'\d+k', r'₦\d+', r'\d+\s*naira', r'\d+,\d+', r'\d{3,}']
+    
+    # Balance patterns  
+    balance_keywords = ['balance', 'account', 'wallet', 'money', 'much', 'check']
+    
+    # Extract amount if present
+    import re
+    amount = 0
+    for pattern in amount_patterns:
+        match = re.search(pattern, message_lower)
+        if match:
+            amount_str = match.group()
+            # Clean and convert
+            amount_str = re.sub(r'[₦,naira\s]', '', amount_str)
+            if 'k' in amount_str:
+                amount = int(float(amount_str.replace('k', '')) * 1000)
+            else:
+                amount = int(amount_str) if amount_str.isdigit() else 0
+            break
+    
+    # Extract recipient (simple name detection)
+    recipient = ""
+    words = enhanced_message.split()
+    for i, word in enumerate(words):
+        if word.lower() in ['to', 'for'] and i + 1 < len(words):
+            # Next word might be recipient
+            next_word = words[i + 1]
+            if next_word.isalpha() and len(next_word) > 2:
+                recipient = next_word
+                break
+    
+    # Determine intent
+    if any(keyword in message_lower for keyword in transfer_keywords) and (amount > 0 or recipient):
+        return {
+            "intent": "transfer",
+            "confidence": 0.8,
+            "amount": amount,
+            "recipient": recipient,
+            "details": {"method": "local_detection"}
+        }
+    elif any(keyword in message_lower for keyword in balance_keywords):
+        return {
+            "intent": "balance", 
+            "confidence": 0.9,
+            "details": {"method": "local_detection"}
+        }
+    elif any(word in message_lower for word in ['help', 'what', 'how', 'start']):
+        return {
+            "intent": "help",
+            "confidence": 0.9,
+            "details": {"method": "local_detection"}
+        }
+    elif any(word in message_lower for word in ['hi', 'hello', 'hey', 'good']):
+        return {
+            "intent": "greeting",
+            "confidence": 0.8,
+            "details": {"method": "local_detection"}
+        }
+    else:
         return {
             "intent": "other",
-            "confidence": 0.0,
-            "details": {"error": str(e)}
+            "confidence": 0.5,
+            "details": {"method": "local_detection", "fallback": True}
         }
 
 @memory_efficient
@@ -319,7 +411,7 @@ Let's get started! 🚀"""
             send_telegram_message(chat_id, welcome_msg)
             return jsonify({'status': 'welcome_sent'})
         
-        # For complex messages, use AI assistant
+        # For complex messages, use AI assistant with fallback
         intent = detect_intent(text)
         
         if intent['intent'] == 'transfer':
@@ -329,30 +421,25 @@ Let's get started! 🚀"""
             send_telegram_message(chat_id, f"💰 Your current balance: ₦{balance:,.2f}")
             return jsonify({'status': 'balance_sent'})
         else:
-            # Use AI assistant for complex queries
-            assistant = get_assistant()
-            
-            # Fix async/await issue - properly await the coroutine
+            # Fallback system when OpenAI Assistant fails
             try:
-                # Create event loop if none exists
+                assistant = get_assistant()
+                
+                # Try to process with assistant
                 try:
                     loop = asyncio.get_event_loop()
                 except RuntimeError:
                     loop = asyncio.new_event_loop()
                     asyncio.set_event_loop(loop)
                 
-                # Properly await the async function
                 if loop.is_running():
-                    # If loop is already running, use asyncio.run_coroutine_threadsafe
                     import concurrent.futures
                     with concurrent.futures.ThreadPoolExecutor() as executor:
                         future = executor.submit(asyncio.run, assistant.process_message(chat_id, text))
                         response = future.result()
                 else:
-                    # If no loop is running, use asyncio.run
                     response = asyncio.run(assistant.process_message(chat_id, text))
                 
-                # Handle tuple response (response, function_data)
                 if isinstance(response, tuple):
                     response_text = response[0]
                 else:
@@ -361,11 +448,52 @@ Let's get started! 🚀"""
                 send_telegram_message(chat_id, response_text)
                 return jsonify({'status': 'ai_response_sent'})
                 
-            except Exception as async_error:
-                logger.error(f"Async processing error: {async_error}")
-                # Fallback to simple response
-                send_telegram_message(chat_id, "I'm processing your request. Please wait a moment! 🤖")
-                return jsonify({'status': 'fallback_sent'})
+            except Exception as assistant_error:
+                logger.error(f"Assistant error: {assistant_error}")
+                
+                # CRITICAL FALLBACK - Basic banking responses when AI fails
+                text_lower = text.lower()
+                
+                if any(word in text_lower for word in ['transfer', 'send', 'money', 'pay']):
+                    fallback_msg = """💸 <b>Money Transfer</b>
+                    
+I can help you transfer money! Please tell me:
+1. Amount (e.g., ₦5000)
+2. Recipient name or account details
+
+Example: "Send ₦5000 to John" or "Transfer ₦10000 to 1234567890"
+
+<i>Need help? Type 'help' for more options</i> 🚀"""
+                    
+                elif any(word in text_lower for word in ['balance', 'account', 'wallet']):
+                    balance = get_user_balance(chat_id)
+                    fallback_msg = f"💰 <b>Account Balance</b>\n\nYour current balance: <b>₦{balance:,.2f}</b>\n\n<i>Type 'transfer' to send money</i> 💸"
+                    
+                elif any(word in text_lower for word in ['help', 'what', 'how']):
+                    fallback_msg = """🤖 <b>Sofi AI Banking Assistant</b>
+
+I can help you with:
+• 💸 <b>Send Money</b> - "Send ₦5000 to John"
+• 💰 <b>Check Balance</b> - "What's my balance?"
+• 📊 <b>Transaction History</b> - "Show transactions"
+• 🔄 <b>Account Info</b> - "Account details"
+
+Just type naturally! I understand Nigerian expressions too 🇳🇬"""
+                    
+                else:
+                    fallback_msg = """👋 I'm Sofi AI, your banking assistant!
+
+I can help you:
+• Transfer money to friends & family 💸
+• Check your account balance 💰
+• View transaction history 📊
+
+<b>Try saying:</b> "Send ₦5000 to John" or "Check my balance"
+
+<i>I'm currently experiencing some technical issues but basic functions work!</i> 🔧"""
+                
+                send_telegram_message(chat_id, fallback_msg)
+                return jsonify({'status': 'fallback_response_sent'})
     
     except Exception as e:
         logger.error(f"Error processing message: {e}")
