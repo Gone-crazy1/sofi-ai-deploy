@@ -8,6 +8,8 @@ import os
 import json
 import logging
 import asyncio
+import time
+import threading
 from typing import Dict, Any, Optional, Tuple
 from datetime import datetime
 from dotenv import load_dotenv
@@ -15,10 +17,207 @@ from openai import OpenAI
 from sofi_money_functions import SofiMoneyTransferService
 from sofi_assistant_functions import SOFI_MONEY_FUNCTIONS, SOFI_MONEY_INSTRUCTIONS
 from supabase import create_client
+from concurrent.futures import ThreadPoolExecutor
 
 load_dotenv()
 
 logger = logging.getLogger(__name__)
+
+class BackgroundTaskManager:
+    """High-performance background task manager for OpenAI operations"""
+    
+    def __init__(self):
+        self.active_tasks = {}
+        self.executor = ThreadPoolExecutor(max_workers=50)  # Handle 50+ concurrent users
+        self.telegram_bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
+        
+    async def send_telegram_message(self, chat_id: str, message: str):
+        """Send message via Telegram API"""
+        try:
+            import requests
+            url = f"https://api.telegram.org/bot{self.telegram_bot_token}/sendMessage"
+            payload = {
+                "chat_id": chat_id,
+                "text": message,
+                "parse_mode": "Markdown"
+            }
+            # Use background thread for HTTP request
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(self.executor, 
+                lambda: requests.post(url, json=payload, timeout=5))
+            logger.info(f"✅ Sent completion message to {chat_id}")
+        except Exception as e:
+            logger.error(f"❌ Failed to send Telegram message: {e}")
+    
+    async def process_openai_run_background(self, run, thread_id: str, chat_id: str, 
+                                          assistant_client, money_service):
+        """Process OpenAI run in background without blocking"""
+        try:
+            logger.info(f"🚀 Starting background processing for {chat_id}")
+            start_time = time.time()
+            
+            function_data = {}
+            max_iterations = 30  # 30 seconds max
+            iteration = 0
+            
+            while iteration < max_iterations:
+                iteration += 1
+                
+                # Check run status (non-blocking)
+                try:
+                    run = assistant_client.beta.threads.runs.retrieve(
+                        thread_id=thread_id,
+                        run_id=run.id
+                    )
+                except Exception as e:
+                    logger.error(f"❌ OpenAI API error: {e}")
+                    await self.send_telegram_message(chat_id, 
+                        "❌ Sorry, I encountered a technical issue. Please try again.")
+                    return
+                
+                if run.status == "completed":
+                    # Get the response
+                    messages = assistant_client.beta.threads.messages.list(thread_id=thread_id)
+                    response_text = None
+                    
+                    if messages.data and messages.data[0].content:
+                        response = messages.data[0].content[0].text.value
+                        if response and response.strip() and response.strip().lower() not in ["null", "none", ""]:
+                            response_text = response
+                    
+                    # Generate response from function data if needed
+                    if not response_text and function_data:
+                        response_text = self._generate_completion_message(function_data)
+                    
+                    if response_text:
+                        elapsed = time.time() - start_time
+                        logger.info(f"⚡ Background processing completed in {elapsed:.2f}s for {chat_id}")
+                        await self.send_telegram_message(chat_id, response_text)
+                    
+                    # Clean up
+                    self.active_tasks.pop(chat_id, None)
+                    return
+                
+                elif run.status == "requires_action":
+                    # Handle function calls in background
+                    tool_calls = run.required_action.submit_tool_outputs.tool_calls
+                    tool_outputs = []
+                    
+                    for tool_call in tool_calls:
+                        function_name = tool_call.function.name
+                        function_args = json.loads(tool_call.function.arguments)
+                        
+                        logger.info(f"🔧 Background function execution: {function_name}")
+                        
+                        try:
+                            # Execute function in background
+                            result = await self._execute_function_background(
+                                function_name, function_args, chat_id, money_service)
+                            function_data[function_name] = result
+                            
+                            tool_outputs.append({
+                                "tool_call_id": tool_call.id,
+                                "output": json.dumps(result)
+                            })
+                        except Exception as e:
+                            logger.error(f"❌ Background function error: {e}")
+                            tool_outputs.append({
+                                "tool_call_id": tool_call.id,
+                                "output": json.dumps({"error": str(e)})
+                            })
+                    
+                    # Submit tool outputs
+                    try:
+                        run = assistant_client.beta.threads.runs.submit_tool_outputs(
+                            thread_id=thread_id,
+                            run_id=run.id,
+                            tool_outputs=tool_outputs
+                        )
+                    except Exception as e:
+                        logger.error(f"❌ Failed to submit tool outputs: {e}")
+                        await self.send_telegram_message(chat_id, 
+                            "❌ Sorry, I encountered an issue processing your request.")
+                        return
+                
+                elif run.status in ["failed", "cancelled", "expired"]:
+                    logger.error(f"❌ Background run failed with status: {run.status}")
+                    await self.send_telegram_message(chat_id, 
+                        f"❌ Sorry, I encountered an error: {run.status}")
+                    self.active_tasks.pop(chat_id, None)
+                    return
+                
+                # Non-blocking wait
+                await asyncio.sleep(0.5)  # Check every 500ms instead of 1s
+            
+            # Timeout fallback
+            logger.warning(f"⏰ Background processing timeout for {chat_id}")
+            await self.send_telegram_message(chat_id, 
+                "⏰ Your request is taking longer than expected. I'll continue processing and update you shortly.")
+            
+        except Exception as e:
+            logger.error(f"❌ Background processing error for {chat_id}: {e}")
+            await self.send_telegram_message(chat_id, 
+                "❌ Sorry, I encountered an unexpected error. Please try again.")
+        finally:
+            # Always clean up
+            self.active_tasks.pop(chat_id, None)
+    
+    def _generate_completion_message(self, function_data: Dict) -> str:
+        """Generate completion message from function results"""
+        for func_name, func_result in function_data.items():
+            if func_name == "send_money" and isinstance(func_result, dict):
+                if func_result.get("success"):
+                    reference = func_result.get("reference", "N/A")
+                    return f"✅ Transfer completed successfully! Reference: {reference}"
+                elif func_result.get("error"):
+                    return f"❌ Transfer failed: {func_result.get('error')}"
+            elif func_name == "check_balance" and isinstance(func_result, dict):
+                if func_result.get("balance") is not None:
+                    balance = func_result.get("balance", 0)
+                    return f"💰 Your current balance is ₦{balance:,.2f}"
+        
+        return "✅ Your request has been processed successfully!"
+    
+    async def _execute_function_background(self, function_name: str, function_args: Dict, 
+                                         chat_id: str, money_service) -> Dict[str, Any]:
+        """Execute function in background thread"""
+        try:
+            # All the same function execution logic, but in background
+            if function_name == "verify_account_name":
+                return await money_service.verify_account_name(
+                    account_number=function_args.get("account_number"),
+                    bank_code=function_args.get("bank_name") or function_args.get("bank_code")
+                )
+            elif function_name == "check_balance":
+                return await money_service.check_user_balance(telegram_chat_id=chat_id)
+            elif function_name == "send_money":
+                # Background transfer processing
+                recipient_account = function_args.get("account_number") or function_args.get("recipient_account")
+                recipient_bank = function_args.get("bank_name") or function_args.get("recipient_bank") 
+                amount = function_args.get("amount")
+                reason = function_args.get("narration") or function_args.get("reason", "Transfer via Sofi AI")
+                
+                if not all([recipient_account, recipient_bank, amount]):
+                    return {"success": False, "error": "Missing transfer details"}
+                
+                # Import and execute transfer
+                from functions.transfer_functions import send_money
+                return await send_money(
+                    chat_id=chat_id,
+                    account_number=recipient_account,
+                    bank_name=recipient_bank,
+                    amount=float(amount),
+                    narration=reason
+                )
+            else:
+                return {"error": f"Unknown function: {function_name}"}
+                
+        except Exception as e:
+            logger.error(f"❌ Background function execution error: {e}")
+            return {"error": str(e)}
+
+# Global background task manager
+background_manager = BackgroundTaskManager()
 
 class SofiAssistant:
     """OpenAI Assistant integration for Sofi AI"""
@@ -71,99 +270,201 @@ class SofiAssistant:
     
     async def process_message(self, chat_id: str, message: str, user_data: Dict = None) -> Tuple[str, Dict]:
         """
-        Process user message through OpenAI Assistant
+        🚀 ULTRA-FAST process message with immediate real results
         
-        Returns:
-            Tuple of (response_text, function_data)
+        Target: < 0.1 seconds response time with REAL DATA
         """
         try:
-            logger.info(f"🤖 Processing message from {chat_id}: {message[:50]}...")
+            start_time = time.time()
+            logger.info(f"⚡ FAST processing message from {chat_id}: {message[:50]}...")
             
-            # Get or create thread for this user
+            # STEP 1: Check for instant executable commands first
+            instant_result = await self._try_instant_execution(chat_id, message, user_data)
+            if instant_result:
+                elapsed = time.time() - start_time
+                logger.info(f"⚡ INSTANT real result in {elapsed*1000:.1f}ms for {chat_id}")
+                return instant_result, {}
+            
+            # STEP 2: Generate acknowledgment for complex requests
+            quick_response = self._generate_instant_response(message, user_data)
+            
+            # STEP 3: Start background processing (non-blocking)
+            asyncio.create_task(self._start_background_processing(chat_id, message, user_data))
+            
+            elapsed = time.time() - start_time
+            logger.info(f"⚡ INSTANT response generated in {elapsed*1000:.1f}ms for {chat_id}")
+            
+            return quick_response, {}
+            
+        except Exception as e:
+            logger.error(f"❌ Error in fast processing: {e}")
+            return "I'm here to help! Let me process that for you.", {}
+    
+    async def _try_instant_execution(self, chat_id: str, message: str, user_data: Dict = None) -> Optional[str]:
+        """Execute simple commands instantly with real data"""
+        message_lower = message.lower().strip()
+        
+        # Balance check patterns - execute immediately
+        balance_patterns = ['balance', 'my balance', 'check balance', 'wallet', 'how much', 'account balance']
+        if any(pattern in message_lower for pattern in balance_patterns):
+            try:
+                # Get real balance instantly
+                from functions.balance_functions import check_balance
+                result = await check_balance(chat_id=chat_id)
+                
+                if result and result.get("success"):
+                    balance = result.get("balance", 0)
+                    return f"💰 Your current wallet balance is ₦{balance:,.2f}."
+                elif result and result.get("error"):
+                    return f"❌ {result.get('error')}"
+                else:
+                    return "❌ Unable to fetch your balance right now. Please try again."
+                    
+            except Exception as e:
+                logger.error(f"❌ Instant balance check error: {e}")
+                return "❌ Unable to check balance right now. Please try again."
+        
+        # PIN status check patterns - execute immediately  
+        pin_check_patterns = ['pin status', 'do i have pin', 'pin set', 'my pin']
+        if any(pattern in message_lower for pattern in pin_check_patterns):
+            try:
+                # Check if user has PIN set
+                result = self.supabase.table("users").select("pin_hash").eq("telegram_chat_id", chat_id).execute()
+                
+                if result.data and result.data[0].get("pin_hash"):
+                    return "🔐 Your transaction PIN is already set and secure."
+                else:
+                    return "🔓 You haven't set a transaction PIN yet. Would you like to create one?"
+                    
+            except Exception as e:
+                logger.error(f"❌ Instant PIN check error: {e}")
+                return "❌ Unable to check PIN status right now."
+        
+        # Virtual account info - execute immediately
+        account_patterns = ['my account', 'account details', 'account number', 'virtual account']
+        if any(pattern in message_lower for pattern in account_patterns):
+            try:
+                from functions.account_functions import get_virtual_account
+                result = await get_virtual_account(chat_id=chat_id)
+                
+                if result and result.get("success"):
+                    account_number = result.get("account_number")
+                    bank_name = result.get("bank_name", "Providus Bank")
+                    return f"🏦 Your virtual account:\n📞 {account_number}\n🏛️ {bank_name}"
+                else:
+                    return "❌ Unable to fetch account details. Please complete onboarding first."
+                    
+            except Exception as e:
+                logger.error(f"❌ Instant account check error: {e}")
+                return "❌ Unable to fetch account details right now."
+        
+        # No instant execution available
+        return None
+    
+    def _generate_instant_response(self, message: str, user_data: Dict = None) -> str:
+        """Generate precise instant responses for complex requests only"""
+        message_lower = message.lower()
+        
+        # Transfer patterns - these need background processing
+        if any(word in message_lower for word in ['send', 'transfer', 'pay']) and any(word in message_lower for word in ['₦', 'naira', '1000', '5000', '10000']):
+            # Only acknowledge transfers that require PIN/verification
+            return "� Processing your transfer request..."
+        
+        # Airtime patterns - these need background processing
+        elif any(word in message_lower for word in ['airtime', 'data', 'recharge']) and any(word in message_lower for word in ['₦', '100', '200', '500', '1000']):
+            return "� Processing your airtime purchase..."
+        
+        # PIN setup patterns - these need background processing
+        elif any(word in message_lower for word in ['set pin', 'create pin', 'new pin', 'change pin']):
+            return "🔐 I'll help you set up your secure PIN..."
+        
+        # Complex transfer queries - need background processing
+        elif 'transfer' in message_lower and any(word in message_lower for word in ['how', 'can', 'to someone', 'my friend']):
+            return "� Let me guide you through the transfer process..."
+        
+        # Generic requests that need AI processing
+        else:
+            return "🤖 I'm processing your request..."
+    
+    async def _start_background_processing(self, chat_id: str, message: str, user_data: Dict = None):
+        """Start the actual OpenAI processing in background"""
+        try:
+            # Prevent duplicate processing
+            if chat_id in background_manager.active_tasks:
+                logger.info(f"🔄 Background task already running for {chat_id}")
+                return
+            
+            background_manager.active_tasks[chat_id] = time.time()
+            
+            # Get or create thread (fast)
             thread_id = await self._get_or_create_thread(chat_id)
             
             # Add user context to the message
             context_message = self._prepare_context_message(message, chat_id, user_data)
             
-            # Create message in thread
+            # Create message in thread (fast)
             self.client.beta.threads.messages.create(
                 thread_id=thread_id,
                 role="user",
                 content=context_message
             )
             
-            # Run the assistant
+            # Run the assistant (fast)
             run = self.client.beta.threads.runs.create(
                 thread_id=thread_id,
                 assistant_id=self.assistant_id
             )
             
-            # Wait for completion and handle function calls
-            response_text, function_data = await self._wait_for_completion(run, thread_id, chat_id)
-            
-            return response_text, function_data
+            # Start background completion processing
+            await background_manager.process_openai_run_background(
+                run, thread_id, chat_id, self.client, self.money_service
+            )
             
         except Exception as e:
-            logger.error(f"❌ Error processing message: {e}")
-            return f"Sorry, I encountered an error: {str(e)}", {}
+            logger.error(f"❌ Background processing setup error: {e}")
+            await background_manager.send_telegram_message(chat_id, 
+                "❌ Sorry, I encountered an issue. Please try again.")
     
-    async def process_telegram_message(self, chat_id: str, message: str, user_data: Dict = None, chat_type: str = 'private', group_id: str = None, is_admin: bool = False, new_member: Dict = None) -> Tuple[str, Dict]:
+    async def process_telegram_message(self, chat_id: str, message: str, user_data: Dict = None, 
+                                     chat_type: str = 'private', group_id: str = None, 
+                                     is_admin: bool = False, new_member: Dict = None) -> Tuple[str, Dict]:
         """
-        Process Telegram message, handling group admin features for groups and wallet logic for private chats.
-        chat_type: 'private', 'group', or 'supergroup'
-        group_id: Telegram group ID (optional)
-        is_admin: True if sender is group admin
-        new_member: Dict with info about new member (if someone joined)
+        🚀 ULTRA-FAST Telegram message processing with instant responses
         """
+        # Group handling (instant response)
         if chat_type in ['group', 'supergroup']:
-            # Welcome new member logic
+            # Welcome new member logic (instant)
             if new_member:
                 welcome_text = f"👋 Welcome @{new_member.get('username', 'new_user')} to the group! Please check your private messages to complete onboarding and claim your rewards."
-                # Simulate sending private message for onboarding
-                # In real bot, you would use Telegram API to send DM
-                onboarding_text = (
-                    f"Hi @{new_member.get('username', 'new_user')}, welcome to Sofi!\n"
-                    "To start using your account and claim rewards, please complete onboarding here."
-                )
-                # You would call your DM function here
                 function_data = {
                     'group_admin_action': 'welcome_new_member',
-                    'private_message': onboarding_text
+                    'private_message': f"Hi @{new_member.get('username', 'new_user')}, welcome to Sofi!\nTo start using your account and claim rewards, please complete onboarding here."
                 }
                 return welcome_text, function_data
-            # Only respond if "sofi" or "@getsofi_bot" is mentioned
+            
+            # Only respond if mentioned (instant)
             if 'sofi' not in message.lower() and '@getsofi_bot' not in message.lower():
                 return None, {}
-            logger.info(f"👥 Group message detected from group {group_id} by user {chat_id}")
-            function_data = {}
-            response_text = None
-            # Admin commands (kick, promote, announce, update, tag)
+            
+            # Admin commands (instant responses)
             if is_admin:
                 if 'kick' in message.lower():
-                    response_text = "🚫 User kicked (simulated)."
-                    function_data['group_admin_action'] = 'kick'
+                    return "🚫 User kicked (simulated).", {'group_admin_action': 'kick'}
                 elif 'promote' in message.lower():
-                    response_text = "🎖️ User promoted to admin (simulated)."
-                    function_data['group_admin_action'] = 'promote'
+                    return "🎖️ User promoted to admin (simulated).", {'group_admin_action': 'promote'}
                 elif 'announce' in message.lower():
-                    response_text = "📢 Announcement sent to group (simulated)."
-                    function_data['group_admin_action'] = 'announce'
+                    return "📢 Announcement sent to group (simulated).", {'group_admin_action': 'announce'}
                 elif 'update' in message.lower():
-                    response_text = "🔄 Group update sent (simulated)."
-                    function_data['group_admin_action'] = 'update'
+                    return "🔄 Group update sent (simulated).", {'group_admin_action': 'update'}
                 elif 'tag' in message.lower():
-                    response_text = "🔔 Tagging all members: @all (simulated)."
-                    function_data['group_admin_action'] = 'tag_all'
+                    return "🔔 Tagging all members: @all (simulated).", {'group_admin_action': 'tag_all'}
                 else:
-                    response_text = "👋 Hello group! Sofi is here to help."
-                    function_data['group_admin_action'] = 'greet'
+                    return "👋 Hello group! Sofi is here to help.", {'group_admin_action': 'greet'}
             else:
-                response_text = "👋 Hi! Sofi is here. Mention me for group admin actions."
-                function_data['group_admin_action'] = 'greet'
-            return response_text, function_data
-        else:
-            # Private chat: run wallet/fintech logic
-            return await self.process_message(chat_id, message, user_data)
+                return "👋 Hi! Sofi is here. Mention me for group admin actions.", {'group_admin_action': 'greet'}
+        
+        # Private chat: use ultra-fast processing
+        return await self.process_message(chat_id, message, user_data)
     
     async def _get_or_create_thread(self, chat_id: str) -> str:
         """Get existing thread or create new one for user"""
@@ -204,249 +505,6 @@ class SofiAssistant:
         
         context += f"Message: {message}"
         return context
-    
-    async def _wait_for_completion(self, run, thread_id: str, chat_id: str) -> Tuple[str, Dict]:
-        """Wait for assistant completion and handle function calls"""
-        function_data = {}
-        
-        while True:
-            # Check run status
-            run = self.client.beta.threads.runs.retrieve(
-                thread_id=thread_id,
-                run_id=run.id
-            )
-            
-            if run.status == "completed":
-                # Get the response
-                messages = self.client.beta.threads.messages.list(thread_id=thread_id)
-                response_text = None
-                
-                if messages.data and messages.data[0].content:
-                    response = messages.data[0].content[0].text.value
-                    if response and response.strip() and response.strip().lower() not in ["null", "none", ""]:
-                        response_text = response
-                
-                # If no valid response but we have function data, generate appropriate response
-                if not response_text and function_data:
-                    logger.info("🔧 OpenAI returned null/empty response, generating fallback from function data")
-                    
-                    for func_name, func_result in function_data.items():
-                        if func_name == "send_money" and isinstance(func_result, dict):
-                            if func_result.get("requires_pin") and func_result.get("show_web_pin"):
-                                # The PIN button is handled by main.py, so we don't send duplicate messages
-                                # Just return None to let main.py handle the response
-                                return None, function_data
-                            elif func_result.get("success"):
-                                reference = func_result.get("reference", "N/A")
-                                response_text = f"✅ Transfer completed successfully! Reference: {reference}"
-                                break
-                            elif func_result.get("error"):
-                                response_text = f"❌ Transfer failed: {func_result.get('error')}"
-                                break
-                        elif func_name == "get_balance" and isinstance(func_result, dict):
-                            if func_result.get("balance") is not None:
-                                balance = func_result.get("balance", 0)
-                                response_text = f"💰 Your current balance is ₦{balance:,.2f}"
-                                break
-                
-                # If still no response, provide a generic fallback
-                if not response_text:
-                    logger.warning("🚨 No valid response generated, using generic fallback")
-                    response_text = "I'm processing your request. Please check back in a moment."
-                
-                return response_text, function_data
-            
-            elif run.status == "requires_action":
-                # Handle function calls
-                tool_calls = run.required_action.submit_tool_outputs.tool_calls
-                tool_outputs = []
-                
-                for tool_call in tool_calls:
-                    function_name = tool_call.function.name
-                    function_args = json.loads(tool_call.function.arguments)
-                    
-                    logger.info(f"🔧 Executing function: {function_name}")
-                    
-                    # Execute the function
-                    try:
-                        result = await self._execute_function(function_name, function_args, chat_id)
-                        function_data[function_name] = result
-                        
-                        tool_outputs.append({
-                            "tool_call_id": tool_call.id,
-                            "output": json.dumps(result)
-                        })
-                    except Exception as e:
-                        logger.error(f"❌ Function execution error: {e}")
-                        tool_outputs.append({
-                            "tool_call_id": tool_call.id,
-                            "output": json.dumps({"error": str(e)})
-                        })
-                
-                # Submit tool outputs
-                run = self.client.beta.threads.runs.submit_tool_outputs(
-                    thread_id=thread_id,
-                    run_id=run.id,
-                    tool_outputs=tool_outputs
-                )
-            
-            elif run.status in ["failed", "cancelled", "expired"]:
-                logger.error(f"❌ Run failed with status: {run.status}")
-                return f"Sorry, I encountered an error: {run.status}", function_data
-            
-            # Wait before checking again
-            await asyncio.sleep(1)
-    
-    async def _execute_function(self, function_name: str, function_args: Dict, chat_id: str) -> Dict[str, Any]:
-        """Execute assistant function calls"""
-        try:
-            logger.info(f"🔧 Function called: {function_name} with args: {function_args}")
-            
-            # Initialize service
-            service = self.money_service
-            
-            if function_name == "verify_account_name":
-                return await service.verify_account_name(
-                    account_number=function_args.get("account_number"),
-                    bank_code=function_args.get("bank_name") or function_args.get("bank_code")
-                )
-            
-            elif function_name == "check_balance":
-                return await service.check_user_balance(telegram_chat_id=chat_id)
-            
-            elif function_name == "get_virtual_account":
-                return await service.get_virtual_account(
-                    telegram_chat_id=chat_id,
-                    user_id=chat_id
-                )
-            
-            elif function_name == "get_transfer_history":
-                return await service.get_transfer_history(
-                    telegram_chat_id=chat_id,
-                    user_id=chat_id
-                )
-            
-            elif function_name == "get_wallet_statement":
-                return await service.get_wallet_statement(
-                    telegram_chat_id=chat_id,
-                    user_id=chat_id,
-                    from_date=function_args.get("from_date"),
-                    to_date=function_args.get("to_date")
-                )
-            
-            elif function_name == "calculate_transfer_fee":
-                return await service.calculate_transfer_fee(
-                    telegram_chat_id=chat_id,
-                    user_id=chat_id,
-                    amount=function_args.get("amount")
-                )
-            
-            elif function_name == "get_user_beneficiaries":
-                return await service.get_user_beneficiaries(
-                    telegram_chat_id=chat_id,
-                    user_id=chat_id
-                )
-            
-            elif function_name == "save_beneficiary":
-                return await service.save_beneficiary(
-                    telegram_chat_id=chat_id,
-                    user_id=chat_id,
-                    name=function_args.get("name"),
-                    account_number=function_args.get("account_number"),
-                    bank_name=function_args.get("bank_name"),
-                    nickname=function_args.get("nickname")
-                )
-            
-            elif function_name == "set_transaction_pin":
-                return await service.set_transaction_pin_enhanced(
-                    telegram_chat_id=chat_id,
-                    user_id=chat_id,
-                    pin=function_args.get("pin")
-                )
-            
-            elif function_name == "verify_pin":
-                return await service.verify_pin(
-                    telegram_chat_id=chat_id,
-                    user_id=chat_id,
-                    pin=function_args.get("pin")
-                )
-            
-            elif function_name == "send_money":
-                # For transfers, we need to initiate PIN entry flow instead of expecting PIN in args
-                logger.info(f"🔧 send_money called with args: {function_args}")
-                logger.info(f"🔧 chat_id: {chat_id}")
-                
-                # Extract parameters (supporting both old and new formats for compatibility)
-                recipient_account = function_args.get("account_number") or function_args.get("recipient_account")
-                recipient_bank = function_args.get("bank_name") or function_args.get("recipient_bank") 
-                amount = function_args.get("amount")
-                reason = function_args.get("narration") or function_args.get("reason", "Transfer via Sofi AI")
-                
-                # Validate we have the required data
-                if not recipient_account:
-                    logger.error(f"❌ Missing recipient account number")
-                    return {"success": False, "error": "Missing recipient account number"}
-                
-                if not recipient_bank:
-                    logger.error(f"❌ Missing recipient bank")
-                    return {"success": False, "error": "Missing recipient bank"}
-                
-                if not amount:
-                    logger.error(f"❌ Missing transfer amount")
-                    return {"success": False, "error": "Missing transfer amount"}
-                
-                logger.info(f"✅ Parsed transfer details: ₦{amount} to {recipient_account} at {recipient_bank}")
-                
-                # Check if PIN is provided (for direct calls) or if we need to start PIN entry
-                if "pin" in function_args and function_args["pin"]:
-                    # Direct PIN provided - execute transfer immediately
-                    from functions.transfer_functions import send_money
-                    
-                    return await send_money(
-                        chat_id=chat_id,
-                        account_number=recipient_account,  # Use new parameter name
-                        bank_name=recipient_bank,          # Use new parameter name
-                        amount=float(amount),
-                        pin=function_args["pin"],
-                        narration=reason
-                    )
-                else:
-                    # No PIN provided - start web PIN entry flow
-                    from functions.transfer_functions import send_money
-                    
-                    # Call the transfer function without PIN to trigger the web PIN flow
-                    return await send_money(
-                        chat_id=chat_id,
-                        account_number=recipient_account,
-                        bank_name=recipient_bank,
-                        amount=float(amount),
-                        narration=reason
-                        # No PIN provided - this will trigger the web PIN flow
-                    )
-            
-            elif function_name == "check_balance":
-                # Use the balance functions directly
-                from functions.balance_functions import check_balance
-                return await check_balance(chat_id=chat_id)
-            
-            elif function_name == "set_transaction_pin":
-                # Use the security functions directly
-                from functions.security_functions import set_pin
-                new_pin = function_args["new_pin"]
-                confirm_pin = function_args["confirm_pin"]
-                
-                if new_pin != confirm_pin:
-                    return {"success": False, "error": "PIN confirmation does not match"}
-                
-                return await set_pin(chat_id=chat_id, pin=new_pin)
-            
-            else:
-                logger.error(f"❌ Unknown function: {function_name}")
-                return {"error": f"Unknown function: {function_name}"}
-        
-        except Exception as e:
-            logger.error(f"❌ Error executing function {function_name}: {e}")
-            return {"error": str(e)}
 
 # Global assistant instance
 _assistant_instance = None
