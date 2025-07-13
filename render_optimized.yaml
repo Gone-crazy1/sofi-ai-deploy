@@ -1,0 +1,50 @@
+services:
+  - type: web
+    name: sofi-ai-optimized
+    env: python
+    buildCommand: "pip install -r requirements_optimized.txt"
+    startCommand: "gunicorn main_optimized:app --bind 0.0.0.0:$PORT --timeout 120 --workers 1 --max-requests 1000 --max-requests-jitter 50 --preload"
+    plan: starter  # Render Starter Plan
+    envVars:
+      - key: FLASK_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: PYTHONPATH
+        value: "."
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      - key: PYTHONDONTWRITEBYTECODE
+        value: "1"
+      - key: WEB_CONCURRENCY
+        value: "1"
+      - key: WORKER_CONNECTIONS
+        value: "1000"
+      # Memory optimization
+      - key: MALLOC_ARENA_MAX
+        value: "2"
+      - key: MALLOC_MMAP_THRESHOLD_
+        value: "131072"
+      - key: MALLOC_TRIM_THRESHOLD_
+        value: "131072"
+      - key: MALLOC_TOP_PAD_
+        value: "131072"
+      - key: MALLOC_MMAP_MAX_
+        value: "65536"
+    healthCheckPath: "/health"
+    ports:
+      - 10000
+    # Disk usage optimization
+    buildFilter:
+      paths:
+      - "**/*.py"
+      - "requirements_optimized.txt"
+      - "render_optimized.yaml"
+      ignoredPaths:
+      - "tests/**"
+      - "**/__pycache__/**"
+      - "**/*.pyc"
+      - ".git/**"
+      - "venv/**"
+      - "logs/**"
+      - "*.md"

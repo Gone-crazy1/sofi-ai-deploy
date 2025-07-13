@@ -1,0 +1,2 @@
+# System packages required for Sofi AI deployment
+ffmpeg

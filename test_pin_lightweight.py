@@ -56,7 +56,7 @@ try:
         "Receipt container": "receipt-container" in success_content,
         "Fast close (2 seconds)": "countdown = 2" in success_content,
         "Success animation": "bounceIn" in success_content or "slideUp" in success_content,
-        "Telegram link": "t.me/SofiAIBot" in success_content,
+        "Telegram link": "t.me/getsofi_bot" in success_content,
         "Receipt data display": "receipt_data" in success_content
     }
     
