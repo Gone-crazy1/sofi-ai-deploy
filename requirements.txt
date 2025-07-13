@@ -8,10 +8,6 @@ wtforms
 werkzeug
 gunicorn>=23.0.0
 
-# Async support
-asyncio-context>=1.1
-aiohttp>=3.8.0
-
 # Database and storage
 supabase>=2.15.2
 storage3>=0.11.3
