@@ -226,9 +226,6 @@ class PaystackWebhookHandler:
         
         # Try ALL possible fields for the REAL sender name (not virtual account names)
         potential_names = [
-            # 🔥 PRIORITY FIX: Move authorization.sender_name to TOP of list
-            data.get("authorization", {}).get("sender_name") if isinstance(data.get("authorization"), dict) else None,
-            
             # Primary sender fields (most likely to have real sender)
             data.get("real_sender_name"),  # Custom field for real sender
             data.get("originator_name"),   # Bank originator
@@ -249,16 +246,16 @@ class PaystackWebhookHandler:
             data.get("fees_breakdown", {}).get("sender_name") if isinstance(data.get("fees_breakdown"), dict) else None,
         ]
         
-        # Try customer object fields (these might have real sender info) - MOVE TO LOWER PRIORITY
+        # Try customer object fields (these might have real sender info)
         if isinstance(customer, dict):
             potential_names.extend([
                 customer.get("name"),
                 customer.get("account_name"),
+                (customer.get("first_name", "") + " " + customer.get("last_name", "")).strip() if customer.get("first_name") or customer.get("last_name") else None,
+                customer.get("email"),
+                # ✅ Additional customer fields
                 customer.get("customer_name"),
                 customer.get("full_name"),
-                customer.get("email"),
-                # Move customer.first_name + last_name to BOTTOM as fallback
-                (customer.get("first_name", "") + " " + customer.get("last_name", "")).strip() if customer.get("first_name") or customer.get("last_name") else None,
             ])
         
         # Try authorization fields (for bank transfers - often has real sender)
@@ -601,6 +598,7 @@ class PaystackWebhookHandler:
         """Send beautiful, friendly credit notification to user via Telegram"""
         try:
             from main import send_reply  # Import from main app
+            from functions.transfer_functions import BANK_CODE_TO_NAME  # Import bank mapping
             
             # Get user's first name for personalization
             user_name = "there"  # Default greeting
@@ -613,17 +611,20 @@ class PaystackWebhookHandler:
             except Exception as e:
                 logger.warning(f"Could not get user name: {e}")
             
+            # Convert bank code to user-friendly name for better UX
+            display_bank = BANK_CODE_TO_NAME.get(sender_bank, sender_bank)
+            
             # Enhanced message with better sender info and clearer fallbacks
             if sender_name and sender_name not in ["Unknown", "Bank Transfer"]:
-                if sender_bank and sender_bank not in ["Unknown Bank", "Paystack"]:
+                if display_bank and display_bank not in ["Unknown Bank", "Paystack"]:
                     # Better formatting: Emphasize sender name, show bank as secondary info
-                    sender_info = f"💸 *From:* **{sender_name}**\n🏦 *via* {sender_bank}"
+                    sender_info = f"💸 *From:* **{sender_name}**\n🏦 *via* {display_bank}"
                 else:
                     sender_info = f"💸 *From:* **{sender_name}**"
             else:
                 # When we can't identify the real sender, be more honest about it
-                if sender_bank and sender_bank not in ["Unknown Bank", "Paystack"]:
-                    sender_info = f"💸 *From:* Bank Transfer via {sender_bank}"
+                if display_bank and display_bank not in ["Unknown Bank", "Paystack"]:
+                    sender_info = f"💸 *From:* Bank Transfer via {display_bank}"
                 else:
                     sender_info = "💸 *From:* Bank Transfer"
             

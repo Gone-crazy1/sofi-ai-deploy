@@ -34,6 +34,7 @@ from utils.security_config import get_security_config, TELEGRAM_SECURITY
 
 # 🔒 SECURITY ENDPOINTS
 from utils.security_endpoints import init_security_endpoints
+from functions.transfer_functions import BANK_CODE_TO_NAME
 
 # Load environment variables from .env file
 load_dotenv()
@@ -770,11 +771,15 @@ Is this correct? Reply 'yes' to continue or 'no' to cancel."""
             })
             
             # Create secure PIN verification message with inline keyboard
+            # Convert bank code to user-friendly name
+            bank_code = transfer['bank']
+            bank_name = BANK_CODE_TO_NAME.get(bank_code, bank_code)
+            
             msg = (
                 f"✅ *Account verified!*\n"
                 f"Click the button below to complete transfer of ₦{amount:,.2f} to:\n\n"
                 f"👤 *{transfer['recipient_name']}*\n"
-                f"🏦 *{transfer['bank']}* ({transfer['account_number']})\n\n"
+                f"🏦 *{bank_name}* ({transfer['account_number']})\n\n"
                 f"🔐 *Secure PIN verification required*"
             )
             
@@ -960,21 +965,9 @@ async def handle_message(chat_id: str, message: str, user_data: dict = None, vir
                         
                         # Only web PIN is supported now - inline PIN system removed
                     
-                                        # Check if any function returned a successful transfer with balance message
-                    if isinstance(func_result, dict) and func_result.get("success") and func_result.get("balance_message"):
-                        logger.info(f"💰 Function {func_name} completed transfer - sending balance message")
-                        
-                        # Send the main transfer completion message
-                        transfer_message = func_result.get("message", "Transfer completed successfully!")
-                        send_reply(chat_id, transfer_message)
-                        
-                        # Send the automatic balance message immediately after
-                        balance_message = func_result.get("balance_message")
-                        send_reply(chat_id, balance_message)
-                        
-                        # Return special marker to prevent duplicate message sending
-                        return "BALANCE_MESSAGE_SENT"
-                    
+                    # Check if any function returned a successful transfer with auto receipt
+                    if isinstance(func_result, dict) and func_result.get("auto_send_receipt") and func_result.get("success"):
+                        logger.info(f"📧 Function {func_name} completed transfer - auto-sending receipt")
                         
                         # Generate and send beautiful HTML receipt
                         receipt_data = func_result.get("receipt_data", {})
@@ -1463,7 +1456,7 @@ async def webhook_incoming():
                 ai_response = await handle_message(chat_id, user_message, user_resp.data[0] if user_resp.data else None, virtual_account)
                 
                 # Only send reply if it's not a PIN requirement (PIN messages are already sent in handle_message)
-                if ai_response and not ai_response.startswith("PIN_ALREADY_SENT") and not ai_response.startswith("BALANCE_MESSAGE_SENT"):
+                if ai_response and not ai_response.startswith("PIN_ALREADY_SENT"):
                     send_reply(chat_id, ai_response)
             except Exception as e:
                 logger.error(f"Error in AI reply: {str(e)}")

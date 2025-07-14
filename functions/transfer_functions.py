@@ -47,132 +47,84 @@ async def send_money(chat_id: str, amount: float, narration: str = None, pin: st
         
         logger.info(f"💸 Processing Paystack transfer from {chat_id}: ₦{amount} to {recipient_account} at {recipient_bank}")
         
-        # Official Paystack bank codes (updated from API)
-        bank_name_to_code = {
-            # Major Commercial Banks
-            "access bank": "044",
-            "access bank plc": "044",
-            "access bank (diamond)": "063",
-            "citibank": "023",
-            "citibank nigeria": "023",
-            "ecobank": "050",
-            "ecobank nigeria": "050",
-            "fidelity bank": "070",
-            "fidelity bank plc": "070",
-            "first bank": "011",
-            "first bank of nigeria": "011",
-            "first bank nigeria": "011",
-            "fcmb": "214",
-            "first city monument bank": "214",
-            "gtbank": "058",
-            "gtb": "058",
-            "guaranty trust bank": "058",
-            "heritage bank": "030",
-            "heritage banking company": "030",
-            "keystone bank": "082",
-            "polaris bank": "076",
-            "polaris bank limited": "076",
-            "stanbic ibtc": "221",
-            "stanbic ibtc bank": "221",
-            "sterling bank": "232",
-            "sterling bank plc": "232",
-            "uba": "033",
-            "united bank for africa": "033",
-            "union bank": "032",
-            "union bank of nigeria": "032",
-            "unity bank": "215",
-            "unity bank plc": "215",
-            "wema bank": "035",
-            "wema bank plc": "035",
-            "alat by wema": "035A",
-            "alat": "035A",
-            "zenith bank": "057",
-            "zenith bank plc": "057",
-            
-            # Digital/Fintech Banks (verified from Paystack API)
-            "opay": "999992",  # ✅ CORRECT CODE
-            "opay digital services": "999992",
-            "moniepoint": "50515",  # ✅ CORRECT CODE
-            "moniepoint mfb": "50515",
-            "monie point": "50515",
-            "moniepoint bank": "50515",
-            "moniepoint microfinance bank": "50515",
-            "moniepont": "50515",  # common typo
-            "moniepiont": "50515",  # common typo
-            "palmpay": "999991",  # ✅ FIXED: Was 999992, now correct 999991
-            "palmpay limited": "999991",
-            "kuda": "50211",
-            "kuda bank": "50211",
-            "kuda microfinance bank": "50211",
-            "carbon": "565",
-            "carbon microfinance bank": "565",
-            "fairmoney": "51318",
-            "fairmoney microfinance bank": "51318",
-            "gomoney": "100022",
-            "gomoney nigeria": "100022",
-            "vfd": "566",
-            "vfd microfinance bank": "566",
-            "rubies": "125",
-            "rubies microfinance bank": "125",
-            "sparkle": "51310",
-            "sparkle microfinance bank": "51310",
-            "mint": "50304",
-            "mint fintech": "50304",
-            "eyowo": "50126",
-            "eyowo microfinance bank": "50126",
-            "aella mfb": "50315",
-            "buypower mfb": "50645",
-            "9mobile 9payment service bank": "120001",
-            "airtel smartcash psb": "120004",
-            
-            # More Microfinance Banks (from Paystack API)
-            "ab microfinance bank": "51204",
-            "above only mfb": "51204",
-            "accion microfinance bank": "602",
-            "aku microfinance bank": "51336",
-            "amju unique mfb": "50926",
-            "aramoko mfb": "50083",
-            "assets microfinance bank": "50092",
-            "bainescredit mfb": "51229",
-            "banc corp microfinance bank": "50117",
-            "baobab microfinance bank": "MFB50992",
-            "bellbank microfinance bank": "51100",
-            "beststar microfinance bank": "50123",
-            "bowen microfinance bank": "50931",
-            "cemcs microfinance bank": "50823",
-            "consumer microfinance bank": "50910",
-            "corestep mfb": "50204",
-            
-            # Specialized Banks
-            "jaiz bank": "301",
-            "jaiz bank plc": "301",
-            "providus bank": "101",
-            "providus bank limited": "101",
-            "suntrust bank": "100",
-            "suntrust bank nigeria": "100",
-            "taj bank": "302",
-            "taj bank limited": "302",
-            "lotus bank": "303",
-            "lotus bank nigeria": "303",
-            "coronation bank": "559",
-            "coronation merchant bank": "559",
-            "alpha morgan bank": "108",
-            
-            # Mortgage Banks
-            "ag mortgage bank": "90077",
-            "abbey mortgage bank": "404",
-            "aso savings and loans": "401",
-            
-            # Development Finance Institutions
-            "nexim bank": "304",
-            "nigeria export import bank": "304",
-            "federal mortgage bank": "413",
-            "fmbn": "413",
-            "bank of industry": "070",
-            "boi": "070",
-            "bank of agriculture": "044",
-            "boa": "044"
-        }
+# Bank code to name mapping for user-friendly display
+BANK_CODE_TO_NAME = {
+    # Major Commercial Banks
+    "044": "Access Bank",
+    "063": "Access Bank (Diamond)",
+    "023": "Citibank",
+    "050": "Ecobank",
+    "070": "Fidelity Bank",
+    "011": "First Bank",
+    "214": "FCMB",
+    "058": "GTBank",
+    "030": "Heritage Bank",
+    "082": "Keystone Bank",
+    "076": "Polaris Bank",
+    "221": "Stanbic IBTC",
+    "232": "Sterling Bank",
+    "033": "UBA",
+    "032": "Union Bank",
+    "215": "Unity Bank",
+    "035": "Wema Bank",
+    "035A": "Alat by Wema",
+    "057": "Zenith Bank",
+    
+    # Digital/Fintech Banks
+    "999992": "OPay",
+    "50515": "Moniepoint",
+    "999991": "PalmPay",
+    "50211": "Kuda Bank",
+    "565": "Carbon",
+    "51318": "FairMoney",
+    "100022": "GoMoney",
+    "566": "VFD",
+    "125": "Rubies Bank",
+    "51310": "Sparkle",
+    "50304": "Mint",
+    "50126": "Eyowo",
+    "50315": "Aella MFB",
+    "50645": "BuyPower MFB",
+    "120001": "9PSB",  # 9mobile 9Payment Service Bank
+    "120004": "Airtel SmartCash PSB",
+    
+    # More Microfinance Banks
+    "51204": "AB Microfinance Bank",
+    "602": "Accion MFB",
+    "51336": "Aku MFB",
+    "50926": "Amju Unique MFB",
+    "50083": "Aramoko MFB",
+    "50092": "Assets MFB",
+    "51229": "BainesCredit MFB",
+    "50117": "Banc Corp MFB",
+    "MFB50992": "Baobab MFB",
+    "51100": "BellBank MFB",
+    "50123": "BestStar MFB",
+    "50931": "Bowen MFB",
+    "50823": "CEMCS MFB",
+    "50910": "Consumer MFB",
+    "50204": "CoreStep MFB",
+    
+    # Specialized Banks
+    "301": "Jaiz Bank",
+    "101": "Providus Bank",
+    "100": "SunTrust Bank",
+    "302": "TAJ Bank",
+    "303": "Lotus Bank",
+    "559": "Coronation Bank",
+    "108": "Alpha Morgan Bank",
+    
+    # Mortgage Banks
+    "90077": "AG Mortgage Bank",
+    "404": "Abbey Mortgage Bank",
+    "401": "ASO Savings & Loans",
+    
+    # Development Finance Institutions
+    "304": "NEXIM Bank",
+    "413": "Federal Mortgage Bank",
+    "070": "Bank of Industry",
+
+}
         
         # If recipient_bank is a name, convert to code
         bank_code = recipient_bank  # Default: assume it's already a code
