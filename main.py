@@ -1463,7 +1463,7 @@ async def webhook_incoming():
                 ai_response = await handle_message(chat_id, user_message, user_resp.data[0] if user_resp.data else None, virtual_account)
                 
                 # Only send reply if it's not a PIN requirement (PIN messages are already sent in handle_message)
-                                if ai_response and not ai_response.startswith("PIN_ALREADY_SENT") and not ai_response.startswith("BALANCE_MESSAGE_SENT"):
+                if ai_response and not ai_response.startswith("PIN_ALREADY_SENT") and not ai_response.startswith("BALANCE_MESSAGE_SENT"):
                     send_reply(chat_id, ai_response)
             except Exception as e:
                 logger.error(f"Error in AI reply: {str(e)}")
