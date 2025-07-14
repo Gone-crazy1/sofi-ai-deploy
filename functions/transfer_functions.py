@@ -15,38 +15,6 @@ from flask import current_app as app
 
 logger = logging.getLogger(__name__)
 
-async def send_money(chat_id: str, amount: float, narration: str = None, pin: str = None, 
-                    recipient_account: str = None, recipient_bank: str = None,
-                    account_number: str = None, bank_name: str = None, **kwargs) -> Dict[str, Any]:
-    """
-    Send money to another bank account using Paystack
-    
-    Args:
-        chat_id (str): Sender's Telegram chat ID
-        amount (float): Amount to send
-        narration (str, optional): Transfer description
-        pin (str, optional): User's transaction PIN
-        recipient_account (str, optional): Recipient's account number (old format)
-        recipient_bank (str, optional): Recipient's bank code or name (old format)
-        account_number (str, optional): Recipient's account number (new format)
-        bank_name (str, optional): Recipient's bank code or name (new format)
-        
-    Returns:
-        Dict containing transfer result
-    """
-    try:
-        # Support both parameter name formats for compatibility
-        recipient_account = recipient_account or account_number
-        recipient_bank = recipient_bank or bank_name
-        
-        if not recipient_account:
-            return {"success": False, "error": "Missing recipient account number"}
-        
-        if not recipient_bank:
-            return {"success": False, "error": "Missing recipient bank"}
-        
-        logger.info(f"💸 Processing Paystack transfer from {chat_id}: ₦{amount} to {recipient_account} at {recipient_bank}")
-        
 # Bank code to name mapping for user-friendly display
 BANK_CODE_TO_NAME = {
     # Major Commercial Banks
@@ -123,13 +91,43 @@ BANK_CODE_TO_NAME = {
     "304": "NEXIM Bank",
     "413": "Federal Mortgage Bank",
     "070": "Bank of Industry",
-
 }
+
+async def send_money(chat_id: str, amount: float, narration: str = None, pin: str = None, 
+                    recipient_account: str = None, recipient_bank: str = None,
+                    account_number: str = None, bank_name: str = None, **kwargs) -> Dict[str, Any]:
+    """
+    Send money to another bank account using Paystack
+    
+    Args:
+        chat_id (str): Sender's Telegram chat ID
+        amount (float): Amount to send
+        narration (str, optional): Transfer description
+        pin (str, optional): User's transaction PIN
+        recipient_account (str, optional): Recipient's account number (old format)
+        recipient_bank (str, optional): Recipient's bank code or name (old format)
+        account_number (str, optional): Recipient's account number (new format)
+        bank_name (str, optional): Recipient's bank code or name (new format)
+        
+    Returns:
+        Dict containing transfer result
+    """
+    try:
+        # Support both parameter name formats for compatibility
+        recipient_account = recipient_account or account_number
+        recipient_bank = recipient_bank or bank_name
+        
+        if not recipient_account:
+            return {"success": False, "error": "Missing recipient account number"}
+        
+        if not recipient_bank:
+            return {"success": False, "error": "Missing recipient bank"}
+        
+        logger.info(f"💸 Processing Paystack transfer from {chat_id}: ₦{amount} to {recipient_account} at {recipient_bank}")
         
         # If recipient_bank is a name, convert to code
-        bank_code = recipient_bank  # Default: assume it's already a code
-        if recipient_bank.lower() in bank_name_to_code:
-            bank_code = bank_name_to_code[recipient_bank.lower()]
+        bank_code = get_bank_code_from_name(recipient_bank)
+        if bank_code:
             logger.info(f"🔄 Converted bank name '{recipient_bank}' to code '{bank_code}'")
             recipient_bank = bank_code
         else:
