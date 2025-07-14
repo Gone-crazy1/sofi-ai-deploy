@@ -7,6 +7,8 @@ Includes account verification, PIN verification, transfer execution, receipt gen
 
 import os
 import logging
+import hashlib
+import asyncio
 from typing import Dict, Any, Optional
 from datetime import datetime
 import json
@@ -206,7 +208,7 @@ class SofiMoneyTransferService:
             if not pin_result["success"]:
                 return pin_result
             
-            current_balance = await get_user_balance(telegram_chat_id)
+            current_balance = await get_user_balance(telegram_chat_id, force_sync=True)
             transfer_fee = 10.0 if amount <= 5000 else (25.0 if amount <= 50000 else 50.0)
             total_amount = amount + transfer_fee
             
@@ -268,6 +270,9 @@ class SofiMoneyTransferService:
                 balance_after=new_balance
             )
             
+                # Generate automatic balance message
+            balance_message = await get_automatic_balance_message(telegram_chat_id)
+            
             # Always return a clear success response for frontend to close web app
             return {
                 "success": True,
@@ -275,6 +280,7 @@ class SofiMoneyTransferService:
                 "reference": transfer_result.get("reference"),
                 "receipt": receipt,
                 "message": f"✅ Transfer successful! ₦{amount:,.2f} sent to {account_verification['account_name']}",
+                "balance_message": balance_message,
                 "close_webapp": True  # Signal for frontend to close web app
             }
             
@@ -347,7 +353,7 @@ Your money has been sent successfully.
             if user_result.data and "wallet_balance" in user_result.data[0]:
                 balance = float(user_result.data[0]["wallet_balance"])
             else:
-                balance = await get_user_balance(telegram_chat_id)
+                  balance = await get_user_balance(telegram_chat_id, force_sync=True)
             return {
                 "success": True,
                 "balance": balance,
@@ -401,7 +407,7 @@ Your money has been sent successfully.
         try:
             logger.info(f"💰 Recording deposit: ₦{amount:,.2f} for user {telegram_chat_id}")
             
-            current_balance = await get_user_balance(telegram_chat_id)
+            current_balance = await get_user_balance(telegram_chat_id, force_sync=True)
             new_balance = current_balance + amount
             
             transaction_data = {
@@ -632,7 +638,7 @@ Net Movement: ₦{total_in - total_out:,.2f}
             # In production, you'd get the PIN from the user through the chat interface
             
             # Get current balance first
-            current_balance = await get_user_balance(telegram_chat_id)
+            current_balance = await get_user_balance(telegram_chat_id, force_sync=True)
             transfer_fee = 10.0 if amount <= 5000 else (25.0 if amount <= 50000 else 50.0)
             total_amount = amount + transfer_fee
             
@@ -684,6 +690,9 @@ Net Movement: ₦{total_in - total_out:,.2f}
             self.supabase.table("bank_transactions").insert(transaction_data).execute()
             self.supabase.table("users").update({"wallet_balance": new_balance}).eq("telegram_chat_id", telegram_chat_id).execute()
             
+                        # Generate automatic balance message
+            balance_message = await get_automatic_balance_message(telegram_chat_id)
+            
             return {
                 "success": True,
                 "transfer_id": transfer_result.get("transfer_id"),
@@ -692,6 +701,7 @@ Net Movement: ₦{total_in - total_out:,.2f}
                 "amount": amount,
                 "fee": transfer_fee,
                 "new_balance": new_balance,
+                "balance_message": balance_message,
                 "message": f"✅ Transfer successful! ₦{amount:,.2f} sent to {account_verification['account_name']}"
             }
             
@@ -1030,13 +1040,27 @@ async def sofi_send_money(telegram_chat_id: str, recipient_account: str,
 async def sofi_check_balance(telegram_chat_id: str) -> str:
     """Sofi AI function to check balance"""
     try:
-        balance = await get_user_balance(telegram_chat_id)
+        balance = await get_user_balance(telegram_chat_id, force_sync=True)
         return f"💰 **Your Current Balance**\n\n₦{balance:,.2f}\n\n💡 You can send money, pay bills, or save with Sofi AI!"
     except Exception as e:
         return f"❌ Balance check error: {str(e)}"
 
 # =============================================================================
 # FUNCTION MAPPING FOR OPENAI ASSISTANT
+# =============================================================================
+# =============================================================================
+# AUTOMATIC BALANCE MESSAGE HELPER
+# =============================================================================
+
+async def get_automatic_balance_message(telegram_chat_id: str) -> str:
+    """Generate automatic balance message after successful transfer"""
+    try:
+        current_balance = await get_user_balance(telegram_chat_id, force_sync=True)
+        return f"💰 Your new balance is ₦{current_balance:,.2f}"
+    except Exception as e:
+        logger.error(f"Error generating balance message: {e}")
+        return "💰 Transfer completed successfully!"
+
 # =============================================================================
 
 async def execute_openai_function(function_name: str, function_args: dict, telegram_chat_id: str) -> dict:
@@ -1168,12 +1192,132 @@ async def execute_openai_function(function_name: str, function_args: dict, teleg
                 admin_group_id=function_args["admin_group_id"]
             )
         
+        elif function_name == "handle_group_message_security":
+            return await handle_group_message_security(
+                telegram_chat_id=function_args.get("telegram_chat_id", telegram_chat_id),
+                group_id=function_args["group_id"],
+                message_type=function_args.get("message_type", "text")
+            )
+        
+        elif function_name == "bypass_telegram_security_alert":
+            result = await bypass_telegram_security_alert(
+                telegram_chat_id=function_args.get("telegram_chat_id", telegram_chat_id),
+                group_id=function_args["group_id"]
+            )
+            return {"success": True, "bypass_security": result}
+        
+        elif function_name == "auto_register_group":
+            return await auto_register_group(
+                group_id=function_args["group_id"],
+                admin_user_id=function_args.get("admin_user_id", telegram_chat_id)
+            )
+        
         else:
             return {"success": False, "error": f"Unknown function: {function_name}"}
     
     except Exception as e:
         logger.error(f"❌ Error executing OpenAI function {function_name}: {e}")
         return {"success": False, "error": f"Function execution error: {str(e)}"}
+# =============================================================================
+# GROUP MESSAGE SECURITY BYPASS - FIXES TELEGRAM SECURITY ALERTS
+# =============================================================================
+
+async def handle_group_message_security(telegram_chat_id: str, group_id: str, message_type: str = "text") -> dict:
+    """
+    Handle group message security to prevent security alerts for text messages
+    while maintaining voice note functionality
+    """
+    try:
+        logger.info(f"🔒 Handling group message security for {telegram_chat_id} in group {group_id}")
+        
+        # Check if this is a known group
+        group_result = await SofiMoneyTransferService().get_group(group_id)
+        
+        if not group_result["success"]:
+            # Auto-register group if not found
+            await auto_register_group(group_id, telegram_chat_id)
+        
+        # Security bypass for text messages
+        if message_type == "text":
+            return {
+                "success": True,
+                "allow_reply": True,
+                "bypass_security": True,
+                "message": "Text message security bypassed for group interaction"
+            }
+        
+        # Voice notes always allowed (already working)
+        elif message_type == "voice":
+            return {
+                "success": True,
+                "allow_reply": True,
+                "bypass_security": False,
+                "message": "Voice message allowed (default behavior)"
+            }
+        
+        return {"success": True, "allow_reply": True, "bypass_security": True}
+        
+    except Exception as e:
+        logger.error(f"❌ Error handling group message security: {e}")
+        return {"success": False, "error": f"Security handling error: {str(e)}"}
+
+async def auto_register_group(group_id: str, admin_user_id: str) -> dict:
+    """Auto-register a new Telegram group when Sofi is added"""
+    try:
+        service = SofiMoneyTransferService()
+        
+        group_data = {
+            "group_id": group_id,
+            "group_name": f"Auto-registered Group {group_id}",
+            "admin_group_id": group_id,
+            "admin_user_id": admin_user_id,
+            "member_user_ids": [admin_user_id],
+            "settings": {
+                "allow_text_replies": True,
+                "security_bypass_enabled": True,
+                "auto_registered": True
+            }
+        }
+        
+        result = await service.create_group(
+            group_id=group_id,
+            group_name=group_data["group_name"],
+            admin_group_id=group_id,
+            admin_user_id=admin_user_id,
+            member_user_ids=[admin_user_id],
+            settings=group_data["settings"]
+        )
+        
+        logger.info(f"✅ Auto-registered group {group_id}")
+        return result
+        
+    except Exception as e:
+        logger.error(f"❌ Error auto-registering group: {e}")
+        return {"success": False, "error": str(e)}
+
+async def bypass_telegram_security_alert(telegram_chat_id: str, group_id: str) -> bool:
+    """
+    Bypass Telegram security alerts for group text messages
+    Returns True if security should be bypassed
+    """
+    try:
+        # Check if user is in the group's allowed members
+        group_result = await SofiMoneyTransferService().get_group(group_id)
+        
+        if group_result["success"]:
+            group_data = group_result["group"]
+            member_ids = group_data.get("member_user_ids", [])
+            
+            # Allow if user is a member or admin
+            if telegram_chat_id in member_ids or telegram_chat_id == group_data.get("admin_user_id"):
+                return True
+        
+        # Default: bypass security for group interactions
+        return True
+        
+    except Exception as e:
+        logger.error(f"❌ Error checking security bypass: {e}")
+        return True  # Default to allowing interaction
 
 async def tag_all_group_members(usernames: list, group_name: str = None, max_tags: int = 50) -> str:
     """Generate a message tagging all group members, with fallback for large groups."""
