@@ -1671,33 +1671,62 @@ def onboard_page():
 
 @app.route("/verify-pin")
 def pin_verification_page():
-    """Serve secure PIN verification page"""
-    # Block bot preview requests from Telegram/Twitter
+    """Serve secure PIN verification page with comprehensive fixes"""
+    # Get user agent and transaction ID for logging
     user_agent = request.headers.get('User-Agent', '')
-    if any(bot in user_agent for bot in ['TelegramBot', 'TwitterBot', 'facebookexternalhit']):
-        return make_response('', 204)  # No Content for bots - prevents preview errors
-    
     transaction_id = request.args.get('txn_id')
+    client_ip = request.remote_addr
     
+    # Enhanced logging for debugging
+    logger.info(f"📊 /verify-pin accessed - IP: {client_ip}, UA: {user_agent[:50]}..., txn_id: {transaction_id}")
+    
+    # 1. Handle bot preview requests (TelegramBot, TwitterBot, etc.)
+    bot_user_agents = ['TelegramBot', 'TwitterBot', 'facebookexternalhit', 'WhatsApp', 'Slackbot']
+    if any(bot in user_agent for bot in bot_user_agents):
+        logger.info(f"🤖 Bot preview blocked: {user_agent}")
+        return '', 204  # Proper 204 No Content response for bots
+    
+    # 2. Validate transaction ID
     if not transaction_id:
-        return "Invalid transaction", 400
+        logger.warning(f"❌ Missing txn_id from IP: {client_ip}")
+        return jsonify({"error": "Missing transaction ID"}), 400
     
-    # Get transaction data from secure PIN verification system
-    from utils.secure_pin_verification import secure_pin_verification
+    # 3. Get transaction data from secure PIN verification system
+    try:
+        from utils.secure_pin_verification import secure_pin_verification
+        
+        transaction = secure_pin_verification.get_pending_transaction(transaction_id)
+        if not transaction:
+            logger.warning(f"❌ Invalid/expired transaction: {transaction_id} from IP: {client_ip}")
+            return jsonify({"error": "Transaction expired or invalid"}), 404
+        
+        # Extract transfer data from the stored transaction
+        transfer_data = transaction.get('transfer_data', {})
+        
+        # Log successful transaction lookup
+        logger.info(f"✅ Valid transaction found: {transaction_id} for amount: ₦{transfer_data.get('amount', 0)}")
+        
+        # 4. Check if template exists, fallback to React component if needed
+        try:
+            # Try to render the PIN entry template
+            return render_template("pin-entry.html", 
+                                 transaction_id=transaction_id,
+                                 transfer_data={
+                                     'amount': transfer_data.get('amount', 0),
+                                     'recipient_name': transfer_data.get('recipient_name', 'Unknown'),
+                                     'bank': transfer_data.get('bank', 'Unknown Bank'),
+                                     'account_number': transfer_data.get('account_number', 'Unknown')
+                                 })
+        except Exception as template_error:
+            logger.warning(f"⚠️ Template error, serving React component: {template_error}")
+            # Fallback to serving the React component directly
+            return render_template("react-pin-app.html", 
+                                 transaction_id=transaction_id,
+                                 api_url="/api/verify-pin")
     
-    transaction = secure_pin_verification.get_pending_transaction(transaction_id)
-    if not transaction:
-        return "Transaction expired or invalid", 404  # Better error code
-    
-    # Extract transfer data from the stored transaction
-    transfer_data = transaction.get('transfer_data', {})
-    
-    # Render the PIN entry page with transaction details
-    return render_template("pin-entry.html", 
-                         transaction_id=transaction_id,
-                         transfer_data={
-                             'amount': transfer_data.get('amount', 0),
-                             'recipient_name': transfer_data.get('recipient_name', 'Unknown'),
+    except Exception as e:
+        logger.error(f"❌ PIN verification error: {str(e)} for txn: {transaction_id}")
+        return jsonify({"error": "Internal server error", "message": "Please try again"}), 500
                              'bank': transfer_data.get('bank', 'Unknown Bank'),
                              'account_number': transfer_data.get('account_number', 'Unknown')
                          })

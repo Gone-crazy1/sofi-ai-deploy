@@ -237,11 +237,15 @@ class SecurityMiddleware:
         current_time = time.time()
         path = request.path
         
-        # Determine rate limit based on endpoint
+        # Determine rate limit based on endpoint with special handling for PIN verification
         if path.startswith('/webhook'):
             max_requests = SECURITY_CONFIG['rate_limit']['webhook_requests_per_minute']
         elif path.startswith('/api/'):
             max_requests = SECURITY_CONFIG['rate_limit']['api_requests_per_minute']
+        elif path.startswith('/verify-pin'):
+            # Special relaxed rate limiting for PIN verification (real users may retry)
+            max_requests = 20  # Allow 20 requests per minute for PIN page
+            logger.info(f"🔐 PIN verification route - relaxed rate limit applied for IP: {client_ip}")
         else:
             max_requests = SECURITY_CONFIG['rate_limit']['requests_per_minute']
         
