@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, url_for, render_template
+from flask import Flask, request, jsonify, url_for, render_template, abort
 from flask_cors import CORS
 import os, requests, hashlib, logging, json, asyncio, tempfile, re, threading
 from datetime import datetime
@@ -1672,6 +1672,11 @@ def onboard_page():
 @app.route("/verify-pin")
 def pin_verification_page():
     """Serve secure PIN verification page"""
+    # Block bot preview requests from Telegram/Twitter
+    user_agent = request.headers.get('User-Agent', '')
+    if any(bot in user_agent for bot in ['TelegramBot', 'TwitterBot', 'facebookexternalhit']):
+        abort(204)  # No Content for bots - prevents preview errors
+    
     transaction_id = request.args.get('txn_id')
     
     if not transaction_id:
@@ -1682,7 +1687,7 @@ def pin_verification_page():
     
     transaction = secure_pin_verification.get_pending_transaction(transaction_id)
     if not transaction:
-        return "Transaction expired or invalid", 400
+        return "Transaction expired or invalid", 404  # Better error code
     
     # Extract transfer data from the stored transaction
     transfer_data = transaction.get('transfer_data', {})
