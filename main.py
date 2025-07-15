@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, url_for, render_template, abort
+from flask import Flask, request, jsonify, url_for, render_template, abort, make_response
 from flask_cors import CORS
 import os, requests, hashlib, logging, json, asyncio, tempfile, re, threading
 from datetime import datetime
@@ -1675,7 +1675,7 @@ def pin_verification_page():
     # Block bot preview requests from Telegram/Twitter
     user_agent = request.headers.get('User-Agent', '')
     if any(bot in user_agent for bot in ['TelegramBot', 'TwitterBot', 'facebookexternalhit']):
-        abort(204)  # No Content for bots - prevents preview errors
+        return make_response('', 204)  # No Content for bots - prevents preview errors
     
     transaction_id = request.args.get('txn_id')
     
