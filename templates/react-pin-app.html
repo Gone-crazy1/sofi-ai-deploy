@@ -40,26 +40,45 @@
             const [transactionData, setTransactionData] = useState(null);
             const [fetchingTransaction, setFetchingTransaction] = useState(true);
             
-            // Get transaction ID from URL
-            const getTransactionId = () => {
+            // Get authentication parameters from URL (secure token or legacy transaction ID)
+            const getAuthParams = () => {
                 const params = new URLSearchParams(window.location.search);
-                return params.get('txn_id');
+                const secureToken = params.get('token');
+                const legacyTxnId = params.get('txn_id');
+                
+                return {
+                    secureToken,
+                    legacyTxnId,
+                    authParam: secureToken || legacyTxnId,
+                    isSecureToken: !!secureToken
+                };
             };
             
             // Fetch transaction details on component mount
             useEffect(() => {
-                const txnId = getTransactionId();
-                if (!txnId) {
+                const authParams = getAuthParams();
+                if (!authParams.authParam) {
                     setError('Invalid transaction link');
                     setFetchingTransaction(false);
                     return;
                 }
                 
-                fetchTransactionDetails(txnId);
+                fetchTransactionDetails(authParams);
             }, []);
             
-            const fetchTransactionDetails = async (txnId) => {
+            const fetchTransactionDetails = async (authParams) => {
                 try {
+                    // For secure tokens, we don't need to fetch details separately
+                    // The PIN verification endpoint will handle token validation
+                    if (authParams.isSecureToken) {
+                        setTransactionData({
+                            message: 'Enter your 4-digit PIN to complete the transfer'
+                        });
+                        setFetchingTransaction(false);
+                        return;
+                    }
+                    
+                    // Legacy system - fetch transaction details first
                     const response = await fetch('/api/verify-pin', {
                         method: 'POST',
                         headers: {
@@ -67,7 +86,7 @@
                         },
                         body: JSON.stringify({
                             action: 'get_transaction',
-                            transaction_id: txnId
+                            transaction_id: authParams.legacyTxnId
                         })
                     });
                     
@@ -97,18 +116,25 @@
                 setError('');
                 
                 try {
-                    const txnId = getTransactionId();
+                    const authParams = getAuthParams();
+                    
+                    // Prepare request body based on authentication method
+                    const requestBody = {
+                        pin: pin
+                    };
+                    
+                    if (authParams.isSecureToken) {
+                        requestBody.secure_token = authParams.secureToken;
+                    } else {
+                        requestBody.transaction_id = authParams.legacyTxnId;
+                    }
                     
                     const response = await fetch('/api/verify-pin', {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
                         },
-                        body: JSON.stringify({
-                            action: 'verify_pin',
-                            transaction_id: txnId,
-                            pin: pin
-                        })
+                        body: JSON.stringify(requestBody)
                     });
                     
                     const result = await response.json();
@@ -116,7 +142,7 @@
                     if (result.success) {
                         setSuccess('Transfer completed successfully!');
                         setTimeout(() => {
-                            window.close() || (window.location.href = '/');
+                            window.close() || (window.location.href = result.redirect_url || '/');
                         }, 2000);
                     } else {
                         setError(result.error || 'PIN verification failed');

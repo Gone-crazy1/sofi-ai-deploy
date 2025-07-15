@@ -6,7 +6,7 @@ Implements web app-based PIN entry (like Kuda, Paystack, Moniepoint).
 
 Flow:
 1. User initiates transfer → Sofi shows inline keyboard
-2. User clicks "Verify Transaction" → Opens secure web app
+2. User clicks "Verify Transaction" → Opens secure web app with secure token
 3. User enters PIN in web app → Submits securely
 4. Backend verifies PIN → Processes transfer
 5. Sofi sends: PIN approved → Transfer in progress → Success → Receipt
@@ -14,6 +14,9 @@ Flow:
 
 import logging
 import asyncio
+import uuid
+import hashlib
+import secrets
 from datetime import datetime, timedelta
 from typing import Dict, Optional
 from utils.conversation_state import conversation_state
@@ -28,21 +31,116 @@ from beautiful_receipt_generator import SofiReceiptGenerator
 logger = logging.getLogger(__name__)
 
 class SecurePinVerification:
-    """Handles secure PIN verification for transfers using web app"""
+    """Handles secure PIN verification for transfers using web app with token-based security"""
     
     def __init__(self):
         self.bank_api = BankAPI()
-        self.pending_transactions = {}  # Store pending transactions
+        self.pending_transactions = {}  # Store pending transactions by txn_id
+        self.secure_tokens = {}  # Store secure tokens mapping to txn_id
+        self.used_tokens = set()  # Track used tokens to prevent replay
         
-    def store_pending_transaction(self, transaction_id: str, transaction_data: Dict):
-        """Store transaction data for PIN verification"""
+    def _generate_secure_token(self, transaction_id: str) -> str:
+        """Generate a secure token for the transaction"""
+        # Create a secure random token
+        token = secrets.token_urlsafe(32)  # 256-bit security
+        
+        # Create mapping from token to transaction
+        self.secure_tokens[token] = {
+            'transaction_id': transaction_id,
+            'created_at': datetime.now(),
+            'expires_at': datetime.now() + timedelta(minutes=15),
+            'used': False
+        }
+        
+        logger.info(f"🔑 Generated secure token for transaction {transaction_id}")
+        return token
+        
+    def store_pending_transaction(self, transaction_id: str, transaction_data: Dict) -> str:
+        """Store transaction data for PIN verification and return secure token"""
         # Add expiry time (15 minutes)
         transaction_data['expires_at'] = datetime.now() + timedelta(minutes=15)
+        transaction_data['created_at'] = datetime.now()
+        
         self.pending_transactions[transaction_id] = transaction_data
-        logger.info(f"Stored pending transaction {transaction_id}")
+        
+        # Generate secure token
+        secure_token = self._generate_secure_token(transaction_id)
+        
+        logger.info(f"💾 Stored pending transaction {transaction_id} with secure token")
+        return secure_token
+        
+    def get_pending_transaction_by_token(self, secure_token: str) -> Optional[Dict]:
+        """Get pending transaction data using secure token"""
+        # Check if token exists and is valid
+        token_data = self.secure_tokens.get(secure_token)
+        
+        if not token_data:
+            logger.warning(f"❌ Invalid token attempt: {secure_token[:10]}...")
+            return None
+            
+        # Check if token is expired
+        if datetime.now() > token_data['expires_at']:
+            logger.warning(f"⏰ Expired token attempt: {secure_token[:10]}...")
+            # Clean up expired token
+            del self.secure_tokens[secure_token]
+            return None
+            
+        # Check if token was already used (prevent replay attacks)
+        if token_data['used']:
+            logger.warning(f"🔄 Replay attack attempt with used token: {secure_token[:10]}...")
+            return None
+            
+        # Get the actual transaction
+        transaction_id = token_data['transaction_id']
+        transaction = self.pending_transactions.get(transaction_id)
+        
+        if not transaction:
+            logger.warning(f"❌ Transaction not found for token: {secure_token[:10]}...")
+            return None
+            
+        # Check if transaction is expired
+        if datetime.now() > transaction['expires_at']:
+            logger.warning(f"⏰ Expired transaction: {transaction_id}")
+            # Clean up expired transaction
+            del self.pending_transactions[transaction_id]
+            return None
+            
+        logger.info(f"✅ Valid token access for transaction: {transaction_id}")
+        return transaction
+        
+    def mark_token_as_used(self, secure_token: str):
+        """Mark a token as used to prevent replay attacks"""
+        token_data = self.secure_tokens.get(secure_token)
+        if token_data:
+            token_data['used'] = True
+            self.used_tokens.add(secure_token)
+            logger.info(f"🔒 Token marked as used: {secure_token[:10]}...")
+            
+    def cleanup_expired_data(self):
+        """Clean up expired transactions and tokens"""
+        now = datetime.now()
+        
+        # Clean expired transactions
+        expired_txns = [
+            txn_id for txn_id, txn_data in self.pending_transactions.items()
+            if now > txn_data['expires_at']
+        ]
+        for txn_id in expired_txns:
+            del self.pending_transactions[txn_id]
+            
+        # Clean expired tokens
+        expired_tokens = [
+            token for token, token_data in self.secure_tokens.items()
+            if now > token_data['expires_at']
+        ]
+        for token in expired_tokens:
+            del self.secure_tokens[token]
+            
+        if expired_txns or expired_tokens:
+            logger.info(f"🧹 Cleaned up {len(expired_txns)} expired transactions and {len(expired_tokens)} expired tokens")
         
     def get_pending_transaction(self, transaction_id: str) -> Optional[Dict]:
-        """Get pending transaction data"""
+        """Get pending transaction data (legacy method for backward compatibility)"""
         transaction = self.pending_transactions.get(transaction_id)
         
         if not transaction:

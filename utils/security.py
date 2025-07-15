@@ -16,6 +16,7 @@ import os
 from collections import defaultdict
 from utils.ip_intelligence import analyze_request_threat, check_rate_limit, is_ip_whitelisted
 from utils.security_monitor import security_monitor, AlertLevel
+import ipaddress
 
 logger = logging.getLogger(__name__)
 
@@ -30,8 +31,22 @@ SECURITY_CONFIG = {
         'requests_per_minute': 60,  # Increased from 10 for normal users
         'api_requests_per_minute': 30,  # Separate limit for API endpoints
         'webhook_requests_per_minute': 100,  # Higher for webhook endpoints
+        'pin_verification_per_minute': 20,  # Special limit for PIN verification routes
+        'pin_api_per_minute': 15,  # Special limit for PIN API calls
         'block_duration': 300,  # 5 minutes
     },
+    'telegram_bot_ips': [
+        # Telegram bot IP ranges for whitelisting
+        '149.154.160.0/20',  # Telegram datacenter
+        '149.154.164.0/22',
+        '149.154.168.0/22',
+        '149.154.172.0/22',
+        '91.108.4.0/22',
+        '91.108.8.0/22',
+        '91.108.12.0/22',
+        '91.108.16.0/22',
+        '91.108.56.0/22',
+    ],
     'blocked_paths': {
         # WordPress and CMS paths
         '/wp-admin*', '/wp-login*', '/wp-config*', '/wp-content*',
@@ -240,12 +255,16 @@ class SecurityMiddleware:
         # Determine rate limit based on endpoint with special handling for PIN verification
         if path.startswith('/webhook'):
             max_requests = SECURITY_CONFIG['rate_limit']['webhook_requests_per_minute']
+        elif path.startswith('/api/verify-pin'):
+            # Special rate limiting for PIN API calls (users may retry PIN entry)
+            max_requests = SECURITY_CONFIG['rate_limit']['pin_api_per_minute']
+            logger.info(f"🔐 PIN API route - special rate limit ({max_requests}/min) applied for IP: {client_ip}")
+        elif path.startswith('/verify-pin'):
+            # Special relaxed rate limiting for PIN verification page (real users may retry)
+            max_requests = SECURITY_CONFIG['rate_limit']['pin_verification_per_minute']
+            logger.info(f"🔐 PIN verification page - special rate limit ({max_requests}/min) applied for IP: {client_ip}")
         elif path.startswith('/api/'):
             max_requests = SECURITY_CONFIG['rate_limit']['api_requests_per_minute']
-        elif path.startswith('/verify-pin'):
-            # Special relaxed rate limiting for PIN verification (real users may retry)
-            max_requests = 20  # Allow 20 requests per minute for PIN page
-            logger.info(f"🔐 PIN verification route - relaxed rate limit applied for IP: {client_ip}")
         else:
             max_requests = SECURITY_CONFIG['rate_limit']['requests_per_minute']
         
@@ -422,6 +441,17 @@ def unblock_ip(ip: str):
     """Unblock an IP address"""
     blocked_ips.discard(ip)
     logger.info(f"🔓 Manually unblocked IP: {ip}")
+
+def is_telegram_bot_ip(ip_address: str) -> bool:
+    """Check if IP address belongs to Telegram bot network"""
+    try:
+        ip = ipaddress.ip_address(ip_address)
+        for ip_range in SECURITY_CONFIG['telegram_bot_ips']:
+            if ip in ipaddress.ip_network(ip_range):
+                return True
+        return False
+    except (ipaddress.AddressValueError, ValueError):
+        return False
 
 def init_security(app: Flask):
     """Initialize all security measures"""

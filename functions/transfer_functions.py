@@ -244,14 +244,17 @@ async def _send_money_internal(chat_id: str, amount: float, narration: str = Non
                 "created_at": datetime.now().isoformat()
             }
             
-            # Store in temporary storage (you can use Redis or database)
-            # For now, we'll use a simple in-memory storage
-            if not hasattr(app, 'temp_transfers'):
-                app.temp_transfers = {}
-            app.temp_transfers[transaction_id] = transfer_data
+            # Store transaction for secure verification and get secure token
+            from utils.secure_pin_verification import secure_pin_verification
+            secure_token = secure_pin_verification.store_pending_transaction(transaction_id, {
+                'chat_id': chat_id,
+                'user_data': user_data,
+                'transfer_data': transfer_data,
+                'amount': amount
+            })
             
-            # Create PIN verification URL
-            pin_url = f"https://pipinstallsofi.com/verify-pin?txn_id={transaction_id}"
+            # Create PIN verification URL with secure token
+            pin_url = f"https://pipinstallsofi.com/verify-pin?token={secure_token}"
             
             # Return web PIN entry response with keyboard
             return {

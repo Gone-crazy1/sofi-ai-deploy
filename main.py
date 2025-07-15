@@ -808,9 +808,9 @@ Is this correct? Reply 'yes' to continue or 'no' to cancel."""
             import uuid
             transaction_id = f"TX{uuid.uuid4().hex[:8].upper()}"
             
-            # Store transaction for secure verification
+            # Store transaction for secure verification and get secure token
             from utils.secure_pin_verification import secure_pin_verification
-            secure_pin_verification.store_pending_transaction(transaction_id, {
+            secure_token = secure_pin_verification.store_pending_transaction(transaction_id, {
                 'chat_id': chat_id,
                 'user_data': user_data,
                 'transfer_data': transfer,
@@ -830,12 +830,12 @@ Is this correct? Reply 'yes' to continue or 'no' to cancel."""
                 f"🔐 *Secure PIN verification required*"
             )
             
-            # Create inline keyboard for secure PIN verification
+            # Create inline keyboard for secure PIN verification using secure token
             pin_keyboard = {
                 "inline_keyboard": [[
                     {
                         "text": "🔐 Verify Transaction",
-                        "url": f"https://pipinstallsofi.com/verify-pin?txn_id={transaction_id}"
+                        "url": f"https://pipinstallsofi.com/verify-pin?token={secure_token}"
                     }
                 ]]
             }
@@ -859,9 +859,9 @@ Is this correct? Reply 'yes' to continue or 'no' to cancel."""
             import uuid
             transaction_id = f"TX{uuid.uuid4().hex[:8].upper()}"
             
-            # Store transaction for secure verification
+            # Store transaction for secure verification and get secure token
             from utils.secure_pin_verification import secure_pin_verification
-            secure_pin_verification.store_pending_transaction(transaction_id, {
+            secure_token = secure_pin_verification.store_pending_transaction(transaction_id, {
                 'chat_id': chat_id,
                 'user_data': user_data,
                 'transfer_data': transfer,
@@ -877,12 +877,12 @@ Is this correct? Reply 'yes' to continue or 'no' to cancel."""
                 f"🔐 *Secure PIN verification required*"
             )
             
-            # Create inline keyboard for secure PIN verification
+            # Create inline keyboard for secure PIN verification using secure token
             pin_keyboard = {
                 "inline_keyboard": [[
                     {
                         "text": "🔐 Verify Transaction",
-                        "url": f"https://pipinstallsofi.com/verify-pin?txn_id={transaction_id}"
+                        "url": f"https://pipinstallsofi.com/verify-pin?token={secure_token}"
                     }
                 ]]
             }
@@ -1671,61 +1671,92 @@ def onboard_page():
 
 @app.route("/verify-pin")
 def pin_verification_page():
-    """Serve secure PIN verification page with comprehensive fixes"""
-    # Get user agent and transaction ID for logging
+    """Serve secure PIN verification page with token-based security and comprehensive bot handling"""
+    # Get user agent, secure token, and legacy transaction ID for logging
     user_agent = request.headers.get('User-Agent', '')
-    transaction_id = request.args.get('txn_id')
+    secure_token = request.args.get('token')
+    legacy_txn_id = request.args.get('txn_id')  # For backward compatibility
     client_ip = request.remote_addr
     
     # Enhanced logging for debugging
-    logger.info(f"📊 /verify-pin accessed - IP: {client_ip}, UA: {user_agent[:50]}..., txn_id: {transaction_id}")
+    logger.info(f"📊 /verify-pin accessed - IP: {client_ip}, UA: {user_agent[:50]}..., token: {secure_token[:10] if secure_token else 'None'}..., legacy_txn: {legacy_txn_id}")
     
-    # 1. Handle bot preview requests (TelegramBot, TwitterBot, etc.)
-    bot_user_agents = ['TelegramBot', 'TwitterBot', 'facebookexternalhit', 'WhatsApp', 'Slackbot']
-    if any(bot in user_agent for bot in bot_user_agents):
-        logger.info(f"🤖 Bot preview blocked: {user_agent}")
-        return '', 204  # Proper 204 No Content response for bots
+    # 1. Enhanced bot detection with IP checking
+    from utils.security import is_telegram_bot_ip
     
-    # 2. Validate transaction ID
-    if not transaction_id:
-        logger.warning(f"❌ Missing txn_id from IP: {client_ip}")
-        return jsonify({"error": "Missing transaction ID"}), 400
+    bot_user_agents = ['TelegramBot', 'TwitterBot', 'facebookexternalhit', 'WhatsApp', 'Slackbot', 'LinkedInBot', 'SkypeBot']
+    is_bot_ua = any(bot in user_agent for bot in bot_user_agents)
+    is_bot_ip = is_telegram_bot_ip(client_ip)
+    
+    if is_bot_ua or is_bot_ip:
+        logger.info(f"🤖 Bot preview blocked: {user_agent} from IP: {client_ip} (Bot IP: {is_bot_ip})")
+        # Return proper 204 No Content response for bots
+        return make_response('', 204)
+    
+    # 2. Determine which token/ID to use (prefer secure token)
+    transaction_id = None
+    if secure_token:
+        # New secure token system
+        logger.info(f"🔑 Using secure token authentication")
+    elif legacy_txn_id:
+        # Legacy transaction ID system (for backward compatibility)
+        logger.info(f"⚠️ Using legacy transaction ID (should migrate to tokens)")
+        transaction_id = legacy_txn_id
+    else:
+        logger.warning(f"❌ Missing token/txn_id from IP: {client_ip}")
+        return jsonify({"error": "Missing authentication token"}), 400
     
     # 3. Get transaction data from secure PIN verification system
     try:
         from utils.secure_pin_verification import secure_pin_verification
         
-        transaction = secure_pin_verification.get_pending_transaction(transaction_id)
-        if not transaction:
-            logger.warning(f"❌ Invalid/expired transaction: {transaction_id} from IP: {client_ip}")
-            return jsonify({"error": "Transaction expired or invalid"}), 404
+        if secure_token:
+            # Use new secure token system
+            transaction = secure_pin_verification.get_pending_transaction_by_token(secure_token)
+            if not transaction:
+                logger.warning(f"❌ Invalid/expired token: {secure_token[:10]}... from IP: {client_ip}")
+                return jsonify({"error": "Token expired or invalid"}), 404
+        else:
+            # Use legacy system for backward compatibility
+            transaction = secure_pin_verification.get_pending_transaction(legacy_txn_id)
+            if not transaction:
+                logger.warning(f"❌ Invalid/expired transaction: {legacy_txn_id} from IP: {client_ip}")
+                return jsonify({"error": "Transaction expired or invalid"}), 404
         
         # Extract transfer data from the stored transaction
         transfer_data = transaction.get('transfer_data', {})
         
         # Log successful transaction lookup
-        logger.info(f"✅ Valid transaction found: {transaction_id} for amount: ₦{transfer_data.get('amount', 0)}")
+        logger.info(f"✅ Valid transaction found for amount: ₦{transfer_data.get('amount', 0)} from IP: {client_ip}")
         
-        # 4. Check if template exists, fallback to React component if needed
+        # 4. Clean up expired data periodically
+        secure_pin_verification.cleanup_expired_data()
+        
+        # 5. Render PIN entry page with appropriate token
+        template_data = {
+            'secure_token': secure_token,
+            'transaction_id': legacy_txn_id,  # For backward compatibility
+            'transfer_data': {
+                'amount': transfer_data.get('amount', 0),
+                'recipient_name': transfer_data.get('recipient_name', 'Unknown'),
+                'bank': transfer_data.get('bank', 'Unknown Bank'),
+                'account_number': transfer_data.get('account_number', 'Unknown')
+            }
+        }
+        
+        # 6. Try to render the PIN entry template with fallback
         try:
-            # Try to render the PIN entry template
-            return render_template("pin-entry.html", 
-                                 transaction_id=transaction_id,
-                                 transfer_data={
-                                     'amount': transfer_data.get('amount', 0),
-                                     'recipient_name': transfer_data.get('recipient_name', 'Unknown'),
-                                     'bank': transfer_data.get('bank', 'Unknown Bank'),
-                                     'account_number': transfer_data.get('account_number', 'Unknown')
-                                 })
+            return render_template("pin-entry.html", **template_data)
         except Exception as template_error:
             logger.warning(f"⚠️ Template error, serving React component: {template_error}")
             # Fallback to serving the React component directly
             return render_template("react-pin-app.html", 
-                                 transaction_id=transaction_id,
+                                 secure_token=secure_token,
+                                 transaction_id=legacy_txn_id,
                                  api_url="/api/verify-pin")
     
     except Exception as e:
-        logger.error(f"❌ PIN verification error: {str(e)} for txn: {transaction_id}")
+        logger.error(f"❌ PIN verification error: {str(e)} for token: {secure_token[:10] if secure_token else 'None'}...")
         return jsonify({"error": "Internal server error", "message": "Please try again"}), 500
 
 @app.route("/success")
@@ -1763,29 +1794,52 @@ def test_pin_page():
 
 @app.route("/api/verify-pin", methods=["POST"])
 def verify_pin_api():
-    """API endpoint for PIN verification with security monitoring"""
+    """API endpoint for PIN verification with token-based security and enhanced monitoring"""
     try:
         data = request.get_json()
-        transaction_id = data.get('transaction_id')
+        secure_token = data.get('secure_token')
+        legacy_transaction_id = data.get('transaction_id')  # For backward compatibility
         pin = data.get('pin')
         
         # Get client IP for security monitoring
         client_ip = request.headers.get('X-Forwarded-For', request.remote_addr)
         
-        if not transaction_id or not pin:
+        if not pin:
             # Monitor failed PIN attempts
             from utils.security_monitor import security_monitor
             security_monitor.monitor_pin_attempts(client_ip, False)
             
             return jsonify({
                 'success': False,
-                'error': 'Missing transaction ID or PIN'
+                'error': 'PIN is required'
+            }), 400
+        
+        if not secure_token and not legacy_transaction_id:
+            # Monitor failed PIN attempts
+            from utils.security_monitor import security_monitor
+            security_monitor.monitor_pin_attempts(client_ip, False)
+            
+            return jsonify({
+                'success': False,
+                'error': 'Authentication token required'
             }), 400
         
         # Get transaction data from secure PIN verification system
         from utils.secure_pin_verification import secure_pin_verification
         
-        transaction = secure_pin_verification.get_pending_transaction(transaction_id)
+        transaction = None
+        if secure_token:
+            # Use new secure token system
+            transaction = secure_pin_verification.get_pending_transaction_by_token(secure_token)
+            if transaction:
+                # Mark token as used to prevent replay attacks
+                secure_pin_verification.mark_token_as_used(secure_token)
+                logger.info(f"✅ Secure token verified and marked as used: {secure_token[:10]}...")
+        elif legacy_transaction_id:
+            # Legacy system for backward compatibility
+            transaction = secure_pin_verification.get_pending_transaction(legacy_transaction_id)
+            logger.info(f"⚠️ Using legacy transaction ID: {legacy_transaction_id}")
+        
         if not transaction:
             # Monitor failed PIN attempts
             from utils.security_monitor import security_monitor
@@ -1793,7 +1847,7 @@ def verify_pin_api():
             
             return jsonify({
                 'success': False,
-                'error': 'Transaction expired or invalid'
+                'error': 'Transaction expired, invalid, or already used'
             }), 400
         # Verify PIN
         from functions.security_functions import verify_pin
