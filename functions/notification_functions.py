@@ -28,11 +28,26 @@ async def send_receipt(chat_id: str, transaction_id: str, **kwargs) -> Dict[str,
         
         supabase = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
         
-        # Get transaction details
+        # 🔧 RESOLVE TELEGRAM ID TO UUID FIRST
+        # Find the user UUID from Telegram chat ID
+        user_result = supabase.table("users").select("*").eq("telegram_chat_id", str(chat_id)).execute()
+        
+        if not user_result.data:
+            logger.warning(f"❌ No user found for Telegram ID {chat_id}")
+            return {
+                "success": False,
+                "error": "User not found. Please complete onboarding first."
+            }
+        
+        user_uuid = user_result.data[0]["id"]
+        user_name = user_result.data[0].get("full_name", "User")
+        logger.info(f"✅ Resolved Telegram ID {chat_id} to UUID {user_uuid}")
+        
+        # Get transaction details using the resolved UUID
         tx_result = supabase.table("bank_transactions")\
             .select("*")\
             .eq("transaction_id", transaction_id)\
-            .eq("user_id", chat_id)\
+            .eq("user_id", user_uuid)\
             .execute()
         
         if not tx_result.data:
@@ -42,12 +57,6 @@ async def send_receipt(chat_id: str, transaction_id: str, **kwargs) -> Dict[str,
             }
         
         transaction = tx_result.data[0]
-        
-        # Get user details
-        user_result = supabase.table("users").select("*").eq("telegram_chat_id", str(chat_id)).execute()
-        user_name = "User"
-        if user_result.data:
-            user_name = user_result.data[0].get("full_name", "User")
         
         # Generate receipt text
         receipt = await _generate_receipt(transaction, user_name)
@@ -157,14 +166,28 @@ async def update_transaction_status(chat_id: str, transaction_id: str, status: s
         
         supabase = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
         
-        # Update transaction status
+        # 🔧 RESOLVE TELEGRAM ID TO UUID FIRST
+        # Find the user UUID from Telegram chat ID
+        user_result = supabase.table("users").select("id").eq("telegram_chat_id", str(chat_id)).execute()
+        
+        if not user_result.data:
+            logger.warning(f"❌ No user found for Telegram ID {chat_id}")
+            return {
+                "success": False,
+                "error": "User not found"
+            }
+        
+        user_uuid = user_result.data[0]["id"]
+        logger.info(f"✅ Resolved Telegram ID {chat_id} to UUID {user_uuid}")
+        
+        # Update transaction status using the resolved UUID
         update_result = supabase.table("bank_transactions")\
             .update({
                 "status": status,
                 "updated_at": datetime.now().isoformat()
             })\
             .eq("transaction_id", transaction_id)\
-            .eq("user_id", chat_id)\
+            .eq("user_id", user_uuid)\
             .execute()
         
         if not update_result.data:

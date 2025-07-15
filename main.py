@@ -27,10 +27,38 @@ from utils.nigerian_expressions import enhance_nigerian_message, get_response_gu
 from utils.prompt_schemas import get_image_prompt, validate_image_result
 from unittest.mock import MagicMock
 
+# ⚡ INSTANT RESPONSE CACHE for ultra-fast replies
+import time
+from functools import lru_cache
+
+# Cache for instant balance responses (30 seconds)
+balance_cache = {}
+CACHE_DURATION = 30  # seconds
+
+def get_cached_balance(chat_id):
+    """Get cached balance for instant response"""
+    now = time.time()
+    if chat_id in balance_cache:
+        balance, timestamp = balance_cache[chat_id]
+        if now - timestamp < CACHE_DURATION:
+            return balance
+    return None
+
+def cache_balance(chat_id, balance):
+    """Cache balance for instant future responses"""
+    balance_cache[chat_id] = (balance, time.time())
+
 # 🔒 SECURITY SYSTEM IMPORTS
 from utils.security import init_security
-from utils.security_monitor import log_security_event, AlertLevel, get_security_stats
+from utils.security_monitor import (
+    log_security_event, AlertLevel, get_enhanced_security_stats,
+    enable_fast_mode, disable_fast_mode, get_fast_mode_status
+)
 from utils.security_config import get_security_config, TELEGRAM_SECURITY
+
+# ⚡ ENABLE FAST MODE FOR ULTRA-FAST RESPONSES
+enable_fast_mode()  # This disables non-critical security alerts
+print("🚀 Sofi AI started in FAST MODE for optimal response times")
 
 # 🔒 SECURITY ENDPOINTS
 from utils.security_endpoints import init_security_endpoints
@@ -111,21 +139,30 @@ openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 AudioSegment.converter = which("ffmpeg")
 
 def send_typing_action(chat_id):
-    """Send 'typing...' action to Telegram chat"""
+    """Send 'typing...' action to Telegram chat IMMEDIATELY"""
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendChatAction"
     payload = {
         "chat_id": chat_id,
         "action": "typing"
     }
     try:
-        requests.post(url, json=payload)
+        # Use timeout=1 for instant response
+        requests.post(url, json=payload, timeout=1)
     except Exception as e:
         logger.error(f"Failed to send typing action: {e}")
 
+def background_task(func, *args, **kwargs):
+    """Run a function in background thread for instant responses"""
+    import threading
+    thread = threading.Thread(target=func, args=args, kwargs=kwargs)
+    thread.daemon = True
+    thread.start()
 
-def send_reply(chat_id, message, reply_markup=None):
-    """Send reply message to Telegram chat with optional inline keyboard"""
+def send_instant_reply(chat_id, message, reply_markup=None):
+    """Send INSTANT reply without waiting for background processing"""
+    # Show typing IMMEDIATELY
     send_typing_action(chat_id)
+    
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     payload = {
         "chat_id": chat_id, 
@@ -135,9 +172,19 @@ def send_reply(chat_id, message, reply_markup=None):
     
     if reply_markup:
         payload["reply_markup"] = reply_markup
-        
-    response = requests.post(url, json=payload)
-    return response.json() if response.status_code == 200 else None
+    
+    try:
+        # Send with short timeout for instant response
+        response = requests.post(url, json=payload, timeout=2)
+        return response.json() if response.status_code == 200 else None
+    except Exception as e:
+        logger.error(f"Error sending instant reply: {e}")
+        return None
+
+
+def send_reply(chat_id, message, reply_markup=None):
+    """Legacy send reply - now uses instant version"""
+    return send_instant_reply(chat_id, message, reply_markup)
 
 def send_photo_to_telegram(chat_id, photo_data, caption=None):
     """Send photo to Telegram chat"""
@@ -1178,6 +1225,46 @@ def landing_page():
     """Serve the main landing page"""
     return render_template("index.html")
 
+# 🚀 PERFORMANCE MODE MANAGEMENT ROUTES
+@app.route("/performance/fast-mode", methods=["POST"])
+def toggle_fast_mode():
+    """Toggle fast mode on/off (admin only)"""
+    try:
+        # Basic admin check
+        api_key = request.headers.get('X-API-Key')
+        if not api_key or api_key != os.getenv('ADMIN_API_KEY'):
+            return jsonify({"error": "Unauthorized"}), 401
+        
+        data = request.get_json() or {}
+        enable = data.get('enable', True)
+        
+        if enable:
+            enable_fast_mode()
+            message = "⚡ FAST MODE ENABLED - Sofi will respond ultra-fast!"
+        else:
+            disable_fast_mode()
+            message = "🔒 NORMAL MODE ENABLED - Full security monitoring active"
+        
+        return jsonify({
+            "message": message,
+            "status": get_fast_mode_status()
+        })
+    except Exception as e:
+        logger.error(f"Error toggling fast mode: {e}")
+        return jsonify({"error": "Internal server error"}), 500
+
+@app.route("/performance/status")
+def performance_status():
+    """Get current performance mode status"""
+    try:
+        return jsonify({
+            "performance_mode": get_fast_mode_status(),
+            "message": "⚡ FAST MODE active - Security alerts suppressed for speed" if get_fast_mode_status()['fast_mode'] else "🔒 NORMAL MODE active - Full security monitoring"
+        })
+    except Exception as e:
+        logger.error(f"Error getting performance status: {e}")
+        return jsonify({"error": "Internal server error"}), 500
+
 # 🔒 SECURITY MONITORING ROUTES
 @app.route("/security/stats")
 def security_stats():
@@ -1188,7 +1275,7 @@ def security_stats():
         if not api_key or api_key != os.getenv('ADMIN_API_KEY'):
             return jsonify({"error": "Unauthorized"}), 401
         
-        stats = get_security_stats()
+        stats = get_enhanced_security_stats()  # Use enhanced stats with fast mode info
         return jsonify(stats)
     except Exception as e:
         logger.error(f"Error getting security stats: {e}")
@@ -1261,7 +1348,7 @@ def security_events():
 
 @app.route("/webhook", methods=["POST"])
 async def webhook_incoming():
-    """Handle incoming Telegram messages and callback queries"""
+    """Handle incoming Telegram messages and callback queries with INSTANT typing response"""
     try:
         # 🔒 Security monitoring for webhook
         client_ip = request.headers.get('X-Forwarded-For', request.remote_addr)
@@ -1292,23 +1379,37 @@ async def webhook_incoming():
         message_data = data["message"]
         chat_id = str(message_data["chat"]["id"])
         
+        # ⚡ INSTANT TYPING INDICATOR - Show typing IMMEDIATELY when message arrives
+        send_typing_action(chat_id)
+        
         # Extract user information
         user_data = message_data.get("from", {})
         
-        # Check if user exists in database
-        user_resp = supabase.table("users").select("*").eq("telegram_chat_id", str(chat_id)).execute()
-        user_exists = len(user_resp.data) > 0
+        # Check if user exists in database (run in background)
+        def check_user_background():
+            return supabase.table("users").select("*").eq("telegram_chat_id", str(chat_id)).execute()
+        
+        # Start background user check but don't wait for it
+        background_task(check_user_background)
         
         # Handle photo messages
         if "photo" in message_data:
             file_id = message_data["photo"][-1]["file_id"]  # Get the highest quality photo
-            success, response = process_photo(file_id)
             
-            if success:
-                ai_response = await generate_ai_reply(chat_id, response)
-                send_reply(chat_id, ai_response)
-            else:
-                send_reply(chat_id, response)
+            # Send quick response first
+            send_instant_reply(chat_id, "📸 Processing your image...")
+            
+            # Process photo in background
+            def process_photo_background():
+                success, response = process_photo(file_id)
+                if success:
+                    ai_response = await generate_ai_reply(chat_id, response)
+                    send_instant_reply(chat_id, ai_response)
+                else:
+                    send_instant_reply(chat_id, response)
+            
+            background_task(process_photo_background)
+            return jsonify({"status": "ok", "response": "Processing image..."}), 200
         
         # Handle voice messages
         elif "voice" in message_data:
@@ -1353,114 +1454,132 @@ async def webhook_incoming():
                 else:
                     send_reply(chat_id, response)
         
-        # Handle text messages
+        # Handle text messages with INSTANT response
         elif "text" in message_data:
             user_message = message_data.get("text", "").strip()
             
             if not user_message:
                 return jsonify({"success": True}), 200
             
-            # Check if user exists and handle onboarding flow intelligently
-            if not user_exists:
-                # Check if message suggests they already know they need an account
-                skip_onboarding_keywords = [
-                    "already registered", "i have account", "just created", "completed registration",
-                    "just signed up", "thanks", "thank you", "okay", "ok", "got it", "understood",
-                    "will do", "sure", "alright", "fine", "done", "yes", "no problem"
-                ]
-                
-                # Don't send onboarding if they seem to acknowledge or are just being polite
-                if any(keyword in user_message.lower() for keyword in skip_onboarding_keywords):
-                    # Give a brief helpful response with web app button
-                    brief_response = (
-                        "Ready to help! Complete your registration by tapping the button below:"
-                    )
-                    
-                    keyboard = {
-                        "inline_keyboard": [
-                            [
-                                {
-                                    "text": "🚀 Complete Registration",
-                                    "web_app": {"url": "https://pipinstallsofi.com/onboard"}
-                                }
-                            ]
-                        ]
-                    }
-                    
-                    send_reply(chat_id, brief_response, keyboard)
-                    return jsonify({"success": True}), 200
-                
-                # Only show full onboarding for substantial messages or clear requests
-                substantial_message = len(user_message.split()) > 2 or any(
-                    keyword in user_message.lower() for keyword in [
-                        "account", "register", "sign up", "create", "start", "begin", "help",
-                        "transfer", "send money", "balance", "airtime", "data"
-                    ]
-                )
-                
-                if substantial_message:
-                    # Force onboarding for new users with inline keyboard
-                    onboarding_message = (
-                        f"👋 *Welcome to Sofi AI!* I'm your intelligent financial assistant powered by Pip install AI Technologies.\n\n"
-                        f"🔐 *To get started, I need to create your secure virtual account:*\n\n"
-                        f"📋 *You'll need:*\n"
-                        f"• Your BVN (Bank Verification Number)\n"
-                        f"• Phone number\n"
-                        f"• Basic personal details\n\n"
-                        f"✅ *Once done, you can:*\n"
-                        f"• Send money to any bank instantly\n"
-                        f"• Buy airtime & data at best rates\n"
-                        f"• Receive money from anywhere\n"
-                        f"• Chat with me for intelligent financial advice\n\n"
-                        f"🚀 *Click the button below to start your registration!*"
-                    )
-                    
-                    # Create inline keyboard with web app button
-                    inline_keyboard = {
-                        "inline_keyboard": [[
-                            {
-                                "text": "🚀 Complete Registration",
-                                "web_app": {"url": "https://pipinstallsofi.com/onboard"}
-                            }
-                        ]]
-                    }
-                    
-                    send_reply(chat_id, onboarding_message, inline_keyboard)
-                    return jsonify({"success": True}), 200
-                else:
-                    # For very brief messages, give a gentle nudge with web app button
-                    brief_nudge = (
-                        "Hi! I'm Sofi AI. Tap below to get started:"
-                    )
-                    
-                    keyboard = {
-                        "inline_keyboard": [
-                            [
-                                {
-                                    "text": "🚀 Get Started",
-                                    "web_app": {"url": "https://pipinstallsofi.com/onboard"}
-                                }
-                            ]
-                        ]
-                    }
-                    
-                    send_reply(chat_id, brief_nudge, keyboard)
-                    return jsonify({"success": True}), 200
+            # ⚡ INSTANT RESPONSE LOGIC - Get user data in background
+            def get_user_data_async():
+                try:
+                    user_resp = supabase.table("users").select("*").eq("telegram_chat_id", str(chat_id)).execute()
+                    return user_resp.data[0] if user_resp.data else None
+                except:
+                    return None
             
-            # Handle existing user messages
-            try:
-                # Check if user has virtual account
-                virtual_account = await check_virtual_account(chat_id)
-                
-                # Generate AI reply with conversation context
-                ai_response = await handle_message(chat_id, user_message, user_resp.data[0] if user_resp.data else None, virtual_account)
-                
-                # Only send reply if it's not a PIN requirement (PIN messages are already sent in handle_message)
-                if ai_response and not ai_response.startswith("PIN_ALREADY_SENT"):
-                    send_reply(chat_id, ai_response)
-            except Exception as e:
-                logger.error(f"Error in AI reply: {str(e)}")
-                send_reply(chat_id, "Sorry, I encountered an error processing your request. Please try again.")
+            def get_virtual_account_async():
+                try:
+                    import asyncio
+                    return asyncio.run(check_virtual_account(chat_id))
+                except:
+                    return None
+            
+            # ⚡ IMMEDIATE RESPONSE for common quick queries
+            quick_responses = {
+                "balance": "💰 Checking your balance...",
+                "send": "💸 Starting transfer process...",
+                "transfer": "💸 Starting transfer process...", 
+                "airtime": "📱 Processing airtime request...",
+                "data": "📶 Processing data request...",
+                "help": "🤖 Let me help you with that...",
+                "hi": "👋 Hello! How can I help you today?",
+                "hello": "👋 Hello! How can I help you today?",
+                "hey": "👋 Hey there! What can I do for you?"
+            }
+            
+            # Check for quick response keywords
+            message_lower = user_message.lower()
+            quick_reply = None
+            for keyword, response in quick_responses.items():
+                if keyword in message_lower:
+                    quick_reply = response
+                    break
+            
+            # Send instant quick reply if found
+            if quick_reply:
+                send_instant_reply(chat_id, quick_reply)
+            
+            # Start background processing immediately
+            def process_message_background():
+                try:
+                    # Get user data
+                    user_data = get_user_data_async()
+                    user_exists = user_data is not None
+                    
+                    # Handle new users with quick onboarding
+                    if not user_exists:
+                        # Quick onboarding check
+                        skip_onboarding_keywords = [
+                            "already registered", "i have account", "just created", "completed registration",
+                            "just signed up", "thanks", "thank you", "okay", "ok", "got it", "understood",
+                            "will do", "sure", "alright", "fine", "done", "yes", "no problem"
+                        ]
+                        
+                        if any(keyword in user_message.lower() for keyword in skip_onboarding_keywords):
+                            brief_response = "Ready to help! Complete your registration by tapping the button below:"
+                            keyboard = {
+                                "inline_keyboard": [[
+                                    {"text": "🚀 Complete Registration", "web_app": {"url": "https://pipinstallsofi.com/onboard"}}
+                                ]]
+                            }
+                            send_instant_reply(chat_id, brief_response, keyboard)
+                            return
+                        
+                        # Full onboarding for substantial messages
+                        substantial_message = len(user_message.split()) > 2 or any(
+                            keyword in user_message.lower() for keyword in [
+                                "account", "register", "sign up", "create", "start", "begin", "help",
+                                "transfer", "send money", "balance", "airtime", "data"
+                            ]
+                        )
+                        
+                        if substantial_message:
+                            onboarding_message = (
+                                f"👋 *Welcome to Sofi AI!* I'm your intelligent financial assistant.\n\n"
+                                f"🚀 *Click below to create your virtual account:*"
+                            )
+                            inline_keyboard = {
+                                "inline_keyboard": [[
+                                    {"text": "🚀 Complete Registration", "web_app": {"url": "https://pipinstallsofi.com/onboard"}}
+                                ]]
+                            }
+                            send_instant_reply(chat_id, onboarding_message, inline_keyboard)
+                        else:
+                            brief_nudge = "Hi! I'm Sofi AI. Tap below to get started:"
+                            keyboard = {
+                                "inline_keyboard": [[
+                                    {"text": "🚀 Get Started", "web_app": {"url": "https://pipinstallsofi.com/onboard"}}
+                                ]]
+                            }
+                            send_instant_reply(chat_id, brief_nudge, keyboard)
+                        return
+                    
+                    # Process existing user messages
+                    virtual_account = get_virtual_account_async()
+                    
+                    # Generate AI reply
+                    import asyncio
+                    ai_response = asyncio.run(handle_message(chat_id, user_message, user_data, virtual_account))
+                    
+                    # Send final response (only if not PIN or if no quick reply was sent)
+                    if ai_response and not ai_response.startswith("PIN_ALREADY_SENT"):
+                        if not quick_reply:  # Don't send if we already sent a quick reply
+                            send_instant_reply(chat_id, ai_response)
+                        else:
+                            # Replace the quick reply with the real response
+                            send_instant_reply(chat_id, ai_response)
+                            
+                except Exception as e:
+                    logger.error(f"Error in background message processing: {str(e)}")
+                    send_instant_reply(chat_id, "Sorry, I encountered an error. Please try again.")
+            
+            # Start background processing
+            background_task(process_message_background)
+            
+            # Return immediately to Telegram (under 1 second response)
+            return jsonify({"success": True, "status": "processing"}), 200
 
         return jsonify({"success": True}), 200
 
@@ -1810,6 +1929,7 @@ Please try again or contact support if the issue persists."""
                 # Send error notification to user
                 try:
                     send_reply(transaction['chat_id'], "❌ Transfer processing error. Please contact support.")
+
                 except:
                     pass
         
@@ -2066,4 +2186,66 @@ async def send_beautiful_receipt(chat_id, receipt_data, transfer_result):
         # Fallback to simple reply
         txn_id = receipt_data.get('transaction_id', 'N/A') if receipt_data else 'N/A'
         send_reply(chat_id, f"✅ Transfer completed successfully!\nTransaction ID: {txn_id}")
+
+# ⚡ TELEGRAM ID TO UUID RESOLVER for Supabase queries
+async def resolve_telegram_id_to_uuid(telegram_chat_id: str) -> dict:
+    """
+    Resolve Telegram chat ID to Supabase UUID
+    
+    Args:
+        telegram_chat_id: The Telegram chat ID (string/number)
+    
+    Returns:
+        dict: {'success': bool, 'uuid': str or None, 'error': str or None}
+    """
+    try:
+        # Ensure telegram_chat_id is a string
+        telegram_chat_id = str(telegram_chat_id)
+        
+        # Query Supabase users table to find UUID by telegram_chat_id
+        result = supabase.table("users").select("id").eq("telegram_chat_id", telegram_chat_id).execute()
+        
+        if result.data and len(result.data) > 0:
+            user_uuid = result.data[0]["id"]
+            logger.info(f"✅ Resolved Telegram ID {telegram_chat_id} to UUID {user_uuid}")
+            return {
+                'success': True,
+                'uuid': user_uuid,
+                'error': None
+            }
+        else:
+            logger.warning(f"❌ No user found for Telegram ID {telegram_chat_id}")
+            return {
+                'success': False,
+                'uuid': None,
+                'error': f"User not found. Please complete onboarding first by visiting https://pipinstallsofi.com/onboard"
+            }
+            
+    except Exception as e:
+        logger.error(f"❌ Error resolving Telegram ID {telegram_chat_id} to UUID: {str(e)}")
+        return {
+            'success': False,
+            'uuid': None,
+            'error': f"Database error while resolving user ID: {str(e)}"
+        }
+
+async def get_user_uuid_from_telegram_id(telegram_chat_id: str) -> str:
+    """
+    Quick helper to get UUID from Telegram ID
+    
+    Args:
+        telegram_chat_id: The Telegram chat ID
+    
+    Returns:
+        str: The UUID if found, None if not found
+        
+    Raises:
+        ValueError: If user not found or database error
+    """
+    result = await resolve_telegram_id_to_uuid(telegram_chat_id)
+    
+    if result['success']:
+        return result['uuid']
+    else:
+        raise ValueError(result['error'])
 

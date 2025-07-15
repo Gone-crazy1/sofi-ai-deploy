@@ -521,7 +521,23 @@ Balance After: ₦{txn['wallet_balance_after']:,.2f}
     async def get_wallet_statement(self, telegram_chat_id: str, user_id: str, from_date: str = None, to_date: str = None) -> Dict[str, Any]:
         """Generate a full transaction statement for the user's wallet"""
         try:
-            query = self.supabase.table("bank_transactions").select("*").eq("user_id", telegram_chat_id)
+            # 🔧 RESOLVE TELEGRAM ID TO UUID FIRST
+            # Find the user UUID from Telegram chat ID
+            user_result = self.supabase.table("users").select("id").eq("telegram_chat_id", str(telegram_chat_id)).execute()
+            
+            if not user_result.data:
+                logger.warning(f"❌ No user found for Telegram ID {telegram_chat_id}")
+                return {
+                    "success": False,
+                    "error": "User not found. Please complete onboarding first.",
+                    "statement": "",
+                    "transactions": []
+                }
+            
+            user_uuid = user_result.data[0]["id"]
+            logger.info(f"✅ Resolved Telegram ID {telegram_chat_id} to UUID {user_uuid}")
+            
+            query = self.supabase.table("bank_transactions").select("*").eq("user_id", user_uuid)
             
             if from_date:
                 query = query.gte("created_at", from_date)
@@ -585,9 +601,20 @@ Net Movement: ₦{total_in - total_out:,.2f}
     async def explain_spending(self, telegram_chat_id: str, limit: int = 20) -> str:
         """Explain user's spending patterns in simple language"""
         try:
+            # 🔧 RESOLVE TELEGRAM ID TO UUID FIRST
+            # Find the user UUID from Telegram chat ID
+            user_result = self.supabase.table("users").select("id").eq("telegram_chat_id", str(telegram_chat_id)).execute()
+            
+            if not user_result.data:
+                logger.warning(f"❌ No user found for Telegram ID {telegram_chat_id}")
+                return "User not found. Please complete onboarding first."
+            
+            user_uuid = user_result.data[0]["id"]
+            logger.info(f"✅ Resolved Telegram ID {telegram_chat_id} to UUID {user_uuid}")
+            
             result = self.supabase.table("bank_transactions").select(
                 "recipient_name, account_number, bank_name, amount, created_at, description"
-            ).eq("user_id", telegram_chat_id).order("created_at", desc=True).limit(limit).execute()
+            ).eq("user_id", user_uuid).order("created_at", desc=True).limit(limit).execute()
             if not result.data:
                 return "No spending history found."
             # Group by recipient and description
@@ -910,9 +937,20 @@ Net Movement: ₦{total_in - total_out:,.2f}
     async def summarize_past_transfers(self, telegram_chat_id: str, limit: int = 20) -> str:
         """Summarize user's past transfers by beneficiary and amount"""
         try:
+            # 🔧 RESOLVE TELEGRAM ID TO UUID FIRST
+            # Find the user UUID from Telegram chat ID
+            user_result = self.supabase.table("users").select("id").eq("telegram_chat_id", str(telegram_chat_id)).execute()
+            
+            if not user_result.data:
+                logger.warning(f"❌ No user found for Telegram ID {telegram_chat_id}")
+                return "User not found. Please complete onboarding first."
+            
+            user_uuid = user_result.data[0]["id"]
+            logger.info(f"✅ Resolved Telegram ID {telegram_chat_id} to UUID {user_uuid}")
+            
             result = self.supabase.table("bank_transactions").select(
                 "recipient_name, account_number, bank_name, amount, created_at"
-            ).eq("user_id", telegram_chat_id).order("created_at", desc=True).limit(limit).execute()
+            ).eq("user_id", user_uuid).order("created_at", desc=True).limit(limit).execute()
             if not result.data:
                 return "No past transfers found."
             # Group by recipient

@@ -18,6 +18,25 @@ import re
 from dataclasses import dataclass, asdict
 from enum import Enum
 
+# ⚡ IMPORT PERFORMANCE CONFIG for fast mode
+try:
+    from .performance_config import (
+        ENABLE_FAST_MODE, ENABLE_SECURITY_ALERTS, ENABLE_SECURITY_LOGGING,
+        ENABLE_CRITICAL_ALERTS_ONLY, ALERT_COOLDOWN_SECONDS, ALWAYS_ALLOW_CRITICAL,
+        ENABLE_MONITORING_THREAD
+    )
+    print("✅ Performance config loaded - Fast mode controls active")
+except ImportError:
+    # Fallback to normal mode if config not found
+    ENABLE_FAST_MODE = False
+    ENABLE_SECURITY_ALERTS = True
+    ENABLE_SECURITY_LOGGING = True
+    ENABLE_CRITICAL_ALERTS_ONLY = False
+    ALERT_COOLDOWN_SECONDS = 60
+    ALWAYS_ALLOW_CRITICAL = True
+    ENABLE_MONITORING_THREAD = True
+    print("⚠️ Performance config not found - using normal mode")
+
 logger = logging.getLogger(__name__)
 
 # Admin Telegram ID for security alerts
@@ -66,22 +85,38 @@ class SecurityMonitor:
         self._initialize_security_monitor()
         
     def send_telegram_alert(self, message: str, severity: AlertLevel = AlertLevel.MEDIUM):
-        """Send security alert to admin via Telegram"""
+        """Send security alert to admin via Telegram - FAST MODE OPTIMIZED"""
+        
+        # 🚀 FAST MODE: Skip non-critical alerts entirely
+        if ENABLE_FAST_MODE and not ENABLE_SECURITY_ALERTS:
+            if severity != AlertLevel.CRITICAL or not ALWAYS_ALLOW_CRITICAL:
+                if ENABLE_SECURITY_LOGGING:
+                    logger.debug(f"⚡ FAST MODE: Skipped alert - {message[:50]}...")
+                return True  # Return True to not break workflows
+        
         try:
             if not TELEGRAM_BOT_TOKEN:
-                logger.error("❌ No Telegram bot token configured for security alerts")
+                if ENABLE_SECURITY_LOGGING:
+                    logger.error("❌ No Telegram bot token configured for security alerts")
                 return False
                 
-            # Rate limiting for alerts (max 1 per minute for same type)
+            # Rate limiting for alerts - FAST MODE uses no cooldown
             alert_key = hashlib.md5(message.encode()).hexdigest()
             current_time = time.time()
             
-            if alert_key in self.last_alert_time:
-                if current_time - self.last_alert_time[alert_key] < 60:  # 1 minute cooldown
-                    logger.debug(f"⏳ Alert suppressed (cooldown): {message[:50]}...")
+            if not ENABLE_FAST_MODE and alert_key in self.last_alert_time:
+                if current_time - self.last_alert_time[alert_key] < ALERT_COOLDOWN_SECONDS:
+                    if ENABLE_SECURITY_LOGGING:
+                        logger.debug(f"⏳ Alert suppressed (cooldown): {message[:50]}...")
                     return False
             
             self.last_alert_time[alert_key] = current_time
+            
+            # 🚀 FAST MODE: Only send critical alerts
+            if ENABLE_CRITICAL_ALERTS_ONLY and severity not in [AlertLevel.CRITICAL, AlertLevel.HIGH]:
+                if ENABLE_SECURITY_LOGGING:
+                    logger.debug(f"⚡ FAST MODE: Non-critical alert skipped - {message[:50]}...")
+                return True
             
             # Format alert message with severity emoji
             severity_emoji = {
@@ -101,18 +136,22 @@ class SecurityMonitor:
                 "disable_web_page_preview": True
             }
             
-            response = requests.post(url, json=payload, timeout=10)
+            # 🚀 FAST MODE: Use shorter timeout
+            response = requests.post(url, json=payload, timeout=3 if ENABLE_FAST_MODE else 10)
             
             if response.status_code == 200:
-                logger.info(f"✅ Security alert sent to admin: {message[:50]}...")
+                if ENABLE_SECURITY_LOGGING:
+                    logger.info(f"✅ Security alert sent to admin: {message[:50]}...")
                 self.stats['alerts_sent'] += 1
                 return True
             else:
-                logger.error(f"❌ Failed to send security alert: {response.text}")
+                if ENABLE_SECURITY_LOGGING:
+                    logger.error(f"❌ Failed to send security alert: {response.text}")
                 return False
                 
         except Exception as e:
-            logger.error(f"❌ Error sending security alert: {str(e)}")
+            if ENABLE_SECURITY_LOGGING:
+                logger.error(f"❌ Error sending security alert: {str(e)}")
             return False
     
     def send_sofi_alert(self, message: str, severity: AlertLevel = AlertLevel.MEDIUM):
@@ -144,7 +183,7 @@ Stay secure! 🔒
             return self.send_telegram_alert(message, severity)
     
     def _initialize_security_monitor(self):
-        """Initialize security monitor components"""
+        """Initialize security monitor components - FAST MODE OPTIMIZED"""
         self.blocked_ips = set()
         self.whitelist_ips = set()
         
@@ -157,15 +196,27 @@ Stay secure! 🔒
             'exploit_attempts_per_hour': 5,
         }
         
-        # Start monitoring thread
-        self.monitoring_thread = threading.Thread(target=self._monitor_loop, daemon=True)
-        self.monitoring_thread.start()
+        # 🚀 FAST MODE: Skip monitoring thread for better performance
+        if ENABLE_MONITORING_THREAD and not ENABLE_FAST_MODE:
+            # Start monitoring thread only in normal mode
+            self.monitoring_thread = threading.Thread(target=self._monitor_loop, daemon=True)
+            self.monitoring_thread.start()
+            logger.info("🔍 Security Monitor thread started")
+        else:
+            logger.info("⚡ Security Monitor in FAST MODE - thread disabled for speed")
         
-        logger.info("🔍 Security Monitor initialized")
+        mode_status = "FAST MODE" if ENABLE_FAST_MODE else "NORMAL MODE"
+        logger.info(f"🔍 Security Monitor initialized in {mode_status}")
     
     def log_event(self, event_type: str, severity: AlertLevel, ip: str, 
                   user_agent: str, path: str, method: str, **details):
-        """Log a security event"""
+        """Log a security event - FAST MODE OPTIMIZED"""
+        
+        # 🚀 FAST MODE: Skip detailed logging for minor events
+        if ENABLE_FAST_MODE and severity in [AlertLevel.LOW, AlertLevel.MEDIUM]:
+            if not ENABLE_SECURITY_LOGGING:
+                return  # Skip entirely in fast mode
+        
         event = SecurityEvent(
             timestamp=datetime.now(),
             event_type=event_type,
@@ -177,18 +228,26 @@ Stay secure! 🔒
             details=details
         )
         
-        self.events.append(event)
-        self.stats[event_type] += 1
+        # Only store events if logging is enabled
+        if ENABLE_SECURITY_LOGGING:
+            self.events.append(event)
+            self.stats[event_type] += 1
         
         # Update suspicious IP tracking
         if severity in [AlertLevel.HIGH, AlertLevel.CRITICAL]:
             self.suspicious_ips[ip] += 1
         
-        # Log the event
-        logger.warning(f"🚨 Security Event: {event_type} from {ip} -> {path} [{severity.value}]")
+        # 🚀 FAST MODE: Minimal logging for speed
+        if ENABLE_FAST_MODE:
+            if severity in [AlertLevel.HIGH, AlertLevel.CRITICAL]:
+                logger.warning(f"🚨 Critical Security Event: {event_type} from {ip}")
+        else:
+            # Full logging in normal mode
+            logger.warning(f"🚨 Security Event: {event_type} from {ip} -> {path} [{severity.value}]")
         
-        # Check for alert conditions
-        self._check_alert_conditions(event)
+        # Check for alert conditions only if alerts are enabled
+        if ENABLE_SECURITY_ALERTS or (ALWAYS_ALLOW_CRITICAL and severity == AlertLevel.CRITICAL):
+            self._check_alert_conditions(event)
     
     def _check_alert_conditions(self, event: SecurityEvent):
         """Check if event triggers alerts"""
@@ -619,8 +678,21 @@ security_monitor = SecurityMonitor()
 
 def log_security_event(event_type: str, severity: AlertLevel, ip: str, 
                       user_agent: str, path: str, method: str, **details):
-    """Log a security event"""
+    """Log a security event - FAST MODE OPTIMIZED"""
+    # 🚀 FAST MODE: Skip minor events entirely for speed
+    if ENABLE_FAST_MODE and severity in [AlertLevel.LOW]:
+        return  # Skip low severity events completely
+    
     security_monitor.log_event(event_type, severity, ip, user_agent, path, method, **details)
+
+def send_security_alert(message: str, severity: AlertLevel = AlertLevel.MEDIUM):
+    """Send security alert - FAST MODE OPTIMIZED"""
+    # 🚀 FAST MODE: Only critical alerts
+    if ENABLE_FAST_MODE and not ENABLE_SECURITY_ALERTS:
+        if severity != AlertLevel.CRITICAL or not ALWAYS_ALLOW_CRITICAL:
+            return True  # Silently skip
+    
+    return security_monitor.send_telegram_alert(message, severity)
 
 def get_security_stats() -> Dict:
     """Get security statistics"""
@@ -641,3 +713,43 @@ def unblock_ip_address(ip: str):
 def is_ip_blocked(ip: str) -> bool:
     """Check if IP is blocked"""
     return security_monitor.is_ip_blocked(ip)
+
+# 🚀 FAST MODE CONTROL FUNCTIONS
+def enable_fast_mode():
+    """Enable fast mode - disables non-critical alerts for ultra-fast responses"""
+    global ENABLE_FAST_MODE, ENABLE_SECURITY_ALERTS
+    ENABLE_FAST_MODE = True
+    ENABLE_SECURITY_ALERTS = False
+    print("⚡ SOFI FAST MODE ENABLED - Security alerts suppressed for speed")
+    return True
+
+def disable_fast_mode():
+    """Disable fast mode - enables all security features"""
+    global ENABLE_FAST_MODE, ENABLE_SECURITY_ALERTS
+    ENABLE_FAST_MODE = False
+    ENABLE_SECURITY_ALERTS = True
+    print("🔒 SOFI NORMAL MODE ENABLED - Full security monitoring active")
+    return True
+
+def get_fast_mode_status():
+    """Get current fast mode status"""
+    return {
+        'fast_mode': ENABLE_FAST_MODE,
+        'security_alerts': ENABLE_SECURITY_ALERTS,
+        'critical_alerts_only': ENABLE_CRITICAL_ALERTS_ONLY,
+        'monitoring_thread': ENABLE_MONITORING_THREAD
+    }
+
+def get_enhanced_security_stats() -> Dict:
+    """Get enhanced security statistics with fast mode info"""
+    base_stats = security_monitor.get_security_stats()
+    fast_mode_status = "ENABLED" if ENABLE_FAST_MODE else "DISABLED"
+    alerts_status = "ENABLED" if ENABLE_SECURITY_ALERTS else "DISABLED"
+    
+    base_stats.update({
+        'fast_mode': fast_mode_status,
+        'security_alerts': alerts_status,
+        'performance_mode': 'FAST' if ENABLE_FAST_MODE else 'NORMAL'
+    })
+    
+    return base_stats

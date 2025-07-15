@@ -97,10 +97,25 @@ async def get_transfer_history(chat_id: str, limit: int = 10, **kwargs) -> Dict[
         
         supabase = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
         
-        # Get transfer transactions
+        # 🔧 RESOLVE TELEGRAM ID TO UUID FIRST
+        # Find the user UUID from Telegram chat ID
+        user_result = supabase.table("users").select("id").eq("telegram_chat_id", str(chat_id)).execute()
+        
+        if not user_result.data:
+            logger.warning(f"❌ No user found for Telegram ID {chat_id}")
+            return {
+                "success": False,
+                "error": "User not found. Please complete onboarding first.",
+                "transfers": []
+            }
+        
+        user_uuid = user_result.data[0]["id"]
+        logger.info(f"✅ Resolved Telegram ID {chat_id} to UUID {user_uuid}")
+        
+        # Get transfer transactions using the resolved UUID
         transfers_result = supabase.table("bank_transactions")\
             .select("*")\
-            .eq("user_id", chat_id)\
+            .eq("user_id", user_uuid)\
             .in_("type", ["transfer_out", "transfer_in"])\
             .order("created_at", desc=True)\
             .limit(limit)\
@@ -157,14 +172,29 @@ async def get_wallet_statement(chat_id: str, days: int = 30, **kwargs) -> Dict[s
         
         supabase = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
         
+        # 🔧 RESOLVE TELEGRAM ID TO UUID FIRST
+        # Find the user UUID from Telegram chat ID
+        user_result = supabase.table("users").select("id").eq("telegram_chat_id", str(chat_id)).execute()
+        
+        if not user_result.data:
+            logger.warning(f"❌ No user found for Telegram ID {chat_id}")
+            return {
+                "success": False,
+                "error": "User not found. Please complete onboarding first by visiting https://pipinstallsofi.com/onboard",
+                "transactions": []
+            }
+        
+        user_uuid = user_result.data[0]["id"]
+        logger.info(f"✅ Resolved Telegram ID {chat_id} to UUID {user_uuid}")
+        
         # Calculate date range
         end_date = datetime.now()
         start_date = end_date - timedelta(days=days)
         
-        # Get all transactions in the period
+        # Get all transactions in the period using the resolved UUID
         transactions_result = supabase.table("bank_transactions")\
             .select("*")\
-            .eq("user_id", chat_id)\
+            .eq("user_id", user_uuid)\
             .gte("created_at", start_date.isoformat())\
             .lte("created_at", end_date.isoformat())\
             .order("created_at", desc=True)\

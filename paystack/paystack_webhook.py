@@ -226,6 +226,9 @@ class PaystackWebhookHandler:
         
         # Try ALL possible fields for the REAL sender name (not virtual account names)
         potential_names = [
+            # 🔥 PRIORITY FIX: Move authorization.sender_name to TOP of list
+            data.get("authorization", {}).get("sender_name") if isinstance(data.get("authorization"), dict) else None,
+            
             # Primary sender fields (most likely to have real sender)
             data.get("real_sender_name"),  # Custom field for real sender
             data.get("originator_name"),   # Bank originator
@@ -246,16 +249,16 @@ class PaystackWebhookHandler:
             data.get("fees_breakdown", {}).get("sender_name") if isinstance(data.get("fees_breakdown"), dict) else None,
         ]
         
-        # Try customer object fields (these might have real sender info)
+        # Try customer object fields (these might have real sender info) - MOVE TO LOWER PRIORITY
         if isinstance(customer, dict):
             potential_names.extend([
                 customer.get("name"),
                 customer.get("account_name"),
-                (customer.get("first_name", "") + " " + customer.get("last_name", "")).strip() if customer.get("first_name") or customer.get("last_name") else None,
-                customer.get("email"),
-                # ✅ Additional customer fields
                 customer.get("customer_name"),
                 customer.get("full_name"),
+                customer.get("email"),
+                # Move customer.first_name + last_name to BOTTOM as fallback
+                (customer.get("first_name", "") + " " + customer.get("last_name", "")).strip() if customer.get("first_name") or customer.get("last_name") else None,
             ])
         
         # Try authorization fields (for bank transfers - often has real sender)

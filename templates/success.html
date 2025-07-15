@@ -127,10 +127,14 @@
             color: #667eea;
         }
         
-        .auto-close {
-            color: #999;
-            font-size: 12px;
+        .receipt-note {
+            color: #667eea;
+            font-size: 14px;
             margin-top: 20px;
+            padding: 10px;
+            background: #f0f4ff;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
         }
         
         .close-btn {
@@ -219,43 +223,31 @@
         </div>
         {% endif %}
         
-        <a href="https://t.me/SofiAIBot" class="telegram-link">
+        <a href="https://t.me/getsofi_bot" class="telegram-link">
             📱 Return to Sofi AI
         </a>
         
         <button class="close-btn" onclick="closeWindow()">Close</button>
         
-        <p class="auto-close">This page will close automatically in <span id="countdown">2</span> seconds</p>
+        <p class="receipt-note">💡 Screenshot this receipt for your records</p>
     </div>
     
     <script>
-        // Auto-close functionality - faster timing (2 seconds)
-        let countdown = 2;
-        const countdownElement = document.getElementById('countdown');
-        
-        const timer = setInterval(() => {
-            countdown--;
-            countdownElement.textContent = countdown;
-            
-            if (countdown <= 0) {
-                clearInterval(timer);
-                closeWindow();
-            }
-        }, 1000);
-        
         function closeWindow() {
-            // Try to close the window/tab
+            // Try to close the window/tab - no auto redirect
             if (window.opener) {
                 window.close();
             } else {
-                // If can't close, redirect to Telegram
-                window.location.href = 'https://t.me/SofiAIBot';
+                // Just try to close the window/tab, let user navigate manually
+                window.close();
             }
         }
         
-        // Also close on any key press
+        // Allow manual close with Escape key
         document.addEventListener('keydown', function(e) {
-            closeWindow();
+            if (e.key === 'Escape') {
+                closeWindow();
+            }
         });
     </script>
 </body>
