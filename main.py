@@ -1477,30 +1477,8 @@ async def webhook_incoming():
                 except:
                     return None
             
-            # ⚡ IMMEDIATE RESPONSE for common quick queries
-            quick_responses = {
-                "balance": "💰 Checking your balance...",
-                "send": "💸 Starting transfer process...",
-                "transfer": "💸 Starting transfer process...", 
-                "airtime": "📱 Processing airtime request...",
-                "data": "📶 Processing data request...",
-                "help": "🤖 Let me help you with that...",
-                "hi": "👋 Hello! How can I help you today?",
-                "hello": "👋 Hello! How can I help you today?",
-                "hey": "👋 Hey there! What can I do for you?"
-            }
-            
-            # Check for quick response keywords
-            message_lower = user_message.lower()
-            quick_reply = None
-            for keyword, response in quick_responses.items():
-                if keyword in message_lower:
-                    quick_reply = response
-                    break
-            
-            # Send instant quick reply if found
-            if quick_reply:
-                send_instant_reply(chat_id, quick_reply)
+            # ⚡ REMOVED PLACEHOLDER RESPONSES - Using only assistant logic
+            # All processing now goes through assistant.process_message() only
             
             # Start background processing immediately
             def process_message_background():
@@ -1557,20 +1535,35 @@ async def webhook_incoming():
                             send_instant_reply(chat_id, brief_nudge, keyboard)
                         return
                     
-                    # Process existing user messages
+                    # Process existing user messages - ASSISTANT ONLY
                     virtual_account = get_virtual_account_async()
                     
-                    # Generate AI reply
-                    import asyncio
-                    ai_response = asyncio.run(handle_message(chat_id, user_message, user_data, virtual_account))
-                    
-                    # Send final response (only if not PIN or if no quick reply was sent)
-                    if ai_response and not ai_response.startswith("PIN_ALREADY_SENT"):
-                        if not quick_reply:  # Don't send if we already sent a quick reply
-                            send_instant_reply(chat_id, ai_response)
-                        else:
-                            # Replace the quick reply with the real response
-                            send_instant_reply(chat_id, ai_response)
+                    # 🤖 USE ONLY ASSISTANT.PROCESS_MESSAGE() - No legacy fallback
+                    try:
+                        # Get assistant and process message through AI only
+                        assistant = get_assistant()
+                        
+                        # Prepare context data
+                        context_data = user_data or {}
+                        if virtual_account:
+                            context_data['virtual_account'] = virtual_account
+                        
+                        # 🎯 PURE ASSISTANT PROCESSING - Single source of truth
+                        with app.app_context():  # Fix Flask context issues
+                            response, function_data = asyncio.run(assistant.process_message(chat_id, user_message, context_data))
+                        
+                        # Send only the assistant response - no double handling
+                        if response:
+                            send_instant_reply(chat_id, response)
+                        
+                        # Handle any function results (like transfers)
+                        if function_data:
+                            logger.info(f"🔧 Assistant function data: {function_data}")
+                            # Function results are already handled by assistant
+                            
+                    except Exception as assistant_error:
+                        logger.error(f"❌ Assistant processing error: {str(assistant_error)}")
+                        send_instant_reply(chat_id, "Sorry, I'm having trouble processing your request. Please try again.")
                             
                 except Exception as e:
                     logger.error(f"Error in background message processing: {str(e)}")
@@ -1684,29 +1677,24 @@ def pin_verification_page():
     if not transaction_id:
         return "Invalid transaction", 400
     
-    # Get transaction data from temporary storage
-    if not hasattr(app, 'temp_transfers'):
-        app.temp_transfers = {}
+    # Get transaction data from secure PIN verification system
+    from utils.secure_pin_verification import secure_pin_verification
     
-    transaction = app.temp_transfers.get(transaction_id)
+    transaction = secure_pin_verification.get_pending_transaction(transaction_id)
     if not transaction:
         return "Transaction expired or invalid", 400
     
-    # Check if transaction is expired (5 minutes)
-    from datetime import datetime, timedelta
-    created_at = datetime.fromisoformat(transaction['created_at'])
-    if datetime.now() - created_at > timedelta(minutes=5):
-        # Remove expired transaction
-        del app.temp_transfers[transaction_id]
-        return "Transaction expired", 400
+    # Extract transfer data from the stored transaction
+    transfer_data = transaction.get('transfer_data', {})
+    
     # Render the PIN entry page with transaction details
     return render_template("pin-entry.html", 
                          transaction_id=transaction_id,
                          transfer_data={
-                             'amount': transaction['amount'],
-                             'recipient_name': transaction['recipient_name'],
-                             'bank': transaction['bank_name'],
-                             'account_number': transaction['account_number']
+                             'amount': transfer_data.get('amount', 0),
+                             'recipient_name': transfer_data.get('recipient_name', 'Unknown'),
+                             'bank': transfer_data.get('bank', 'Unknown Bank'),
+                             'account_number': transfer_data.get('account_number', 'Unknown')
                          })
 
 @app.route("/success")
@@ -1763,11 +1751,10 @@ async def verify_pin_api():
                 'error': 'Missing transaction ID or PIN'
             }), 400
         
-        # Get transaction data from temporary storage
-        if not hasattr(app, 'temp_transfers'):
-            app.temp_transfers = {}
+        # Get transaction data from secure PIN verification system
+        from utils.secure_pin_verification import secure_pin_verification
         
-        transaction = app.temp_transfers.get(transaction_id)
+        transaction = secure_pin_verification.get_pending_transaction(transaction_id)
         if not transaction:
             # Monitor failed PIN attempts
             from utils.security_monitor import security_monitor
@@ -1776,22 +1763,6 @@ async def verify_pin_api():
             return jsonify({
                 'success': False,
                 'error': 'Transaction expired or invalid'
-            }), 400
-        
-        # Check if transaction is expired (5 minutes)
-        from datetime import datetime, timedelta
-        created_at = datetime.fromisoformat(transaction['created_at'])
-        if datetime.now() - created_at > timedelta(minutes=5):
-            # Remove expired transaction
-            del app.temp_transfers[transaction_id]
-            
-            # Monitor failed PIN attempts
-            from utils.security_monitor import security_monitor
-            security_monitor.monitor_pin_attempts(client_ip, False)
-            
-            return jsonify({
-                'success': False,
-                'error': 'Transaction expired'
             }), 400
         # Verify PIN
         from functions.security_functions import verify_pin
@@ -1939,8 +1910,8 @@ Please try again or contact support if the issue persists."""
         background_thread.daemon = True
         background_thread.start()
         
-        # Remove transaction from temporary storage immediately
-        del app.temp_transfers[transaction_id]
+        # Remove transaction from secure PIN verification immediately
+        secure_pin_verification.remove_transaction(transaction_id)
         
         # ⚡ IMMEDIATE RESPONSE: Return success page instantly
         return jsonify({

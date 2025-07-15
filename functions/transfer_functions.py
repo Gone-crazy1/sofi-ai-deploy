@@ -112,6 +112,26 @@ async def send_money(chat_id: str, amount: float, narration: str = None, pin: st
     Returns:
         Dict containing transfer result
     """
+    # 🔧 FIX: Wrap in Flask app context to prevent "Working outside of application context" error
+    try:
+        with app.app_context():
+            return await _send_money_internal(chat_id, amount, narration, pin, 
+                                            recipient_account, recipient_bank,
+                                            account_number, bank_name, **kwargs)
+    except RuntimeError as e:
+        if "working outside of application context" in str(e).lower():
+            # Fallback: try without context wrapper
+            logger.warning(f"⚠️  Flask context error, attempting fallback: {e}")
+            return await _send_money_internal(chat_id, amount, narration, pin, 
+                                            recipient_account, recipient_bank,
+                                            account_number, bank_name, **kwargs)
+        else:
+            raise e
+
+async def _send_money_internal(chat_id: str, amount: float, narration: str = None, pin: str = None, 
+                              recipient_account: str = None, recipient_bank: str = None,
+                              account_number: str = None, bank_name: str = None, **kwargs) -> Dict[str, Any]:
+    """Internal transfer function - wrapped by send_money for Flask context"""
     try:
         # Support both parameter name formats for compatibility
         recipient_account = recipient_account or account_number

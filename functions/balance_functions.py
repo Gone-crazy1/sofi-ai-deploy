@@ -8,6 +8,7 @@ from typing import Dict, Any
 from supabase import create_client
 import os
 from utils.balance_helper import get_user_balance as get_balance_secure, check_virtual_account as check_virtual_account_secure
+from flask import current_app as app
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +22,20 @@ async def check_balance(chat_id: str, **kwargs) -> Dict[str, Any]:
     Returns:
         Dict containing balance information
     """
+    # 🔧 FIX: Wrap in Flask app context to prevent context errors
+    try:
+        with app.app_context():
+            return await _check_balance_internal(chat_id, **kwargs)
+    except RuntimeError as e:
+        if "working outside of application context" in str(e).lower():
+            # Fallback: try without context wrapper
+            logger.warning(f"⚠️  Flask context error in balance check, attempting fallback: {e}")
+            return await _check_balance_internal(chat_id, **kwargs)
+        else:
+            raise e
+
+async def _check_balance_internal(chat_id: str, **kwargs) -> Dict[str, Any]:
+    """Internal balance check function - wrapped by check_balance for Flask context"""
     try:
         logger.info(f"💰 Checking balance for user {chat_id}")
         
