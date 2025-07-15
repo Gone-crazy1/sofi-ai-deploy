@@ -1801,6 +1801,14 @@ def verify_pin_api():
         legacy_transaction_id = data.get('transaction_id')  # For backward compatibility
         pin = data.get('pin')
         
+        # Debug logging
+        logger.info(f"🔍 PIN API Request Debug:")
+        logger.info(f"   Raw data keys: {list(data.keys()) if data else 'None'}")
+        logger.info(f"   Has secure_token: {bool(secure_token)}")
+        logger.info(f"   Has transaction_id: {bool(legacy_transaction_id)}")
+        logger.info(f"   Has pin: {bool(pin)}")
+        logger.info(f"   secure_token value: {secure_token[:10] + '...' if secure_token else 'None'}")
+        
         # Get client IP for security monitoring
         client_ip = request.headers.get('X-Forwarded-For', request.remote_addr)
         
