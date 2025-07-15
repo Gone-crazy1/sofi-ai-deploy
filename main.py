@@ -1727,9 +1727,6 @@ def pin_verification_page():
     except Exception as e:
         logger.error(f"❌ PIN verification error: {str(e)} for txn: {transaction_id}")
         return jsonify({"error": "Internal server error", "message": "Please try again"}), 500
-                             'bank': transfer_data.get('bank', 'Unknown Bank'),
-                             'account_number': transfer_data.get('account_number', 'Unknown')
-                         })
 
 @app.route("/success")
 def success_page():
