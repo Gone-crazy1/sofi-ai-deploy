@@ -1731,7 +1731,7 @@ def test_pin_page():
 
 
 @app.route("/api/verify-pin", methods=["POST"])
-async def verify_pin_api():
+def verify_pin_api():
     """API endpoint for PIN verification with security monitoring"""
     try:
         data = request.get_json()
@@ -1766,7 +1766,8 @@ async def verify_pin_api():
             }), 400
         # Verify PIN
         from functions.security_functions import verify_pin
-        pin_result = await verify_pin(chat_id=transaction['chat_id'], pin=pin)
+        import asyncio
+        pin_result = asyncio.run(verify_pin(chat_id=transaction['chat_id'], pin=pin))
         
         # Monitor PIN attempt
         from utils.security_monitor import security_monitor

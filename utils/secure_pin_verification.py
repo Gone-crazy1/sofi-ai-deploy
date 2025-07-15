@@ -23,7 +23,7 @@ from utils.permanent_memory import (
     check_sufficient_balance, validate_transaction_limits
 )
 from utils.notification_service import notification_service
-from beautiful_receipt_generator import generate_beautiful_receipt
+from beautiful_receipt_generator import SofiReceiptGenerator
 
 logger = logging.getLogger(__name__)
 
@@ -210,15 +210,16 @@ class SecurePinVerification:
         """Send beautiful transfer receipt"""
         try:
             # Generate beautiful receipt
-            receipt = generate_beautiful_receipt(
-                sender_name=user_data.get('full_name', 'User'),
-                amount=amount,
-                recipient_name=transfer_data['recipient_name'],
-                recipient_account=transfer_data['account_number'],
-                recipient_bank=transfer_data['bank'],
-                balance=new_balance,
-                transaction_id=transaction_id
-            )
+            receipt_generator = SofiReceiptGenerator()
+            receipt = receipt_generator.create_bank_transfer_receipt({
+                'user_name': user_data.get('full_name', 'User'),
+                'amount': amount,
+                'recipient_name': transfer_data['recipient_name'],
+                'recipient_account': transfer_data['account_number'],
+                'bank': transfer_data['bank'],
+                'balance': new_balance,
+                'transaction_id': transaction_id
+            })
             
             # Send receipt
             await notification_service.send_telegram_message(
