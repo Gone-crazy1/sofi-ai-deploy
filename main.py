@@ -1803,7 +1803,11 @@ def verify_pin_api():
         
         # Debug logging
         logger.info(f"🔍 PIN API Request Debug:")
+        logger.info(f"   Raw data: {data}")
         logger.info(f"   Raw data keys: {list(data.keys()) if data else 'None'}")
+        logger.info(f"   secure_token raw: '{secure_token}' (type: {type(secure_token)})")
+        logger.info(f"   transaction_id raw: '{legacy_transaction_id}' (type: {type(legacy_transaction_id)})")
+        logger.info(f"   pin raw: '{pin}' (type: {type(pin)})")
         logger.info(f"   Has secure_token: {bool(secure_token)}")
         logger.info(f"   Has transaction_id: {bool(legacy_transaction_id)}")
         logger.info(f"   Has pin: {bool(pin)}")

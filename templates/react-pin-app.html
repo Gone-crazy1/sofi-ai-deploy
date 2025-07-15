@@ -39,6 +39,7 @@
             const [success, setSuccess] = useState('');
             const [transactionData, setTransactionData] = useState(null);
             const [fetchingTransaction, setFetchingTransaction] = useState(true);
+            const [authParams, setAuthParams] = useState(null); // Store auth params to prevent re-parsing issues
             
             // Get authentication parameters from URL (secure token or legacy transaction ID)
             const getAuthParams = () => {
@@ -46,24 +47,41 @@
                 const secureToken = params.get('token');
                 const legacyTxnId = params.get('txn_id');
                 
+                // Ensure tokens are properly trimmed and not empty
+                const cleanSecureToken = secureToken && secureToken.trim() ? secureToken.trim() : null;
+                const cleanLegacyTxnId = legacyTxnId && legacyTxnId.trim() ? legacyTxnId.trim() : null;
+                
+                // Debug logging
+                console.log('🔍 URL parsing debug:', {
+                    fullURL: window.location.href,
+                    search: window.location.search,
+                    rawSecureToken: secureToken,
+                    cleanSecureToken: cleanSecureToken ? cleanSecureToken.substring(0, 10) + '...' : null,
+                    rawLegacyTxnId: legacyTxnId,
+                    cleanLegacyTxnId: cleanLegacyTxnId,
+                    allParams: Array.from(params.entries())
+                });
+                
                 return {
-                    secureToken,
-                    legacyTxnId,
-                    authParam: secureToken || legacyTxnId,
-                    isSecureToken: !!secureToken
+                    secureToken: cleanSecureToken,
+                    legacyTxnId: cleanLegacyTxnId,
+                    authParam: cleanSecureToken || cleanLegacyTxnId,
+                    isSecureToken: !!cleanSecureToken
                 };
             };
             
             // Fetch transaction details on component mount
             useEffect(() => {
-                const authParams = getAuthParams();
-                if (!authParams.authParam) {
+                const params = getAuthParams();
+                setAuthParams(params); // Store auth params
+                
+                if (!params.authParam) {
                     setError('Invalid transaction link');
                     setFetchingTransaction(false);
                     return;
                 }
                 
-                fetchTransactionDetails(authParams);
+                fetchTransactionDetails(params);
             }, []);
             
             const fetchTransactionDetails = async (authParams) => {
@@ -104,23 +122,35 @@
                 setError('');
                 
                 try {
-                    const authParams = getAuthParams();
+                    // Use stored auth params instead of re-parsing to avoid issues
+                    const currentAuthParams = authParams || getAuthParams();
+                    
+                    console.log('🚀 Using auth params for PIN submission:', {
+                        stored: !!authParams,
+                        hasSecureToken: !!currentAuthParams.secureToken,
+                        hasLegacyTxn: !!currentAuthParams.legacyTxnId,
+                        isSecureToken: currentAuthParams.isSecureToken
+                    });
                     
                     // Prepare request body based on authentication method
                     const requestBody = {
                         pin: pin
                     };
                     
-                    if (authParams.isSecureToken) {
-                        requestBody.secure_token = authParams.secureToken;
+                    if (currentAuthParams.isSecureToken) {
+                        requestBody.secure_token = currentAuthParams.secureToken;
+                        console.log('🔑 Using secure token authentication, token:', currentAuthParams.secureToken ? currentAuthParams.secureToken.substring(0, 10) + '...' : 'null');
                     } else {
-                        requestBody.transaction_id = authParams.legacyTxnId;
+                        requestBody.transaction_id = currentAuthParams.legacyTxnId;
+                        console.log('⚠️ Using legacy transaction ID:', currentAuthParams.legacyTxnId);
                     }
                     
-                    console.log('Sending PIN verification request:', { 
-                        hasSecureToken: !!authParams.secureToken,
-                        hasLegacyTxn: !!authParams.legacyTxnId,
-                        requestBody: { ...requestBody, pin: '****' } // Hide PIN in logs
+                    console.log('🚀 Sending PIN verification request:', { 
+                        hasSecureToken: !!currentAuthParams.secureToken,
+                        hasLegacyTxn: !!currentAuthParams.legacyTxnId,
+                        authMethod: currentAuthParams.isSecureToken ? 'secure_token' : 'legacy',
+                        requestBodyKeys: Object.keys(requestBody),
+                        urlParams: window.location.search
                     });
                     
                     const response = await fetch('/api/verify-pin', {
