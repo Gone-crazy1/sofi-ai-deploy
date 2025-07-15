@@ -187,6 +187,27 @@ Stay secure! 🔒
         self.blocked_ips = set()
         self.whitelist_ips = set()
         
+        # Add Telegram IP ranges to whitelist
+        telegram_ip_ranges = [
+            '149.154.160.0/20',  # Telegram bot IPs
+            '149.154.164.0/22',
+            '149.154.168.0/22',
+            '149.154.172.0/22'
+        ]
+        
+        # Add specific Telegram IPs that are commonly used
+        telegram_ips = [
+            '149.154.161.253', '149.154.161.218', '149.154.167.91',
+            '149.154.175.100', '91.108.4.0/22', '91.108.8.0/22',
+            '91.108.12.0/22', '91.108.16.0/22', '91.108.56.0/22'
+        ]
+        
+        for ip in telegram_ips:
+            if '/' not in ip:  # Single IP, not range
+                self.whitelist_ips.add(ip)
+        
+        logger.info(f"✅ Whitelisted {len(telegram_ips)} Telegram bot IPs")
+        
         # Alert thresholds
         self.thresholds = {
             'failed_requests_per_minute': 20,
@@ -407,6 +428,21 @@ Stay secure! 🔒
         severity = AlertLevel.LOW
         details = {}
         
+        # Skip security checks for whitelisted IPs (like Telegram bots)
+        if self.is_ip_whitelisted(ip):
+            return None
+        
+        # Skip security checks for trusted bots on /verify-pin route
+        if path.startswith('/verify-pin'):
+            trusted_bots = [
+                r'TelegramBot', r'TwitterBot', r'facebookexternalhit', r'WhatsApp',
+                r'Slackbot', r'LinkedInBot', r'DiscordBot', r'MetaBot'
+            ]
+            
+            for trusted_pattern in trusted_bots:
+                if re.search(trusted_pattern, user_agent, re.IGNORECASE):
+                    return None
+        
         # Check for WordPress/CMS attacks
         wp_patterns = [
             r'/wp-admin', r'/wp-login', r'/wp-config', r'/wp-content',
@@ -421,20 +457,34 @@ Stay secure! 🔒
                 details['pattern_matched'] = pattern
                 break
         
-        # Check for suspicious user agents
-        suspicious_agents = [
-            r'python-requests', r'curl', r'wget', r'bot', r'crawler', r'spider',
-            r'scanner', r'exploit', r'hack', r'attack', r'penetration',
-            r'nikto', r'sqlmap', r'nmap', r'dirb', r'gobuster'
+        # Check for suspicious user agents (but whitelist legitimate bots first)
+        trusted_bots = [
+            r'TelegramBot', r'TwitterBot', r'facebookexternalhit', r'WhatsApp',
+            r'Slackbot', r'LinkedInBot', r'DiscordBot', r'MetaBot'
         ]
         
-        for agent_pattern in suspicious_agents:
-            if re.search(agent_pattern, user_agent, re.IGNORECASE):
-                if severity == AlertLevel.LOW:
-                    severity = AlertLevel.MEDIUM
-                details['suspicious_agent'] = True
-                details['agent_pattern'] = agent_pattern
+        # Check if it's a trusted bot first
+        is_trusted_bot = False
+        for trusted_pattern in trusted_bots:
+            if re.search(trusted_pattern, user_agent, re.IGNORECASE):
+                is_trusted_bot = True
                 break
+        
+        # Only check for suspicious agents if not a trusted bot
+        if not is_trusted_bot:
+            suspicious_agents = [
+                r'python-requests', r'curl', r'wget', r'bot', r'crawler', r'spider',
+                r'scanner', r'exploit', r'hack', r'attack', r'penetration',
+                r'nikto', r'sqlmap', r'nmap', r'dirb', r'gobuster'
+            ]
+            
+            for agent_pattern in suspicious_agents:
+                if re.search(agent_pattern, user_agent, re.IGNORECASE):
+                    if severity == AlertLevel.LOW:
+                        severity = AlertLevel.MEDIUM
+                    details['suspicious_agent'] = True
+                    details['agent_pattern'] = agent_pattern
+                    break
         
         # Check for high-frequency requests (simple rate limiting detection)
         self.suspicious_ips[ip] += 1
