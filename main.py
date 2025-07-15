@@ -1849,163 +1849,59 @@ def verify_pin_api():
                 'success': False,
                 'error': 'Transaction expired, invalid, or already used'
             }), 400
-        # Verify PIN
-        from functions.security_functions import verify_pin
+        # Verify PIN and process transfer using the secure PIN verification system
+        from utils.secure_pin_verification import secure_pin_verification
         import asyncio
-        pin_result = asyncio.run(verify_pin(chat_id=transaction['chat_id'], pin=pin))
+        
+        # Use the comprehensive verify_pin_and_process_transfer method
+        if secure_token:
+            # Get transaction ID from token data
+            token_data = secure_pin_verification.secure_tokens.get(secure_token)
+            transaction_id = token_data['transaction_id'] if token_data else None
+        else:
+            transaction_id = legacy_transaction_id
+            
+        if not transaction_id:
+            return jsonify({
+                'success': False,
+                'error': 'Transaction ID not found'
+            }), 400
+        
+        # Process PIN verification and transfer
+        pin_result = asyncio.run(secure_pin_verification.verify_pin_and_process_transfer(transaction_id, pin))
         
         # Monitor PIN attempt
         from utils.security_monitor import security_monitor
-        security_monitor.monitor_pin_attempts(client_ip, pin_result.get("valid", False))
+        security_monitor.monitor_pin_attempts(client_ip, pin_result.get("success", False))
         
-        if not pin_result.get("valid"):
+        if pin_result.get('success'):
+            # Return success response with redirect URL
+            from urllib.parse import urlencode
+            from datetime import datetime
+            
+            transfer_data = transaction.get('transfer_data', {})
+            success_params = {
+                'amount': transaction.get('amount', 0),
+                'recipient_name': transfer_data.get('recipient_name', 'Unknown'),
+                'bank': transfer_data.get('bank', 'Unknown Bank'),
+                'account_number': transfer_data.get('account_number', 'Unknown'),
+                'reference': pin_result.get('transaction_id', 'N/A'),
+                'fee': transfer_data.get('fee', 20),
+                'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            }
+            
+            redirect_url = f"/success?{urlencode(success_params)}"
+            
+            return jsonify({
+                'success': True,
+                'message': 'Transfer completed successfully!',
+                'redirect_url': redirect_url
+            })
+        else:
             return jsonify({
                 'success': False,
-                'error': 'Invalid PIN'
+                'error': pin_result.get('error', 'Transfer failed')
             }), 400
-        
-        # ✅ IMMEDIATE RESPONSE: Create success page URL first
-        from urllib.parse import urlencode
-        from datetime import datetime
-        
-        success_params = {
-            'amount': transaction['amount'],
-            'recipient_name': transaction['recipient_name'],
-            'bank': transaction['bank_name'],
-            'account_number': transaction['account_number'],
-            'reference': f"TX{transaction_id[-8:]}",  # Use transaction ID as temporary reference
-            'fee': transaction.get('fee', 20),
-            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        }
-        
-        redirect_url = f"/success?{urlencode(success_params)}"
-        
-        # ⚡ BACKGROUND PROCESSING: Execute transfer and notifications async
-        import threading
-        
-        def process_transfer_background():
-            """Process transfer and send notifications in background"""
-            try:
-                # Execute the transfer
-                from functions.transfer_functions import send_money
-                import asyncio
-                
-                # Create new event loop for this thread
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                
-                result = loop.run_until_complete(send_money(
-                    chat_id=transaction['chat_id'],
-                    account_number=transaction['account_number'],
-                    bank_name=transaction['bank_name'],
-                    amount=transaction['amount'],
-                    pin=pin,
-                    narration=transaction['narration']
-                ))
-                
-                if result.get('success'):
-                    # Generate and send Telegram notifications
-                    receipt = f"""🧾 **SOFI AI TRANSFER RECEIPT**
-═══════════════════════════════
-
-📋 **TRANSACTION DETAILS**
-Reference: {result.get('reference', 'N/A')}
-Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-Status: COMPLETED ✅
-
-💸 **TRANSFER SUMMARY**
-Amount: ₦{transaction['amount']:,.2f}
-Fee: ₦{transaction.get('fee', 20):,.2f}
-Total: ₦{transaction['amount'] + transaction.get('fee', 20):,.2f}
-
-👤 **RECIPIENT DETAILS**
-Name: {transaction['recipient_name']}
-Account: {transaction['account_number']}
-Bank: {transaction['bank_name']}
-
-═══════════════════════════════
-⚡ Powered by Sofi AI
-🔒 Secured by Paystack
-═══════════════════════════════
-
-Thank you for using Sofi! 💙"""
-                    
-                    send_reply(transaction['chat_id'], receipt)
-                    
-                    # Generate and send beautiful receipt
-                    try:
-                        from beautiful_receipt_generator import SofiReceiptGenerator
-                        receipt_gen = SofiReceiptGenerator()
-                        
-                        receipt_data = {
-                            'user_name': 'Sofi User',
-                            'amount': transaction['amount'],
-                            'recipient_name': transaction['recipient_name'],
-                            'recipient_account': transaction['account_number'],
-                            'recipient_bank': transaction['bank_name'],
-                            'transfer_fee': transaction.get('fee', 20),
-                            'new_balance': result.get('balance_after', 0),
-                            'reference': result.get('reference', 'N/A')
-                        }
-                        
-                        beautiful_receipt = receipt_gen.create_bank_transfer_receipt(receipt_data)
-                        if beautiful_receipt:
-                            send_reply(transaction['chat_id'], beautiful_receipt)
-                            logger.info(f"📧 Beautiful receipt sent to {transaction['chat_id']}")
-                    except Exception as e:
-                        logger.error(f"Failed to generate beautiful receipt: {e}")
-                    
-                    # Send Sofi's acknowledgment
-                    from utils.bank_name_converter import get_bank_name_from_code
-                    friendly_bank_name = get_bank_name_from_code(transaction.get('bank_code', ''))
-                    display_bank_name = friendly_bank_name if friendly_bank_name != "Unknown Bank" else transaction['bank_name']
-                    
-                    sofi_response = f"""Transfer completed successfully! ✅
-
-I've sent ₦{transaction['amount']:,.2f} to {transaction['recipient_name']} at {display_bank_name}.
-
-Is there anything else I can help you with today?"""
-                    
-                    send_reply(transaction['chat_id'], sofi_response)
-                    logger.info(f"✅ Transfer completed successfully for {transaction['chat_id']}")
-                    
-                else:
-                    # Send error notification
-                    error_message = f"""❌ Transfer Failed
-
-{result.get('error', 'Unknown error occurred')}
-
-Please try again or contact support if the issue persists."""
-                    
-                    send_reply(transaction['chat_id'], error_message)
-                    logger.error(f"❌ Transfer failed for {transaction['chat_id']}: {result.get('error')}")
-                
-                loop.close()
-                
-            except Exception as e:
-                logger.error(f"❌ Background transfer processing error: {e}")
-                # Send error notification to user
-                try:
-                    send_reply(transaction['chat_id'], "❌ Transfer processing error. Please contact support.")
-
-                except:
-                    pass
-        
-        # Start background processing
-        background_thread = threading.Thread(target=process_transfer_background)
-        background_thread.daemon = True
-        background_thread.start()
-        
-        # Remove transaction from secure PIN verification immediately
-        secure_pin_verification.remove_transaction(transaction_id)
-        
-        # ⚡ IMMEDIATE RESPONSE: Return success page instantly
-        return jsonify({
-            'success': True,
-            'message': 'Transfer initiated successfully',
-            'reference': f"TX{transaction_id[-8:]}",
-            'redirect_url': redirect_url
-        }), 200
             
     except Exception as e:
         logger.error(f"Error in PIN verification API: {e}")
@@ -2190,6 +2086,60 @@ async def handle_callback_query(callback_query: dict):
     except Exception as e:
         logger.error(f"❌ Error handling callback query: {str(e)}")
         return jsonify({"error": str(e)}), 500
+
+@app.route("/api/transaction-details")
+def get_transaction_details():
+    """API endpoint to fetch transaction details using secure token or legacy transaction ID"""
+    try:
+        secure_token = request.args.get('token')
+        legacy_txn_id = request.args.get('txn_id')
+        
+        if not secure_token and not legacy_txn_id:
+            return jsonify({
+                'success': False,
+                'error': 'Authentication token required'
+            }), 400
+        
+        # Get transaction data from secure PIN verification system
+        from utils.secure_pin_verification import secure_pin_verification
+        
+        transaction = None
+        if secure_token:
+            transaction = secure_pin_verification.get_pending_transaction_by_token(secure_token)
+            logger.info(f"📊 Transaction details requested via secure token: {secure_token[:10]}...")
+        elif legacy_txn_id:
+            transaction = secure_pin_verification.get_pending_transaction(legacy_txn_id)
+            logger.info(f"📊 Transaction details requested via legacy ID: {legacy_txn_id}")
+        
+        if not transaction:
+            return jsonify({
+                'success': False,
+                'error': 'Transaction not found or expired'
+            }), 404
+        
+        # Extract transfer data
+        transfer_data = transaction.get('transfer_data', {})
+        
+        # Return safe transaction details for display
+        return jsonify({
+            'success': True,
+            'transaction': {
+                'amount': transaction.get('amount', 0),
+                'recipient_name': transfer_data.get('recipient_name', 'Unknown'),
+                'bank': transfer_data.get('bank', 'Unknown Bank'),
+                'account_number': transfer_data.get('account_number', 'Unknown'),
+                'fee': transfer_data.get('fee', 20),
+                'total': transaction.get('amount', 0) + transfer_data.get('fee', 20),
+                'narration': transfer_data.get('narration', 'Transfer via Sofi AI')
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"Error fetching transaction details: {e}")
+        return jsonify({
+            'success': False,
+            'error': 'Internal server error'
+        }), 500
 
 async def send_beautiful_receipt(chat_id, receipt_data, transfer_result):
     """Send a beautiful receipt after successful transfer"""

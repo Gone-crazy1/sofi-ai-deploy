@@ -68,32 +68,29 @@
             
             const fetchTransactionDetails = async (authParams) => {
                 try {
-                    // For secure tokens, we don't need to fetch details separately
-                    // The PIN verification endpoint will handle token validation
+                    // Build URL parameters
+                    const urlParams = new URLSearchParams();
                     if (authParams.isSecureToken) {
-                        setTransactionData({
-                            message: 'Enter your 4-digit PIN to complete the transfer'
-                        });
-                        setFetchingTransaction(false);
-                        return;
+                        urlParams.append('token', authParams.secureToken);
+                    } else {
+                        urlParams.append('txn_id', authParams.legacyTxnId);
                     }
                     
-                    // Legacy system - fetch transaction details first
-                    const response = await fetch('/api/verify-pin', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                        },
-                        body: JSON.stringify({
-                            action: 'get_transaction',
-                            transaction_id: authParams.legacyTxnId
-                        })
-                    });
-                    
+                    const response = await fetch(`/api/transaction-details?${urlParams.toString()}`);
                     const data = await response.json();
                     
                     if (data.success) {
                         setTransactionData(data.transaction);
+                        setFetchingTransaction(false);
+                    } else {
+                        setError(data.error || 'Transaction not found');
+                        setFetchingTransaction(false);
+                    }
+                } catch (err) {
+                    setError('Failed to load transaction details');
+                    setFetchingTransaction(false);
+                }
+            };
                     } else {
                         setError(data.error || 'Transaction not found');
                     }
