@@ -1403,7 +1403,8 @@ async def webhook_incoming():
             def process_photo_background():
                 success, response = process_photo(file_id)
                 if success:
-                    ai_response = await generate_ai_reply(chat_id, response)
+                    # Use asyncio.run for the async call
+                    ai_response = asyncio.run(generate_ai_reply(chat_id, response))
                     send_instant_reply(chat_id, ai_response)
                 else:
                     send_instant_reply(chat_id, response)
