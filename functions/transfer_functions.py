@@ -257,13 +257,16 @@ async def _send_money_internal(chat_id: str, amount: float, narration: str = Non
             pin_url = f"https://pipinstallsofi.com/verify-pin?token={secure_token}"
             
             # Return web PIN entry response with keyboard
+            # Convert bank code to friendly name for display
+            bank_display_name = BANK_CODE_TO_NAME.get(recipient_bank, recipient_bank)
+            
             return {
                 "success": False,
                 "requires_pin": True,
                 "show_web_pin": True,
                 "message": f"""💸 You're about to send ₦{amount:,.0f} to:
 👤 Name: *{recipient_name}*
-🏦 Bank: {recipient_bank}
+🏦 Bank: {bank_display_name}
 🔢 Account: {recipient_account}
 💰 Fee: ₦{total_fees:,.0f}
 💵 Total: ₦{amount + total_fees:,.0f}
