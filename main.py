@@ -1552,14 +1552,31 @@ async def webhook_incoming():
                         with app.app_context():  # Fix Flask context issues
                             response, function_data = asyncio.run(assistant.process_message(chat_id, user_message, context_data))
                         
-                        # Send only the assistant response - no double handling
-                        if response:
-                            send_instant_reply(chat_id, response)
-                        
-                        # Handle any function results (like transfers)
+                        # Handle function results first (like PIN keyboards)
                         if function_data:
                             logger.info(f"🔧 Assistant function data: {function_data}")
-                            # Function results are already handled by assistant
+                            
+                            # Check for PIN requirement with keyboard
+                            for func_name, func_result in function_data.items():
+                                if isinstance(func_result, dict) and func_result.get("requires_pin") and func_result.get("show_web_pin"):
+                                    logger.info(f"🔐 Function {func_name} requires PIN entry - sending web PIN button")
+                                    
+                                    # Send the PIN entry message with web app button
+                                    pin_message = func_result.get("message", "Please enter your PIN")
+                                    pin_keyboard = func_result.get("keyboard", {})
+                                    
+                                    # Debug logging
+                                    logger.info(f"🔧 DEBUG: Sending web PIN button from background")
+                                    logger.info(f"� PIN Message: {pin_message}")
+                                    logger.info(f"⌨️ Keyboard: {pin_keyboard}")
+                                    
+                                    # Send message with PIN button
+                                    send_instant_reply(chat_id, pin_message, pin_keyboard)
+                                    return  # Don't send additional message
+                        
+                        # Send only the assistant response if no special handling
+                        if response:
+                            send_instant_reply(chat_id, response)
                             
                     except Exception as assistant_error:
                         logger.error(f"❌ Assistant processing error: {str(assistant_error)}")
@@ -2132,13 +2149,18 @@ def get_transaction_details():
         # Extract transfer data
         transfer_data = transaction.get('transfer_data', {})
         
+        # Convert bank code to friendly name
+        from functions.transfer_functions import BANK_CODE_TO_NAME
+        bank_code = transfer_data.get('bank', 'Unknown Bank')
+        bank_name = BANK_CODE_TO_NAME.get(bank_code, bank_code)
+        
         # Return safe transaction details for display
         return jsonify({
             'success': True,
             'transaction': {
                 'amount': transaction.get('amount', 0),
                 'recipient_name': transfer_data.get('recipient_name', 'Unknown'),
-                'bank': transfer_data.get('bank', 'Unknown Bank'),
+                'bank': bank_name,  # Use friendly bank name instead of code
                 'account_number': transfer_data.get('account_number', 'Unknown'),
                 'fee': transfer_data.get('fee', 20),
                 'total': transaction.get('amount', 0) + transfer_data.get('fee', 20),

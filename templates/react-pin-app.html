@@ -129,7 +129,8 @@
                         stored: !!authParams,
                         hasSecureToken: !!currentAuthParams.secureToken,
                         hasLegacyTxn: !!currentAuthParams.legacyTxnId,
-                        isSecureToken: currentAuthParams.isSecureToken
+                        isSecureToken: currentAuthParams.isSecureToken,
+                        secureTokenLength: currentAuthParams.secureToken ? currentAuthParams.secureToken.length : 0
                     });
                     
                     // Prepare request body based on authentication method
@@ -137,21 +138,28 @@
                         pin: pin
                     };
                     
-                    if (currentAuthParams.isSecureToken) {
+                    // Force secure token usage if we have a token parameter in URL
+                    const urlParams = new URLSearchParams(window.location.search);
+                    const urlToken = urlParams.get('token');
+                    
+                    if (urlToken && urlToken.trim()) {
+                        // Force secure token mode if URL has token
+                        requestBody.secure_token = urlToken.trim();
+                        console.log('🔑 FORCED secure token authentication from URL, token:', urlToken.substring(0, 10) + '...');
+                    } else if (currentAuthParams.isSecureToken && currentAuthParams.secureToken) {
                         requestBody.secure_token = currentAuthParams.secureToken;
-                        console.log('🔑 Using secure token authentication, token:', currentAuthParams.secureToken ? currentAuthParams.secureToken.substring(0, 10) + '...' : 'null');
-                    } else {
+                        console.log('🔑 Using secure token authentication from params, token:', currentAuthParams.secureToken.substring(0, 10) + '...');
+                    } else if (currentAuthParams.legacyTxnId) {
                         requestBody.transaction_id = currentAuthParams.legacyTxnId;
                         console.log('⚠️ Using legacy transaction ID:', currentAuthParams.legacyTxnId);
+                    } else {
+                        console.error('❌ No valid authentication method found!');
+                        setError('Authentication error. Please try again.');
+                        setLoading(false);
+                        return;
                     }
                     
-                    console.log('🚀 Sending PIN verification request:', { 
-                        hasSecureToken: !!currentAuthParams.secureToken,
-                        hasLegacyTxn: !!currentAuthParams.legacyTxnId,
-                        authMethod: currentAuthParams.isSecureToken ? 'secure_token' : 'legacy',
-                        requestBodyKeys: Object.keys(requestBody),
-                        urlParams: window.location.search
-                    });
+                    console.log('🚀 Final request body keys:', Object.keys(requestBody));
                     
                     const response = await fetch('/api/verify-pin', {
                         method: 'POST',
