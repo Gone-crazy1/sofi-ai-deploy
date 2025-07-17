@@ -23,7 +23,7 @@ from utils.conversation_state import conversation_state
 from utils.bank_api import BankAPI
 from utils.permanent_memory import (
     verify_user_pin, track_pin_attempt, is_user_locked,
-    check_sufficient_balance, validate_transaction_limits
+    validate_transaction_limits, SofiMemorySystem
 )
 from utils.notification_service import notification_service
 from beautiful_receipt_generator import SofiReceiptGenerator
@@ -235,13 +235,21 @@ class SecurePinVerification:
         try:
             user_id = user_data.get('id')
             
-            # Security checks
-            balance_check = await check_sufficient_balance(str(user_id), amount)
+            # Initialize memory system to use the correct balance check method
+            memory_system = SofiMemorySystem()
+            
+            # Security checks - use the class method that returns Dict
+            balance_check = await memory_system.check_sufficient_balance(str(user_id), amount)
             if not balance_check['sufficient']:
                 await self._send_transfer_failed_message(
-                    chat_id, f"Insufficient balance. Available: ₦{balance_check['available']:,.2f}"
+                    chat_id, f"Insufficient balance. Available: ₦{balance_check['balance']:,.2f}"
                 )
                 return {'success': False, 'error': 'Insufficient balance'}
+            
+            # Get current balance for receipt
+            balance_info = await memory_system.get_user_balance(str(user_id))
+            current_balance = balance_info.get('balance', 0.0) if balance_info.get('success') else 0.0
+            new_balance = current_balance - amount
             
             limit_check = await validate_transaction_limits(str(user_id), amount)
             if not limit_check['valid']:
@@ -268,7 +276,7 @@ class SecurePinVerification:
                 # Step 5: Send beautiful receipt
                 await self._send_transfer_receipt(
                     chat_id, user_data, transfer_data, amount, 
-                    transaction_id, balance_check['new_balance']
+                    transaction_id, new_balance
                 )
                 
                 # Clear conversation state
