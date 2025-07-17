@@ -39,8 +39,6 @@
             const [success, setSuccess] = useState('');
             const [transactionData, setTransactionData] = useState(null);
             const [fetchingTransaction, setFetchingTransaction] = useState(true);
-            const [secureToken, setSecureToken] = useState(null);
-            const [transactionId, setTransactionId] = useState(null);
             
             // Fetch transaction details on component mount
             useEffect(() => {
@@ -49,68 +47,34 @@
             
             const fetchTransactionDetails = async () => {
                 try {
-                    console.log('🌐 PAGE LOAD DEBUG:', {
-                        fullURL: window.location.href,
-                        search: window.location.search,
-                        hash: window.location.hash
-                    });
-                    
-                    // Extract token from URL with multiple methods
+                    // Extract token from URL
                     const urlParams = new URLSearchParams(window.location.search);
                     const token = urlParams.get('token');
                     const txnId = urlParams.get('txn_id');
                     
-                    // Also try manual extraction
-                    const manualTokenMatch = window.location.search.match(/token=([^&\s]+)/);
-                    const manualToken = manualTokenMatch ? manualTokenMatch[1] : null;
-                    
-                    console.log('🔍 PAGE LOAD Token extraction:', { 
-                        token: token?.substring(0, 10) + '...', 
-                        txnId: txnId,
-                        manualToken: manualToken?.substring(0, 10) + '...',
-                        urlSearch: window.location.search
-                    });
-                    
-                    const finalToken = token || manualToken;
-                    
-                    if (!finalToken && !txnId) {
-                        console.error('❌ PAGE LOAD: Missing authentication token');
+                    if (!token && !txnId) {
                         setError('Missing authentication token');
                         setFetchingTransaction(false);
                         return;
                     }
                     
-                    // Store token and transaction ID for later use
-                    setSecureToken(finalToken);
-                    setTransactionId(txnId);
-                    
-                    console.log('💾 STORED IN STATE:', {
-                        storedToken: finalToken?.substring(0, 10) + '...',
-                        storedTxnId: txnId
-                    });
-                    
-                    // Build API URL to fetch transaction details
-                    const apiUrl = finalToken 
-                        ? `/api/transaction-details?token=${finalToken}`
+                    // Build API URL
+                    const apiUrl = token 
+                        ? `/api/transaction-details?token=${token}`
                         : `/api/transaction-details?txn_id=${txnId}`;
-                    
-                    console.log('📡 Fetching from API URL:', apiUrl);
                     
                     const response = await fetch(apiUrl);
                     const data = await response.json();
                     
-                    console.log('📥 API Response:', { success: data.success, error: data.error });
-                    
                     if (data.success) {
                         setTransactionData(data.transaction);
                         setFetchingTransaction(false);
-                        console.log('✅ Transaction data loaded successfully');
                     } else {
                         setError(data.error || 'Transaction not found');
                         setFetchingTransaction(false);
                     }
                 } catch (err) {
-                    console.error('❌ Error fetching transaction details:', err);
+                    console.error('Error fetching transaction details:', err);
                     setError('Failed to load transaction details');
                     setFetchingTransaction(false);
                 }
@@ -121,7 +85,6 @@
                 
                 console.log('🚀 PIN SUBMIT STARTED');
                 console.log('🌍 Current URL:', window.location.href);
-                console.log('🔍 URL Search:', window.location.search);
                 
                 if (pin.length !== 4) {
                     setError('Please enter a 4-digit PIN');
@@ -132,92 +95,44 @@
                 setError('');
                 
                 try {
-                    // AGGRESSIVE TOKEN EXTRACTION - Try every possible method
+                    // Extract token from URL using multiple methods
                     const urlParams = new URLSearchParams(window.location.search);
                     const directToken = urlParams.get('token');
                     const legacyTxnId = urlParams.get('txn_id');
                     
-                    // Multiple regex attempts for token extraction
-                    const tokenMatch1 = window.location.href.match(/[?&]token=([^&\s]+)/);
-                    const tokenMatch2 = window.location.search.match(/token=([^&\s]+)/);
-                    const tokenMatch3 = window.location.href.match(/token=([A-Za-z0-9_-]+)/);
+                    // Also try regex extraction as backup
+                    const tokenMatch = window.location.href.match(/[?&]token=([^&\s]+)/);
+                    const regexToken = tokenMatch ? tokenMatch[1] : null;
                     
-                    const regexToken1 = tokenMatch1 ? tokenMatch1[1] : null;
-                    const regexToken2 = tokenMatch2 ? tokenMatch2[1] : null;
-                    const regexToken3 = tokenMatch3 ? tokenMatch3[1] : null;
+                    // Use the first available token
+                    const finalToken = directToken || regexToken;
                     
-                    // Use the first available token (prioritize stored state first)
-                    const finalToken = secureToken || directToken || regexToken1 || regexToken2 || regexToken3;
-                    const finalTransactionId = transactionId || legacyTxnId;
-                    
-                    console.log('🔍 COMPREHENSIVE Token extraction results:', {
-                        storedToken: secureToken ? secureToken.substring(0, 10) + '...' : 'null',
+                    console.log('🔍 Token extraction results:', {
                         directToken: directToken ? directToken.substring(0, 10) + '...' : 'null',
-                        regexToken1: regexToken1 ? regexToken1.substring(0, 10) + '...' : 'null',
-                        regexToken2: regexToken2 ? regexToken2.substring(0, 10) + '...' : 'null',
-                        regexToken3: regexToken3 ? regexToken3.substring(0, 10) + '...' : 'null',
-                        storedTxnId: transactionId || 'null',
+                        regexToken: regexToken ? regexToken.substring(0, 10) + '...' : 'null',
                         legacyTxnId: legacyTxnId || 'null',
-                        finalToken: finalToken ? finalToken.substring(0, 10) + '...' : 'null',
-                        finalTransactionId: finalTransactionId || 'null'
+                        finalToken: finalToken ? finalToken.substring(0, 10) + '...' : 'null'
                     });
                     
-                    // CRITICAL DEBUG: Show the full URL and what we extracted
-                    console.log('🌐 FULL URL DEBUG:', {
-                        fullURL: window.location.href,
-                        search: window.location.search,
-                        hash: window.location.hash,
-                        pathname: window.location.pathname
-                    });
-                    
-                    // Build request body - MUST include secure_token
+                    // Build request body
                     const requestBody = {
                         pin: pin
                     };
                     
-                    // FORCE include secure token if available
                     if (finalToken) {
                         requestBody.secure_token = finalToken;
-                        console.log('✅ INCLUDED SECURE TOKEN:', finalToken.substring(0, 10) + '...');
-                        console.log('✅ FULL TOKEN LENGTH:', finalToken.length);
+                        console.log('✅ USING SECURE TOKEN:', finalToken.substring(0, 10) + '...');
+                    } else if (legacyTxnId) {
+                        requestBody.transaction_id = legacyTxnId;
+                        console.log('⚠️ USING LEGACY TRANSACTION ID:', legacyTxnId);
                     } else {
-                        console.error('❌ CRITICAL: NO TOKEN FOUND IN ANY METHOD!');
-                        console.error('❌ This will cause authentication failure!');
-                    }
-                    
-                    // Include transaction ID if available
-                    if (finalTransactionId) {
-                        requestBody.transaction_id = finalTransactionId;
-                        console.log('✅ INCLUDED TRANSACTION ID:', finalTransactionId);
-                    }
-                    
-                    // EMERGENCY FALLBACK: Try to extract token directly from URL one more time
-                    if (!finalToken) {
-                        console.log('🚨 EMERGENCY FALLBACK: Extracting token from URL manually...');
-                        const emergencyTokenMatch = window.location.href.match(/token=([A-Za-z0-9_-]+)/);
-                        if (emergencyTokenMatch) {
-                            const emergencyToken = emergencyTokenMatch[1];
-                            requestBody.secure_token = emergencyToken;
-                            console.log('🆘 EMERGENCY TOKEN EXTRACTED:', emergencyToken.substring(0, 10) + '...');
-                        }
-                    }
-                    
-                    // Final validation
-                    if (!requestBody.secure_token && !requestBody.transaction_id) {
-                        console.error('❌ FINAL CHECK: NO AUTHENTICATION DATA FOUND!');
+                        console.error('❌ NO TOKEN FOUND!');
                         setError('Authentication token not found. Please try again.');
                         setLoading(false);
                         return;
                     }
                     
-                    console.log('📤 FINAL REQUEST BODY KEYS:', Object.keys(requestBody));
-                    console.log('📤 FINAL REQUEST BODY PREVIEW:', {
-                        pin: requestBody.pin ? '****' : 'null',
-                        secure_token: requestBody.secure_token ? requestBody.secure_token.substring(0, 10) + '...' : 'MISSING',
-                        transaction_id: requestBody.transaction_id || 'null'
-                    });
-                    
-                    console.log('📤 SENDING REQUEST TO /api/verify-pin...');
+                    console.log('📤 Sending request with body keys:', Object.keys(requestBody));
                     
                     const response = await fetch('/api/verify-pin', {
                         method: 'POST',
