@@ -178,6 +178,32 @@ class SecurePinVerification:
             transfer_data = transaction['transfer_data']
             amount = transaction['amount']
             
+            # 🔥 EARLY VALIDATION: Check transaction data structure
+            logger.info(f"🔍 Transaction data validation for {transaction_id}")
+            logger.info(f"  - chat_id: {chat_id}")
+            logger.info(f"  - amount: {amount}")
+            logger.info(f"  - transfer_data type: {type(transfer_data)}")
+            logger.info(f"  - transfer_data keys: {list(transfer_data.keys()) if isinstance(transfer_data, dict) else 'Not a dict'}")
+            
+            # Validate transfer_data is a proper dictionary
+            if not isinstance(transfer_data, dict):
+                logger.error(f"❌ CRITICAL: transfer_data is {type(transfer_data)}, not dict")
+                return {
+                    'success': False,
+                    'error': f'Invalid transfer data type: {type(transfer_data)}'
+                }
+            
+            # Check for essential fields
+            essential_fields = ['account_number', 'recipient_name']
+            missing_essential = [field for field in essential_fields if not transfer_data.get(field)]
+            
+            if missing_essential:
+                logger.error(f"❌ Missing essential fields: {missing_essential}")
+                return {
+                    'success': False,
+                    'error': f'Missing essential transfer information: {missing_essential}'
+                }
+            
             # Step 1: Send "PIN approved, transfer in progress" message
             await self._send_pin_approved_message(chat_id)
             
@@ -282,11 +308,37 @@ class SecurePinVerification:
                 )
                 return {'success': False, 'error': error_msg}
             
+            # 🔥 CRITICAL VALIDATION: Check transfer_data structure
+            if not isinstance(transfer_data, dict):
+                logger.error(f"❌ transfer_data is not a dict: {type(transfer_data)}")
+                await self._send_transfer_failed_message(
+                    chat_id, "Invalid transfer data structure. Please try again."
+                )
+                return {'success': False, 'error': 'Invalid transfer data structure'}
+            
+            # Check for required fields in transfer_data
+            required_fields = ['account_number', 'bank', 'recipient_name']
+            missing_fields = [field for field in required_fields if field not in transfer_data]
+            
+            if missing_fields:
+                logger.error(f"❌ Missing required fields in transfer_data: {missing_fields}")
+                logger.error(f"❌ Available fields in transfer_data: {list(transfer_data.keys())}")
+                await self._send_transfer_failed_message(
+                    chat_id, f"Missing transfer information: {', '.join(missing_fields)}"
+                )
+                return {'success': False, 'error': f'Missing required fields: {missing_fields}'}
+            
+            # Use bank_name if bank is missing (field name inconsistency fix)
+            bank_field = transfer_data.get('bank') or transfer_data.get('bank_name', 'Unknown')
+            account_number = transfer_data.get('account_number', '')
+            
+            logger.info(f"🔍 Transfer validation passed - Bank: {bank_field}, Account: {account_number}")
+            
             # Execute transfer via bank API
             transfer_result = await self.bank_api.transfer_money(
                 amount=amount,
-                account_number=transfer_data['account_number'],
-                bank_name=transfer_data['bank'],
+                account_number=account_number,
+                bank_name=bank_field,
                 narration=f"Transfer via Sofi AI - {transaction_id}",
                 reference=transaction_id
             )
