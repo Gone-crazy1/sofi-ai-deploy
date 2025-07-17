@@ -316,8 +316,10 @@ class SecurePinVerification:
                 )
                 return {'success': False, 'error': 'Invalid transfer data structure'}
             
-            # Check for required fields in transfer_data
-            required_fields = ['account_number', 'bank', 'recipient_name']
+            # Check for required fields in transfer_data (handle field name variations)
+            required_fields = ['account_number', 'recipient_name']
+            bank_field_present = 'bank' in transfer_data or 'bank_name' in transfer_data
+            
             missing_fields = [field for field in required_fields if field not in transfer_data]
             
             if missing_fields:
@@ -327,6 +329,14 @@ class SecurePinVerification:
                     chat_id, f"Missing transfer information: {', '.join(missing_fields)}"
                 )
                 return {'success': False, 'error': f'Missing required fields: {missing_fields}'}
+            
+            if not bank_field_present:
+                logger.error(f"❌ No bank field found in transfer_data (looking for 'bank' or 'bank_name')")
+                logger.error(f"❌ Available fields in transfer_data: {list(transfer_data.keys())}")
+                await self._send_transfer_failed_message(
+                    chat_id, "Missing bank information for transfer"
+                )
+                return {'success': False, 'error': 'Missing bank information'}
             
             # Use bank_name if bank is missing (field name inconsistency fix)
             bank_field = transfer_data.get('bank') or transfer_data.get('bank_name', 'Unknown')
