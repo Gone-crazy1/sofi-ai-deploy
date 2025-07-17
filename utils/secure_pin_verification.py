@@ -264,6 +264,12 @@ class SecurePinVerification:
                 transfer_fee = float(transfer_data.get('fee', 20.0))
                 actual_new_balance = balance_check['balance'] - (amount + transfer_fee)
                 
+                # 🔥 CRITICAL FIX: Update wallet balance in database
+                await self._update_wallet_balance_and_log_transaction(
+                    user_id, actual_new_balance, amount, transfer_fee, 
+                    transfer_data, transaction_id
+                )
+                
                 # Send ONLY success message (no duplicate receipt)
                 await self._send_transfer_success_message(
                     chat_id, transfer_data, amount, transaction_id
@@ -364,6 +370,88 @@ class SecurePinVerification:
         await notification_service.send_telegram_message(
             chat_id, message, "Markdown"
         )
+    
+    async def _update_wallet_balance_and_log_transaction(self, user_id: str, 
+                                                       new_balance: float, 
+                                                       amount: float, 
+                                                       fee: float,
+                                                       transfer_data: Dict, 
+                                                       transaction_id: str):
+        """
+        🔥 CRITICAL: Update wallet balance and log transaction to database
+        
+        This ensures:
+        1. User's wallet_balance is debited correctly
+        2. Transaction is logged for history
+        3. Balance reflects actual transfer
+        """
+        try:
+            from supabase import create_client
+            import os
+            
+            supabase = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
+            
+            # 1. Update wallet balance in users table
+            logger.info(f"💰 Updating wallet balance: {new_balance:.2f} for user {user_id}")
+            
+            balance_update = supabase.table("users").update({
+                "wallet_balance": new_balance
+            }).eq("id", user_id).execute()
+            
+            if balance_update.data:
+                logger.info(f"✅ Wallet balance updated successfully: ₦{new_balance:,.2f}")
+            else:
+                logger.error(f"❌ Failed to update wallet balance for user {user_id}")
+            
+            # 2. Log transaction in bank_transactions table
+            bank_display_name = self._get_bank_display_name(
+                transfer_data.get('bank_name', transfer_data.get('bank', 'Unknown'))
+            )
+            
+            transaction_record = {
+                "user_id": user_id,
+                "transaction_type": "transfer",  # Proper categorization
+                "amount": amount,
+                "fee": fee,
+                "total_amount": amount + fee,
+                "recipient_name": transfer_data.get('recipient_name', 'Unknown'),
+                "recipient_account": transfer_data.get('account_number', ''),
+                "bank_name": bank_display_name,
+                "bank_code": transfer_data.get('bank_name', transfer_data.get('bank', '')),
+                "reference": transaction_id,
+                "status": "success",
+                "description": f"Bank Transfer to {transfer_data.get('recipient_name', 'Unknown')}",
+                "narration": f"Transfer via Sofi AI to {bank_display_name}",
+                "balance_before": new_balance + (amount + fee),  # Calculate previous balance
+                "balance_after": new_balance,
+                "created_at": datetime.now().isoformat()
+            }
+            
+            logger.info(f"📝 Logging transaction: {transaction_id}")
+            
+            transaction_insert = supabase.table("bank_transactions").insert(transaction_record).execute()
+            
+            if transaction_insert.data:
+                logger.info(f"✅ Transaction logged successfully: {transaction_id}")
+            else:
+                logger.error(f"❌ Failed to log transaction: {transaction_id}")
+            
+            # 3. Verify balance update
+            verification = supabase.table("users").select("wallet_balance").eq("id", user_id).execute()
+            
+            if verification.data:
+                actual_balance = verification.data[0].get("wallet_balance", 0)
+                logger.info(f"🔍 Balance verification: Expected ₦{new_balance:,.2f}, Actual ₦{actual_balance:,.2f}")
+                
+                if abs(actual_balance - new_balance) > 0.01:  # Allow for small rounding differences
+                    logger.warning(f"⚠️ Balance mismatch detected!")
+                else:
+                    logger.info(f"✅ Balance update verified successfully")
+            
+        except Exception as e:
+            logger.error(f"❌ CRITICAL ERROR updating wallet balance and logging transaction: {e}")
+            # This is critical - if balance update fails, we need to know
+            raise Exception(f"Failed to update wallet balance: {e}")
 
 # Global instance
 secure_pin_verification = SecurePinVerification()
