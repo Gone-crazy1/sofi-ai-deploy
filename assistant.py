@@ -399,21 +399,65 @@ class SofiAssistant:
             # Get or create thread (fast)
             thread_id = await self._get_or_create_thread(chat_id)
             
+            # 🚀 FIX: Check if there's an active run on this thread
+            active_run_id = self._check_active_run(thread_id)
+            
+            if active_run_id:
+                logger.info(f"⏳ Thread {thread_id} has active run {active_run_id}")
+                
+                # Try to wait for completion (short timeout)
+                completed = await self._wait_for_run_completion(thread_id, active_run_id, max_wait_seconds=3)
+                
+                if not completed:
+                    # Run is still active, send polite message and abort
+                    await background_manager.send_telegram_message(chat_id, 
+                        "⏳ I'm still processing your previous request. Please wait a moment and try again.")
+                    # Clean up our task
+                    if chat_id in background_manager.active_tasks:
+                        del background_manager.active_tasks[chat_id]
+                    return
+                
+                logger.info(f"✅ Previous run completed, proceeding with new message")
+            
             # Add user context to the message
             context_message = self._prepare_context_message(message, chat_id, user_data)
             
-            # Create message in thread (fast)
-            self.client.beta.threads.messages.create(
-                thread_id=thread_id,
-                role="user",
-                content=context_message
-            )
+            # 🚀 FIX: Safe message creation with retry
+            try:
+                self.client.beta.threads.messages.create(
+                    thread_id=thread_id,
+                    role="user",
+                    content=context_message
+                )
+            except Exception as msg_error:
+                if "while a run" in str(msg_error) and "is active" in str(msg_error):
+                    logger.warning(f"⚠️ Message creation failed due to active run: {msg_error}")
+                    await background_manager.send_telegram_message(chat_id, 
+                        "⏳ I'm still processing your previous request. Please wait a moment and try again.")
+                    # Clean up our task
+                    if chat_id in background_manager.active_tasks:
+                        del background_manager.active_tasks[chat_id]
+                    return
+                else:
+                    raise msg_error
             
-            # Run the assistant (fast)
-            run = self.client.beta.threads.runs.create(
-                thread_id=thread_id,
-                assistant_id=self.assistant_id
-            )
+            # 🚀 FIX: Safe run creation with retry
+            try:
+                run = self.client.beta.threads.runs.create(
+                    thread_id=thread_id,
+                    assistant_id=self.assistant_id
+                )
+            except Exception as run_error:
+                if "while a run" in str(run_error) and "is active" in str(run_error):
+                    logger.warning(f"⚠️ Run creation failed due to active run: {run_error}")
+                    await background_manager.send_telegram_message(chat_id, 
+                        "⏳ I'm still processing your previous request. Please wait a moment and try again.")
+                    # Clean up our task
+                    if chat_id in background_manager.active_tasks:
+                        del background_manager.active_tasks[chat_id]
+                    return
+                else:
+                    raise run_error
             
             # Start background completion processing
             await background_manager.process_openai_run_background(
@@ -424,6 +468,13 @@ class SofiAssistant:
             logger.error(f"❌ Background processing setup error: {e}")
             await background_manager.send_telegram_message(chat_id, 
                 "❌ Sorry, I encountered an issue. Please try again.")
+            # Clean up our task
+            if chat_id in background_manager.active_tasks:
+                del background_manager.active_tasks[chat_id]
+        finally:
+            # Ensure we clean up the task tracking
+            if chat_id in background_manager.active_tasks:
+                del background_manager.active_tasks[chat_id]
     
     async def process_telegram_message(self, chat_id: str, message: str, user_data: Dict = None, 
                                      chat_type: str = 'private', group_id: str = None, 
