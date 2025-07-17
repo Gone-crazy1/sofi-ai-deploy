@@ -55,23 +55,30 @@
                         hash: window.location.hash
                     });
                     
-                    // Extract token from URL with multiple methods
+                    // CRITICAL FIX: Extract token from URL with aggressive methods
                     const urlParams = new URLSearchParams(window.location.search);
                     const token = urlParams.get('token');
                     const txnId = urlParams.get('txn_id');
                     
-                    // Also try manual extraction
-                    const manualTokenMatch = window.location.search.match(/token=([^&\s]+)/);
-                    const manualToken = manualTokenMatch ? manualTokenMatch[1] : null;
+                    // Multiple manual extraction methods for robustness
+                    const manualTokenMatch1 = window.location.search.match(/[?&]token=([^&\s]+)/);
+                    const manualTokenMatch2 = window.location.href.match(/[?&]token=([A-Za-z0-9_-]+)/);
+                    const manualTokenMatch3 = window.location.search.match(/token=([A-Za-z0-9_-]+)/);
+                    
+                    const manualToken1 = manualTokenMatch1 ? decodeURIComponent(manualTokenMatch1[1]) : null;
+                    const manualToken2 = manualTokenMatch2 ? decodeURIComponent(manualTokenMatch2[1]) : null;
+                    const manualToken3 = manualTokenMatch3 ? decodeURIComponent(manualTokenMatch3[1]) : null;
                     
                     console.log('🔍 PAGE LOAD Token extraction:', { 
                         token: token?.substring(0, 10) + '...', 
                         txnId: txnId,
-                        manualToken: manualToken?.substring(0, 10) + '...',
+                        manualToken1: manualToken1?.substring(0, 10) + '...',
+                        manualToken2: manualToken2?.substring(0, 10) + '...',
+                        manualToken3: manualToken3?.substring(0, 10) + '...',
                         urlSearch: window.location.search
                     });
                     
-                    const finalToken = token || manualToken;
+                    const finalToken = token || manualToken1 || manualToken2 || manualToken3;
                     
                     if (!finalToken && !txnId) {
                         console.error('❌ PAGE LOAD: Missing authentication token');
@@ -132,22 +139,24 @@
                 setError('');
                 
                 try {
-                    // AGGRESSIVE TOKEN EXTRACTION - Try every possible method
+                    // CRITICAL FIX: AGGRESSIVE TOKEN EXTRACTION - Try every possible method
                     const urlParams = new URLSearchParams(window.location.search);
                     const directToken = urlParams.get('token');
                     const legacyTxnId = urlParams.get('txn_id');
                     
-                    // Multiple regex attempts for token extraction
+                    // Multiple regex attempts for token extraction with URL decoding
                     const tokenMatch1 = window.location.href.match(/[?&]token=([^&\s]+)/);
                     const tokenMatch2 = window.location.search.match(/token=([^&\s]+)/);
                     const tokenMatch3 = window.location.href.match(/token=([A-Za-z0-9_-]+)/);
+                    const tokenMatch4 = window.location.search.match(/[?&]token=([A-Za-z0-9_-]+)/);
                     
-                    const regexToken1 = tokenMatch1 ? tokenMatch1[1] : null;
-                    const regexToken2 = tokenMatch2 ? tokenMatch2[1] : null;
-                    const regexToken3 = tokenMatch3 ? tokenMatch3[1] : null;
+                    const regexToken1 = tokenMatch1 ? decodeURIComponent(tokenMatch1[1]) : null;
+                    const regexToken2 = tokenMatch2 ? decodeURIComponent(tokenMatch2[1]) : null;
+                    const regexToken3 = tokenMatch3 ? decodeURIComponent(tokenMatch3[1]) : null;
+                    const regexToken4 = tokenMatch4 ? decodeURIComponent(tokenMatch4[1]) : null;
                     
                     // Use the first available token (prioritize stored state first)
-                    const finalToken = secureToken || directToken || regexToken1 || regexToken2 || regexToken3;
+                    const finalToken = secureToken || directToken || regexToken1 || regexToken2 || regexToken3 || regexToken4;
                     const finalTransactionId = transactionId || legacyTxnId;
                     
                     console.log('🔍 COMPREHENSIVE Token extraction results:', {
@@ -156,9 +165,11 @@
                         regexToken1: regexToken1 ? regexToken1.substring(0, 10) + '...' : 'null',
                         regexToken2: regexToken2 ? regexToken2.substring(0, 10) + '...' : 'null',
                         regexToken3: regexToken3 ? regexToken3.substring(0, 10) + '...' : 'null',
+                        regexToken4: regexToken4 ? regexToken4.substring(0, 10) + '...' : 'null',
                         storedTxnId: transactionId || 'null',
                         legacyTxnId: legacyTxnId || 'null',
                         finalToken: finalToken ? finalToken.substring(0, 10) + '...' : 'null',
+                        finalTokenLength: finalToken ? finalToken.length : 0,
                         finalTransactionId: finalTransactionId || 'null'
                     });
                     
@@ -175,7 +186,7 @@
                         pin: pin
                     };
                     
-                    // FORCE include secure token if available
+                    // CRITICAL: FORCE include secure token if available
                     if (finalToken) {
                         requestBody.secure_token = finalToken;
                         console.log('✅ INCLUDED SECURE TOKEN:', finalToken.substring(0, 10) + '...');
@@ -185,29 +196,72 @@
                         console.error('❌ This will cause authentication failure!');
                     }
                     
-                    // Include transaction ID if available
-                    if (finalTransactionId) {
+                    // DEPRECATED: Don't include transaction_id to avoid confusion
+                    // Only include transaction_id as absolute fallback if no secure_token
+                    if (!finalToken && finalTransactionId) {
                         requestBody.transaction_id = finalTransactionId;
-                        console.log('✅ INCLUDED TRANSACTION ID:', finalTransactionId);
+                        console.log('⚠️ FALLBACK: Using legacy transaction_id:', finalTransactionId);
                     }
                     
                     // EMERGENCY FALLBACK: Try to extract token directly from URL one more time
                     if (!finalToken) {
                         console.log('🚨 EMERGENCY FALLBACK: Extracting token from URL manually...');
-                        const emergencyTokenMatch = window.location.href.match(/token=([A-Za-z0-9_-]+)/);
-                        if (emergencyTokenMatch) {
-                            const emergencyToken = emergencyTokenMatch[1];
-                            requestBody.secure_token = emergencyToken;
-                            console.log('🆘 EMERGENCY TOKEN EXTRACTED:', emergencyToken.substring(0, 10) + '...');
+                        
+                        // Try multiple emergency extraction methods
+                        const emergencyMethods = [
+                            () => new URLSearchParams(window.location.search).get('token'),
+                            () => window.location.search.match(/[?&]token=([^&\s]+)/)?.[1],
+                            () => window.location.href.match(/[?&]token=([^&\s]+)/)?.[1],
+                            () => window.location.search.match(/token=([A-Za-z0-9_-]+)/)?.[1],
+                            () => window.location.href.match(/token=([A-Za-z0-9_-]+)/)?.[1],
+                            () => {
+                                // Manual string parsing as last resort
+                                const url = window.location.href;
+                                const tokenIndex = url.indexOf('token=');
+                                if (tokenIndex !== -1) {
+                                    const start = tokenIndex + 6; // 'token='.length
+                                    const end = url.indexOf('&', start);
+                                    return url.substring(start, end !== -1 ? end : undefined);
+                                }
+                                return null;
+                            }
+                        ];
+                        
+                        for (let i = 0; i < emergencyMethods.length; i++) {
+                            try {
+                                const emergencyToken = emergencyMethods[i]();
+                                if (emergencyToken) {
+                                    console.log(`🆘 EMERGENCY TOKEN EXTRACTED (method ${i+1}):`, emergencyToken.substring(0, 10) + '...');
+                                    requestBody.secure_token = decodeURIComponent(emergencyToken);
+                                    break;
+                                }
+                            } catch (e) {
+                                console.log(`Emergency method ${i+1} failed:`, e.message);
+                            }
                         }
                     }
                     
-                    // Final validation
+                    // CRITICAL VALIDATION: Ensure secure_token is present
                     if (!requestBody.secure_token && !requestBody.transaction_id) {
                         console.error('❌ FINAL CHECK: NO AUTHENTICATION DATA FOUND!');
                         setError('Authentication token not found. Please try again.');
                         setLoading(false);
                         return;
+                    }
+                    
+                    // FORCE SECURE TOKEN EXTRACTION ONE LAST TIME
+                    if (!requestBody.secure_token) {
+                        console.log('🚨 FINAL EMERGENCY: Attempting last-resort token extraction...');
+                        
+                        // Last resort: Try to extract any token from the current URL
+                        const lastResortToken = window.location.href.match(/token=([^&\s#]+)/)?.[1];
+                        if (lastResortToken) {
+                            requestBody.secure_token = decodeURIComponent(lastResortToken);
+                            console.log('🆘 LAST RESORT TOKEN FOUND:', lastResortToken.substring(0, 10) + '...');
+                            
+                            // Remove transaction_id since we have secure_token
+                            delete requestBody.transaction_id;
+                        }
                     }
                     
                     console.log('📤 FINAL REQUEST BODY KEYS:', Object.keys(requestBody));
