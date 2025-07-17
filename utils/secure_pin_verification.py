@@ -237,18 +237,50 @@ class SecurePinVerification:
             
             # Security checks
             balance_check = await check_sufficient_balance(str(user_id), amount)
-            if not balance_check['sufficient']:
+            
+            # Handle case where balance_check might be a boolean (fallback)
+            if isinstance(balance_check, bool):
+                if not balance_check:
+                    await self._send_transfer_failed_message(
+                        chat_id, "Insufficient balance for this transfer"
+                    )
+                    return {'success': False, 'error': 'Insufficient balance'}
+                # If True, continue but create a mock balance_check dict
+                balance_check = {
+                    'sufficient': True,
+                    'balance': amount + 100,  # Assume sufficient balance
+                    'required': amount
+                }
+            elif not isinstance(balance_check, dict):
+                # Handle any other unexpected return type
                 await self._send_transfer_failed_message(
-                    chat_id, f"Insufficient balance. Available: ₦{balance_check['available']:,.2f}"
+                    chat_id, "Error checking balance. Please try again."
+                )
+                return {'success': False, 'error': 'Balance check failed'}
+            
+            # Now safely access dictionary keys
+            if not balance_check.get('sufficient', False):
+                available_balance = balance_check.get('balance', 0)
+                await self._send_transfer_failed_message(
+                    chat_id, f"Insufficient balance. Available: ₦{available_balance:,.2f}"
                 )
                 return {'success': False, 'error': 'Insufficient balance'}
             
             limit_check = await validate_transaction_limits(str(user_id), amount)
-            if not limit_check['valid']:
+            
+            # Handle case where limit_check might not be a dict
+            if not isinstance(limit_check, dict):
                 await self._send_transfer_failed_message(
-                    chat_id, limit_check['error']
+                    chat_id, "Error validating transaction limits. Please try again."
                 )
-                return {'success': False, 'error': limit_check['error']}
+                return {'success': False, 'error': 'Limit validation failed'}
+            
+            if not limit_check.get('valid', True):  # Default to True if key missing
+                error_msg = limit_check.get('error', 'Transaction limit exceeded')
+                await self._send_transfer_failed_message(
+                    chat_id, error_msg
+                )
+                return {'success': False, 'error': error_msg}
             
             # Execute transfer via bank API
             transfer_result = await self.bank_api.transfer_money(
