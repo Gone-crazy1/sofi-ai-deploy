@@ -178,6 +178,15 @@ class SecurePinVerification:
             transfer_data = transaction['transfer_data']
             amount = transaction['amount']
             
+            # Debug logging for transfer_data
+            logger.info(f"🔍 Retrieved transaction data:")
+            logger.info(f"  - chat_id: {chat_id}")
+            logger.info(f"  - amount: {amount}")
+            logger.info(f"  - transfer_data: {transfer_data}")
+            logger.info(f"  - transfer_data type: {type(transfer_data)}")
+            if isinstance(transfer_data, dict):
+                logger.info(f"  - transfer_data keys: {list(transfer_data.keys())}")
+            
             # Step 1: Send "PIN approved, transfer in progress" message
             await self._send_pin_approved_message(chat_id)
             
@@ -258,6 +267,21 @@ class SecurePinVerification:
                 )
                 return {'success': False, 'error': limit_check['error']}
             
+            # Validate transfer_data has required fields before processing
+            required_fields = ['account_number', 'bank', 'amount']
+            missing_fields = [field for field in required_fields if field not in transfer_data]
+            
+            if missing_fields:
+                error_msg = f"Missing required fields in transfer_data: {missing_fields}. Available fields: {list(transfer_data.keys())}"
+                logger.error(error_msg)
+                await self._send_transfer_failed_message(
+                    chat_id, f"Transfer data incomplete: {missing_fields}"
+                )
+                return {'success': False, 'error': error_msg}
+            
+            # Log transfer_data for debugging
+            logger.info(f"🔍 Processing transfer with data: {transfer_data}")
+            
             # Execute transfer via bank API
             transfer_result = await self.bank_api.transfer_money(
                 amount=amount,
@@ -299,10 +323,15 @@ class SecurePinVerification:
     async def _send_transfer_success_message(self, chat_id: str, transfer_data: Dict, 
                                            amount: float, transaction_id: str):
         """Send transfer success notification"""
+        # Safe access to transfer_data fields with fallbacks
+        recipient_name = transfer_data.get('recipient_name', 'Unknown Recipient')
+        bank_name = transfer_data.get('bank', 'Unknown Bank')
+        account_number = transfer_data.get('account_number', 'Unknown Account')
+        
         message = (
             f"✅ *Transfer Successful!*\n\n"
-            f"₦{amount:,.2f} sent to *{transfer_data['recipient_name']}*\n"
-            f"*{transfer_data['bank']}* ({transfer_data['account_number']})\n\n"
+            f"₦{amount:,.2f} sent to *{recipient_name}*\n"
+            f"*{bank_name}* ({account_number})\n\n"
             f"📋 *Transaction Ref:* {transaction_id}"
         )
         
@@ -315,14 +344,14 @@ class SecurePinVerification:
                                    transaction_id: str, new_balance: float):
         """Send beautiful transfer receipt"""
         try:
-            # Generate beautiful receipt
+            # Generate beautiful receipt with safe field access
             receipt_generator = SofiReceiptGenerator()
             receipt = receipt_generator.create_bank_transfer_receipt({
                 'user_name': user_data.get('full_name', 'User'),
                 'amount': amount,
-                'recipient_name': transfer_data['recipient_name'],
-                'recipient_account': transfer_data['account_number'],
-                'bank': transfer_data['bank'],
+                'recipient_name': transfer_data.get('recipient_name', 'Unknown Recipient'),
+                'recipient_account': transfer_data.get('account_number', 'Unknown Account'),
+                'bank': transfer_data.get('bank', 'Unknown Bank'),
                 'balance': new_balance,
                 'transaction_id': transaction_id
             })
