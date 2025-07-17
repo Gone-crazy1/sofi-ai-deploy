@@ -23,7 +23,7 @@ from utils.conversation_state import conversation_state
 from utils.bank_api import BankAPI
 from utils.permanent_memory import (
     verify_user_pin, track_pin_attempt, is_user_locked,
-    validate_transaction_limits, SecureTransactionValidator
+    check_sufficient_balance, validate_transaction_limits
 )
 from utils.notification_service import notification_service
 from beautiful_receipt_generator import SofiReceiptGenerator
@@ -178,15 +178,6 @@ class SecurePinVerification:
             transfer_data = transaction['transfer_data']
             amount = transaction['amount']
             
-            # Debug logging for transfer_data
-            logger.info(f"🔍 Retrieved transaction data:")
-            logger.info(f"  - chat_id: {chat_id}")
-            logger.info(f"  - amount: {amount}")
-            logger.info(f"  - transfer_data: {transfer_data}")
-            logger.info(f"  - transfer_data type: {type(transfer_data)}")
-            if isinstance(transfer_data, dict):
-                logger.info(f"  - transfer_data keys: {list(transfer_data.keys())}")
-            
             # Step 1: Send "PIN approved, transfer in progress" message
             await self._send_pin_approved_message(chat_id)
             
@@ -244,21 +235,13 @@ class SecurePinVerification:
         try:
             user_id = user_data.get('id')
             
-            # Initialize memory system to use the correct balance check method
-            memory_system = SecureTransactionValidator()
-            
-            # Security checks - use the class method that returns Dict
-            balance_check = await memory_system.check_sufficient_balance(str(user_id), amount)
+            # Security checks
+            balance_check = await check_sufficient_balance(str(user_id), amount)
             if not balance_check['sufficient']:
                 await self._send_transfer_failed_message(
-                    chat_id, f"Insufficient balance. Available: ₦{balance_check['balance']:,.2f}"
+                    chat_id, f"Insufficient balance. Available: ₦{balance_check['available']:,.2f}"
                 )
                 return {'success': False, 'error': 'Insufficient balance'}
-            
-            # Get current balance for receipt
-            balance_info = await memory_system.get_user_balance(str(user_id))
-            current_balance = balance_info.get('balance', 0.0) if balance_info.get('success') else 0.0
-            new_balance = current_balance - amount
             
             limit_check = await validate_transaction_limits(str(user_id), amount)
             if not limit_check['valid']:
@@ -267,42 +250,30 @@ class SecurePinVerification:
                 )
                 return {'success': False, 'error': limit_check['error']}
             
-            # Validate transfer_data has required fields before processing
-            # Note: transfer_data uses 'bank_name' not 'bank'
-            required_fields = ['account_number', 'bank_name', 'amount']
-            missing_fields = [field for field in required_fields if field not in transfer_data]
-            
-            if missing_fields:
-                error_msg = f"Missing required fields in transfer_data: {missing_fields}. Available fields: {list(transfer_data.keys())}"
-                logger.error(error_msg)
-                await self._send_transfer_failed_message(
-                    chat_id, f"Transfer data incomplete: {missing_fields}"
-                )
-                return {'success': False, 'error': error_msg}
-            
-            # Log transfer_data for debugging
-            logger.info(f"🔍 Processing transfer with data: {transfer_data}")
-            
-            # Execute transfer via bank API (use bank_name field)
+            # Execute transfer via bank API
             transfer_result = await self.bank_api.transfer_money(
                 amount=amount,
                 account_number=transfer_data['account_number'],
-                bank_name=transfer_data['bank_name'],  # Changed from 'bank' to 'bank_name'
+                bank_name=transfer_data['bank'],
                 narration=f"Transfer via Sofi AI - {transaction_id}",
                 reference=transaction_id
             )
             
             if transfer_result.get('success'):
-                # Step 4: Send success message
+                # Calculate correct new balance after transfer
+                transfer_fee = float(transfer_data.get('fee', 20.0))
+                actual_new_balance = balance_check['balance'] - (amount + transfer_fee)
+                
+                # Send ONLY success message (no duplicate receipt)
                 await self._send_transfer_success_message(
                     chat_id, transfer_data, amount, transaction_id
                 )
                 
-                # Step 5: Send beautiful receipt
-                await self._send_transfer_receipt(
-                    chat_id, user_data, transfer_data, amount, 
-                    transaction_id, new_balance
-                )
+                # DISABLED: Don't send second text receipt since we have web receipt
+                # await self._send_transfer_receipt(
+                #     chat_id, user_data, transfer_data, amount, 
+                #     transaction_id, actual_new_balance
+                # )
                 
                 # Clear conversation state
                 conversation_state.clear_state(chat_id)
@@ -324,15 +295,14 @@ class SecurePinVerification:
     async def _send_transfer_success_message(self, chat_id: str, transfer_data: Dict, 
                                            amount: float, transaction_id: str):
         """Send transfer success notification"""
-        # Safe access to transfer_data fields with fallbacks
-        recipient_name = transfer_data.get('recipient_name', 'Unknown Recipient')
-        bank_name = transfer_data.get('bank_name', 'Unknown Bank')  # Changed from 'bank' to 'bank_name'
-        account_number = transfer_data.get('account_number', 'Unknown Account')
+        # Map bank code to bank name for display
+        bank_code = transfer_data.get('bank_name', transfer_data.get('bank', 'Unknown'))
+        bank_display_name = self._get_bank_display_name(bank_code)
         
         message = (
             f"✅ *Transfer Successful!*\n\n"
-            f"₦{amount:,.2f} sent to *{recipient_name}*\n"
-            f"*{bank_name}* ({account_number})\n\n"
+            f"₦{amount:,.2f} sent to *{transfer_data['recipient_name']}*\n"
+            f"*{bank_display_name}* ({transfer_data['account_number']})\n\n"
             f"📋 *Transaction Ref:* {transaction_id}"
         )
         
@@ -340,19 +310,41 @@ class SecurePinVerification:
             chat_id, message, "Markdown"
         )
     
+    def _get_bank_display_name(self, bank_code: str) -> str:
+        """Convert bank code to display name"""
+        bank_names = {
+            "035": "Wema Bank",
+            "044": "Access Bank", 
+            "058": "GTBank",
+            "057": "Zenith Bank",
+            "033": "UBA",
+            "011": "First Bank",
+            "032": "Union Bank",
+            "070": "Fidelity Bank",
+            "232": "Sterling Bank",
+            "221": "Stanbic IBTC",
+            "999992": "Opay",
+            "999991": "PalmPay",
+            "50211": "Kuda Bank",
+            "50515": "Moniepoint MFB",
+            "565": "Carbon",
+            "214": "FCMB"
+        }
+        return bank_names.get(bank_code, f"Bank ({bank_code})")
+    
     async def _send_transfer_receipt(self, chat_id: str, user_data: Dict, 
                                    transfer_data: Dict, amount: float, 
                                    transaction_id: str, new_balance: float):
         """Send beautiful transfer receipt"""
         try:
-            # Generate beautiful receipt with safe field access
+            # Generate beautiful receipt
             receipt_generator = SofiReceiptGenerator()
             receipt = receipt_generator.create_bank_transfer_receipt({
                 'user_name': user_data.get('full_name', 'User'),
                 'amount': amount,
-                'recipient_name': transfer_data.get('recipient_name', 'Unknown Recipient'),
-                'recipient_account': transfer_data.get('account_number', 'Unknown Account'),
-                'bank': transfer_data.get('bank_name', 'Unknown Bank'),  # Changed from 'bank' to 'bank_name'
+                'recipient_name': transfer_data['recipient_name'],
+                'recipient_account': transfer_data['account_number'],
+                'bank': transfer_data['bank'],
                 'balance': new_balance,
                 'transaction_id': transaction_id
             })
