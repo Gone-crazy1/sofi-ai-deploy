@@ -209,21 +209,24 @@ async def get_wallet_statement(chat_id: str, days: int = 30, **kwargs) -> Dict[s
         for tx in transactions_result.data:
             tx_amount = tx.get("amount", 0)
             tx_fee = tx.get("fee", 0)
-            tx_type = tx.get("type", "")
+            tx_type = tx.get("transaction_type", "")  # Fixed: use transaction_type
             
             # Categorize transaction
-            if tx_type in ["deposit", "transfer_in", "airtime_refund"]:
+            if tx_type in ["credit", "deposit", "transfer_in", "airtime_refund"]:
                 total_inflow += tx_amount
             elif tx_type in ["transfer_out", "airtime_purchase", "data_purchase"]:
                 total_outflow += tx_amount
                 total_fees += tx_fee
             
+            # Create proper description
+            description = tx.get("description") or tx.get("narration") or _get_transaction_description(tx_type, tx_amount, tx)
+            
             transaction_info = {
                 "transaction_id": tx.get("transaction_id"),
-                "type": tx.get("type"),
+                "type": tx.get("transaction_type"),  # Fixed: use transaction_type
                 "amount": tx_amount,
                 "fee": tx_fee,
-                "description": tx.get("narration") or f"{tx_type.replace('_', ' ').title()}",
+                "description": description,
                 "reference": tx.get("reference"),
                 "status": tx.get("status"),
                 "date": tx.get("created_at"),
@@ -257,3 +260,34 @@ async def get_wallet_statement(chat_id: str, days: int = 30, **kwargs) -> Dict[s
             "error": f"Failed to get wallet statement: {str(e)}",
             "transactions": []
         }
+
+def _get_transaction_description(tx_type: str, amount: float, tx_data: dict) -> str:
+    """Generate proper transaction description based on type and data"""
+    
+    if tx_type == "credit":
+        sender = tx_data.get("sender_name", "Unknown Sender")
+        bank = tx_data.get("bank_name", "Bank")
+        return f"Deposit from {sender} via {bank}"
+    
+    elif tx_type == "transfer_out":
+        recipient = tx_data.get("recipient_name", "Recipient")
+        bank = tx_data.get("bank_name", "Bank")
+        return f"Transfer to {recipient} ({bank})"
+    
+    elif tx_type == "airtime_purchase":
+        phone = tx_data.get("phone_number", "Phone")
+        return f"Airtime Purchase: ₦{amount:,.0f} for {phone}"
+    
+    elif tx_type == "data_purchase":
+        phone = tx_data.get("phone_number", "Phone")
+        return f"Data Purchase: ₦{amount:,.0f} for {phone}"
+    
+    elif tx_type == "airtime_refund":
+        return f"Airtime Refund: ₦{amount:,.0f}"
+    
+    elif tx_type == "transfer_in":
+        return f"Transfer Received: ₦{amount:,.0f}"
+    
+    else:
+        # Fallback for unknown types
+        return f"{tx_type.replace('_', ' ').title()}: ₦{amount:,.0f}"
