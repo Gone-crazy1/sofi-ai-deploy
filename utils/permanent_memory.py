@@ -21,9 +21,21 @@ SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
 def get_supabase_client():
-    """Get Supabase client instance"""
+    """Get Supabase client instance with better error handling"""
     try:
-        return create_client(SUPABASE_URL, SUPABASE_KEY)
+        # Try to get environment variables
+        supabase_url = os.getenv("SUPABASE_URL")
+        supabase_key = os.getenv("SUPABASE_KEY") or os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+        
+        if not supabase_url:
+            logging.error("SUPABASE_URL not found in environment variables")
+            return None
+            
+        if not supabase_key:
+            logging.error("SUPABASE_KEY not found in environment variables") 
+            return None
+            
+        return create_client(supabase_url, supabase_key)
     except Exception as e:
         logging.error(f"Error creating Supabase client: {e}")
         return None
@@ -582,3 +594,15 @@ async def validate_transaction_limits(user_id: str, amount: float) -> Dict:
     except Exception as e:
         logger.error(f"Error validating transaction limits for user {user_id}: {e}")
         return {"valid": False, "error": "Validation error"}
+
+async def get_user_balance(user_id: str) -> Dict:
+    """
+    Get user balance by user ID (global function for backward compatibility)
+    
+    Args:
+        user_id: User's unique identifier
+        
+    Returns:
+        dict: Balance information
+    """
+    return await validator.get_user_balance(user_id)
