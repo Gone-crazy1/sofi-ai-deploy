@@ -244,17 +244,17 @@ async def _send_money_internal(chat_id: str, amount: float, narration: str = Non
                 "created_at": datetime.now().isoformat()
             }
             
-            # Store transaction for secure verification and get secure token
+            # Store transaction for legacy PIN verification (this is what works!)
             from utils.secure_pin_verification import secure_pin_verification
-            secure_token = secure_pin_verification.store_pending_transaction(transaction_id, {
+            secure_pin_verification.store_pending_transaction(transaction_id, {
                 'chat_id': chat_id,
                 'user_data': user_data,
                 'transfer_data': transfer_data,
                 'amount': amount
             })
             
-            # Create PIN verification URL with secure token
-            pin_url = f"https://pipinstallsofi.com/verify-pin?token={secure_token}"
+            # Create PIN verification URL with legacy txn_id (proven working method!)
+            pin_url = f"https://pipinstallsofi.com/verify-pin?txn_id={transaction_id}"
             
             # Return web PIN entry response with keyboard
             # Convert bank code to friendly name for display
