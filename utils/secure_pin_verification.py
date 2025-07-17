@@ -23,7 +23,7 @@ from utils.conversation_state import conversation_state
 from utils.bank_api import BankAPI
 from utils.permanent_memory import (
     verify_user_pin, track_pin_attempt, is_user_locked,
-    validate_transaction_limits, SofiMemorySystem
+    validate_transaction_limits, SecureTransactionValidator
 )
 from utils.notification_service import notification_service
 from beautiful_receipt_generator import SofiReceiptGenerator
@@ -236,7 +236,7 @@ class SecurePinVerification:
             user_id = user_data.get('id')
             
             # Initialize memory system to use the correct balance check method
-            memory_system = SofiMemorySystem()
+            memory_system = SecureTransactionValidator()
             
             # Security checks - use the class method that returns Dict
             balance_check = await memory_system.check_sufficient_balance(str(user_id), amount)
