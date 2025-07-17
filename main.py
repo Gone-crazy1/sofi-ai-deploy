@@ -1882,13 +1882,30 @@ def verify_pin_api():
         from utils.secure_pin_verification import secure_pin_verification
         import asyncio
         
-        # Use the comprehensive verify_pin_and_process_transfer method
+        # Get transaction ID properly using the secure token validation
         if secure_token:
-            # Get transaction ID from token data
-            token_data = secure_pin_verification.secure_tokens.get(secure_token)
-            transaction_id = token_data['transaction_id'] if token_data else None
+            # Use proper method to validate token and get transaction data
+            transaction = secure_pin_verification.get_pending_transaction_by_token(secure_token)
+            if not transaction:
+                return jsonify({
+                    'success': False,
+                    'error': 'Invalid, expired, or already used token'
+                }), 400
+            
+            # Extract transaction ID from the validated transaction data
+            # The transaction ID is embedded in the transfer_data
+            transfer_data = transaction.get('transfer_data', {})
+            transaction_id = transfer_data.get('transaction_id')
+            
+            # If not in transfer_data, try to derive from secure token data
+            if not transaction_id:
+                token_data = secure_pin_verification.secure_tokens.get(secure_token)
+                transaction_id = token_data['transaction_id'] if token_data else None
+                
+            logger.info(f"✅ Extracted transaction_id from secure token: {transaction_id}")
         else:
             transaction_id = legacy_transaction_id
+            logger.info(f"⚠️ Using legacy transaction_id: {transaction_id}")
             
         if not transaction_id:
             return jsonify({

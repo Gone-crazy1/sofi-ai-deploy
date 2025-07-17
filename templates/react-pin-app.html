@@ -39,6 +39,8 @@
             const [success, setSuccess] = useState('');
             const [transactionData, setTransactionData] = useState(null);
             const [fetchingTransaction, setFetchingTransaction] = useState(true);
+            const [secureToken, setSecureToken] = useState(null);
+            const [transactionId, setTransactionId] = useState(null);
             
             // Fetch transaction details on component mount
             useEffect(() => {
@@ -52,29 +54,40 @@
                     const token = urlParams.get('token');
                     const txnId = urlParams.get('txn_id');
                     
+                    console.log('🔍 Fetching transaction details:', { token: token?.substring(0, 10) + '...', txnId });
+                    
                     if (!token && !txnId) {
                         setError('Missing authentication token');
                         setFetchingTransaction(false);
                         return;
                     }
                     
-                    // Build API URL
+                    // Store token and transaction ID for later use
+                    setSecureToken(token);
+                    setTransactionId(txnId);
+                    
+                    // Build API URL to fetch transaction details
                     const apiUrl = token 
                         ? `/api/transaction-details?token=${token}`
                         : `/api/transaction-details?txn_id=${txnId}`;
                     
+                    console.log('📡 Fetching from API URL:', apiUrl);
+                    
                     const response = await fetch(apiUrl);
                     const data = await response.json();
+                    
+                    console.log('📥 API Response:', { success: data.success, error: data.error });
                     
                     if (data.success) {
                         setTransactionData(data.transaction);
                         setFetchingTransaction(false);
+                        console.log('✅ Transaction data loaded successfully');
                     } else {
                         setError(data.error || 'Transaction not found');
                         setFetchingTransaction(false);
                     }
                 } catch (err) {
-                    console.error('Error fetching transaction details:', err);
+                    console.error('❌ Error fetching transaction details:', err);
                     setError('Failed to load transaction details');
                     setFetchingTransaction(false);
                 }
@@ -104,35 +117,57 @@
                     const tokenMatch = window.location.href.match(/[?&]token=([^&\s]+)/);
                     const regexToken = tokenMatch ? tokenMatch[1] : null;
                     
-                    // Use the first available token
-                    const finalToken = directToken || regexToken;
+                    // Use the first available token (prioritize stored state first)
+                    const finalToken = secureToken || directToken || regexToken;
+                    const finalTransactionId = transactionId || legacyTxnId;
                     
                     console.log('🔍 Token extraction results:', {
+                        storedToken: secureToken ? secureToken.substring(0, 10) + '...' : 'null',
                         directToken: directToken ? directToken.substring(0, 10) + '...' : 'null',
                         regexToken: regexToken ? regexToken.substring(0, 10) + '...' : 'null',
+                        storedTxnId: transactionId || 'null',
                         legacyTxnId: legacyTxnId || 'null',
-                        finalToken: finalToken ? finalToken.substring(0, 10) + '...' : 'null'
+                        finalToken: finalToken ? finalToken.substring(0, 10) + '...' : 'null',
+                        finalTransactionId: finalTransactionId || 'null'
                     });
                     
-                    // Build request body
+                    // Build request body - need to include BOTH secure_token AND transaction_id
                     const requestBody = {
                         pin: pin
                     };
                     
+                    // Include secure token if available
                     if (finalToken) {
                         requestBody.secure_token = finalToken;
-                        console.log('✅ USING SECURE TOKEN:', finalToken.substring(0, 10) + '...');
-                    } else if (legacyTxnId) {
-                        requestBody.transaction_id = legacyTxnId;
-                        console.log('⚠️ USING LEGACY TRANSACTION ID:', legacyTxnId);
-                    } else {
-                        console.error('❌ NO TOKEN FOUND!');
+                        console.log('✅ INCLUDED SECURE TOKEN:', finalToken.substring(0, 10) + '...');
+                    }
+                    
+                    // Include transaction ID if available (for new secure system)
+                    if (finalTransactionId) {
+                        requestBody.transaction_id = finalTransactionId;
+                        console.log('✅ INCLUDED TRANSACTION ID:', finalTransactionId);
+                    }
+                    
+                    // If we have transaction data, try to extract transaction_id from it
+                    if (transactionData && !finalTransactionId && !legacyTxnId) {
+                        // The transaction_id might be embedded in the URL or we need to derive it
+                        // For secure tokens, the backend should handle transaction_id extraction
+                        console.log('ℹ️ Using secure token only - backend should extract transaction_id');
+                    }
+                    
+                    if (!finalToken && !finalTransactionId) {
+                        console.error('❌ NO AUTHENTICATION DATA FOUND!');
                         setError('Authentication token not found. Please try again.');
                         setLoading(false);
                         return;
                     }
                     
                     console.log('📤 Sending request with body keys:', Object.keys(requestBody));
+                    console.log('📤 Request body preview:', {
+                        pin: requestBody.pin ? '****' : 'null',
+                        secure_token: requestBody.secure_token ? requestBody.secure_token.substring(0, 10) + '...' : 'null',
+                        transaction_id: requestBody.transaction_id || 'null'
+                    });
                     
                     const response = await fetch('/api/verify-pin', {
                         method: 'POST',
