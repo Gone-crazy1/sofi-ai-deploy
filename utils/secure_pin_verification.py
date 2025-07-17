@@ -268,7 +268,8 @@ class SecurePinVerification:
                 return {'success': False, 'error': limit_check['error']}
             
             # Validate transfer_data has required fields before processing
-            required_fields = ['account_number', 'bank', 'amount']
+            # Note: transfer_data uses 'bank_name' not 'bank'
+            required_fields = ['account_number', 'bank_name', 'amount']
             missing_fields = [field for field in required_fields if field not in transfer_data]
             
             if missing_fields:
@@ -282,11 +283,11 @@ class SecurePinVerification:
             # Log transfer_data for debugging
             logger.info(f"🔍 Processing transfer with data: {transfer_data}")
             
-            # Execute transfer via bank API
+            # Execute transfer via bank API (use bank_name field)
             transfer_result = await self.bank_api.transfer_money(
                 amount=amount,
                 account_number=transfer_data['account_number'],
-                bank_name=transfer_data['bank'],
+                bank_name=transfer_data['bank_name'],  # Changed from 'bank' to 'bank_name'
                 narration=f"Transfer via Sofi AI - {transaction_id}",
                 reference=transaction_id
             )
@@ -325,7 +326,7 @@ class SecurePinVerification:
         """Send transfer success notification"""
         # Safe access to transfer_data fields with fallbacks
         recipient_name = transfer_data.get('recipient_name', 'Unknown Recipient')
-        bank_name = transfer_data.get('bank', 'Unknown Bank')
+        bank_name = transfer_data.get('bank_name', 'Unknown Bank')  # Changed from 'bank' to 'bank_name'
         account_number = transfer_data.get('account_number', 'Unknown Account')
         
         message = (
@@ -351,7 +352,7 @@ class SecurePinVerification:
                 'amount': amount,
                 'recipient_name': transfer_data.get('recipient_name', 'Unknown Recipient'),
                 'recipient_account': transfer_data.get('account_number', 'Unknown Account'),
-                'bank': transfer_data.get('bank', 'Unknown Bank'),
+                'bank': transfer_data.get('bank_name', 'Unknown Bank'),  # Changed from 'bank' to 'bank_name'
                 'balance': new_balance,
                 'transaction_id': transaction_id
             })
