@@ -485,43 +485,94 @@ class SecurePinVerification:
             
             supabase = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
             
-            # 1. Update wallet balance in users table
-            logger.info(f"💰 Updating wallet balance: {new_balance:.2f} for user {user_id}")
+            # 🔥 CRITICAL FIX 1: Validate transfer_data before database operations
+            required_db_fields = ['account_number', 'recipient_name']
+            missing_db_fields = [field for field in required_db_fields if not transfer_data.get(field)]
+            
+            if missing_db_fields:
+                logger.error(f"❌ CRITICAL: Missing required DB fields: {missing_db_fields}")
+                logger.error(f"❌ Available transfer_data fields: {list(transfer_data.keys())}")
+                raise ValueError(f"Cannot log transaction - missing required fields: {missing_db_fields}")
+            
+            # 🔥 CRITICAL FIX 2: Get FRESH wallet balance instead of using calculated balance
+            current_balance_query = supabase.table("users").select("wallet_balance").eq("id", user_id).execute()
+            
+            if not current_balance_query.data:
+                raise ValueError(f"User {user_id} not found for balance update")
+            
+            current_wallet_balance = float(current_balance_query.data[0].get("wallet_balance", 0))
+            total_debited = amount + fee
+            correct_new_balance = current_wallet_balance - total_debited
+            
+            # 🔍 Debug logging for balance calculation
+            logger.info(f"💰 WALLET BALANCE DEBUG:")
+            logger.info(f"  - User ID: {user_id}")
+            logger.info(f"  - Current Balance: ₦{current_wallet_balance:,.2f}")
+            logger.info(f"  - Transfer Amount: ₦{amount:,.2f}")
+            logger.info(f"  - Transfer Fee: ₦{fee:,.2f}")
+            logger.info(f"  - Total Debited: ₦{total_debited:,.2f}")
+            logger.info(f"  - Calculated New Balance: ₦{correct_new_balance:,.2f}")
+            logger.info(f"  - Passed New Balance: ₦{new_balance:,.2f}")
+            
+            # Sanity check - prevent over-debiting
+            if current_wallet_balance < total_debited:
+                raise ValueError(f"Insufficient balance: ₦{current_wallet_balance:,.2f} < ₦{total_debited:,.2f}")
+            
+            # Use the correctly calculated balance
+            final_balance = correct_new_balance
+            
+            # 1. Update wallet balance in users table with FRESH calculation
+            logger.info(f"💰 Updating wallet balance from ₦{current_wallet_balance:,.2f} to ₦{final_balance:,.2f}")
             
             balance_update = supabase.table("users").update({
-                "wallet_balance": new_balance
+                "wallet_balance": final_balance
             }).eq("id", user_id).execute()
             
             if balance_update.data:
-                logger.info(f"✅ Wallet balance updated successfully: ₦{new_balance:,.2f}")
+                logger.info(f"✅ Wallet balance updated successfully: ₦{final_balance:,.2f}")
             else:
                 logger.error(f"❌ Failed to update wallet balance for user {user_id}")
+                raise ValueError("Wallet balance update failed")
             
-            # 2. Log transaction in bank_transactions table
+            # 2. Log transaction in bank_transactions table with VALIDATED fields
             bank_display_name = self._get_bank_display_name(
                 transfer_data.get('bank_name', transfer_data.get('bank', 'Unknown'))
             )
             
+            # Safe field extraction with defaults
+            account_number = transfer_data.get('account_number', '').strip()
+            recipient_name = transfer_data.get('recipient_name', 'Unknown').strip()
+            bank_code = transfer_data.get('bank_name', transfer_data.get('bank', '')).strip()
+            
+            # Final validation for database insert
+            if not account_number:
+                raise ValueError("account_number is required but empty")
+            if not recipient_name:
+                raise ValueError("recipient_name is required but empty")
+            
             transaction_record = {
                 "user_id": user_id,
-                "transaction_type": "transfer",  # Proper categorization
+                "transaction_type": "transfer_out",  # Consistent with existing system
                 "amount": amount,
                 "fee": fee,
-                "total_amount": amount + fee,
-                "recipient_name": transfer_data.get('recipient_name', 'Unknown'),
-                "recipient_account": transfer_data.get('account_number', ''),
-                "bank_name": bank_display_name,
-                "bank_code": transfer_data.get('bank_name', transfer_data.get('bank', '')),
                 "reference": transaction_id,
                 "status": "success",
-                "description": f"Bank Transfer to {transfer_data.get('recipient_name', 'Unknown')}",
+                "description": f"Bank Transfer to {recipient_name}",
                 "narration": f"Transfer via Sofi AI to {bank_display_name}",
-                "balance_before": new_balance + (amount + fee),  # Calculate previous balance
-                "balance_after": new_balance,
+                "account_number": account_number,  # ✅ Required field validated
+                "recipient_name": recipient_name,  # ✅ Required field validated
+                "bank_name": bank_display_name,
+                "bank_code": bank_code,
+                "wallet_balance_before": current_wallet_balance,
+                "wallet_balance_after": final_balance,
                 "created_at": datetime.now().isoformat()
             }
             
-            logger.info(f"📝 Logging transaction: {transaction_id}")
+            logger.info(f"📝 Logging transaction with validated fields:")
+            logger.info(f"  - Account: {account_number}")
+            logger.info(f"  - Recipient: {recipient_name}")
+            logger.info(f"  - Bank: {bank_display_name}")
+            logger.info(f"  - Reference: {transaction_id}")
             
             transaction_insert = supabase.table("bank_transactions").insert(transaction_record).execute()
             
@@ -529,16 +580,18 @@ class SecurePinVerification:
                 logger.info(f"✅ Transaction logged successfully: {transaction_id}")
             else:
                 logger.error(f"❌ Failed to log transaction: {transaction_id}")
+                # Don't fail the transfer if transaction logging fails
+                logger.warning("Transaction completed but logging failed")
             
-            # 3. Verify balance update
+            # 3. Verify balance update with fresh query
             verification = supabase.table("users").select("wallet_balance").eq("id", user_id).execute()
             
             if verification.data:
-                actual_balance = verification.data[0].get("wallet_balance", 0)
-                logger.info(f"🔍 Balance verification: Expected ₦{new_balance:,.2f}, Actual ₦{actual_balance:,.2f}")
+                verified_balance = float(verification.data[0].get("wallet_balance", 0))
+                logger.info(f"🔍 Balance verification: Expected ₦{final_balance:,.2f}, Actual ₦{verified_balance:,.2f}")
                 
-                if abs(actual_balance - new_balance) > 0.01:  # Allow for small rounding differences
-                    logger.warning(f"⚠️ Balance mismatch detected!")
+                if abs(verified_balance - final_balance) > 0.01:  # Allow for small rounding differences
+                    logger.warning(f"⚠️ Balance mismatch detected! Expected: {final_balance}, Got: {verified_balance}")
                 else:
                     logger.info(f"✅ Balance update verified successfully")
             

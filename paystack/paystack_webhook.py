@@ -600,7 +600,7 @@ class PaystackWebhookHandler:
     async def send_credit_notification(self, user_id: str, amount: float, new_balance: float, sender_name: str = "Unknown", sender_bank: str = "Unknown Bank", narration: str = "Transfer"):
         """Send beautiful, friendly credit notification to user via Telegram"""
         try:
-            from main import send_reply  # Import from main app
+            from utils.telegram_notifications import send_telegram_notification
             from functions.transfer_functions import BANK_CODE_TO_NAME  # Import bank mapping
             
             # Get user's first name for personalization
@@ -640,8 +640,13 @@ Hi {user_name}! You just received ₦{amount:,.0f}
 
 Say "balance" to check your wallet or "transfer" to send money! 🚀"""
             
-            send_reply(user_id, message)
-            logger.info(f"📱 Enhanced credit notification sent to {user_id}: {sender_name} via {sender_bank}")
+            # Use dedicated notification service instead of importing main.py
+            success = send_telegram_notification(user_id, message)
+            
+            if success:
+                logger.info(f"📱 Enhanced credit notification sent to {user_id}: {sender_name} via {sender_bank}")
+            else:
+                logger.error(f"📱 Failed to send credit notification to {user_id}")
         
         except Exception as e:
             logger.error(f"Error sending notification: {str(e)}")
