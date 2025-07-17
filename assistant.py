@@ -363,16 +363,30 @@ class SofiAssistant:
     
     def _generate_instant_response(self, message: str, user_data: Dict = None) -> str:
         """Generate precise instant responses for complex requests only"""
-        message_lower = message.lower()
+        message_lower = message.lower().strip()
+        user_name = user_data.get('first_name', 'there') if user_data else 'there'
+        
+        # Simple greetings - provide instant friendly response (helps with double messages)
+        greeting_patterns = ['hello', 'hi', 'hey', 'good morning', 'good afternoon', 'good evening']
+        if any(pattern in message_lower for pattern in greeting_patterns) and len(message_lower) < 20:
+            # Vary responses to make double messages feel natural
+            import random
+            responses = [
+                f"Hi {user_name}! How can I help you today? 😊",
+                f"Hello {user_name}! What can I do for you?",
+                f"Hey {user_name}! I'm here to help with your banking needs.",
+                f"Hi there {user_name}! Ready to assist you! 💸"
+            ]
+            return random.choice(responses)
         
         # Transfer patterns - these need background processing
-        if any(word in message_lower for word in ['send', 'transfer', 'pay']) and any(word in message_lower for word in ['₦', 'naira', '1000', '5000', '10000']):
+        elif any(word in message_lower for word in ['send', 'transfer', 'pay']) and any(word in message_lower for word in ['₦', 'naira', '1000', '5000', '10000']):
             # Only acknowledge transfers that require PIN/verification
-            return "� Processing your transfer request..."
+            return "💸 Processing your transfer request..."
         
         # Airtime patterns - these need background processing
         elif any(word in message_lower for word in ['airtime', 'data', 'recharge']) and any(word in message_lower for word in ['₦', '100', '200', '500', '1000']):
-            return "� Processing your airtime purchase..."
+            return "📱 Processing your airtime purchase..."
         
         # PIN setup patterns - these need background processing
         elif any(word in message_lower for word in ['set pin', 'create pin', 'new pin', 'change pin']):
@@ -380,18 +394,21 @@ class SofiAssistant:
         
         # Complex transfer queries - need background processing
         elif 'transfer' in message_lower and any(word in message_lower for word in ['how', 'can', 'to someone', 'my friend']):
-            return "� Let me guide you through the transfer process..."
+            return "💸 Let me guide you through the transfer process..."
         
         # Generic requests that need AI processing
         else:
-            return "🤖 I'm processing your request..."
+            return f"🤖 Processing your request, {user_name}..."
     
     async def _start_background_processing(self, chat_id: str, message: str, user_data: Dict = None):
         """Start the actual OpenAI processing in background"""
         try:
-            # Prevent duplicate processing
+            # 🚀 ENHANCED FIX: Prevent duplicate processing with better user-level locking
             if chat_id in background_manager.active_tasks:
-                logger.info(f"🔄 Background task already running for {chat_id}")
+                logger.info(f"🔄 Background task already running for {chat_id} - sending duplicate message response")
+                # For double messages, send the same type of response instead of ignoring
+                await background_manager.send_telegram_message(chat_id, 
+                    "Hi there! How can I help you today? 😊")
                 return
             
             background_manager.active_tasks[chat_id] = time.time()
@@ -399,7 +416,7 @@ class SofiAssistant:
             # Get or create thread (fast)
             thread_id = await self._get_or_create_thread(chat_id)
             
-            # 🚀 FIX: Check if there's an active run on this thread
+            # 🚀 ENHANCED FIX: Better active run detection with retry logic
             active_run_id = self._check_active_run(thread_id)
             
             if active_run_id:
@@ -409,9 +426,10 @@ class SofiAssistant:
                 completed = await self._wait_for_run_completion(thread_id, active_run_id, max_wait_seconds=3)
                 
                 if not completed:
-                    # Run is still active, send polite message and abort
+                    # Run is still active, send friendly duplicate response for double messages
+                    user_name = user_data.get('first_name', 'there') if user_data else 'there'
                     await background_manager.send_telegram_message(chat_id, 
-                        "⏳ I'm still processing your previous request. Please wait a moment and try again.")
+                        f"Hi {user_name}! I'm still working on your previous message. How can I help you today? 😊")
                     # Clean up our task
                     if chat_id in background_manager.active_tasks:
                         del background_manager.active_tasks[chat_id]
@@ -419,10 +437,24 @@ class SofiAssistant:
                 
                 logger.info(f"✅ Previous run completed, proceeding with new message")
             
+            # Add small delay to prevent race conditions with rapid double messages
+            await asyncio.sleep(0.1)
+            
+            # Double-check for active runs one more time after delay
+            active_run_id_recheck = self._check_active_run(thread_id)
+            if active_run_id_recheck:
+                logger.info(f"⏳ Race condition detected: Found active run {active_run_id_recheck} after delay")
+                user_name = user_data.get('first_name', 'there') if user_data else 'there'
+                await background_manager.send_telegram_message(chat_id, 
+                    f"Hi {user_name}! How can I help you today? 😊")
+                if chat_id in background_manager.active_tasks:
+                    del background_manager.active_tasks[chat_id]
+                return
+            
             # Add user context to the message
             context_message = self._prepare_context_message(message, chat_id, user_data)
             
-            # 🚀 FIX: Safe message creation with retry
+            # 🚀 ENHANCED FIX: Safe message creation with better double message handling
             try:
                 self.client.beta.threads.messages.create(
                     thread_id=thread_id,
@@ -432,8 +464,9 @@ class SofiAssistant:
             except Exception as msg_error:
                 if "while a run" in str(msg_error) and "is active" in str(msg_error):
                     logger.warning(f"⚠️ Message creation failed due to active run: {msg_error}")
+                    user_name = user_data.get('first_name', 'there') if user_data else 'there'
                     await background_manager.send_telegram_message(chat_id, 
-                        "⏳ I'm still processing your previous request. Please wait a moment and try again.")
+                        f"Hi {user_name}! How can I help you today? 😊")
                     # Clean up our task
                     if chat_id in background_manager.active_tasks:
                         del background_manager.active_tasks[chat_id]
@@ -441,7 +474,7 @@ class SofiAssistant:
                 else:
                     raise msg_error
             
-            # 🚀 FIX: Safe run creation with retry
+            # 🚀 ENHANCED FIX: Safe run creation with better double message handling
             try:
                 run = self.client.beta.threads.runs.create(
                     thread_id=thread_id,
@@ -450,8 +483,9 @@ class SofiAssistant:
             except Exception as run_error:
                 if "while a run" in str(run_error) and "is active" in str(run_error):
                     logger.warning(f"⚠️ Run creation failed due to active run: {run_error}")
+                    user_name = user_data.get('first_name', 'there') if user_data else 'there'
                     await background_manager.send_telegram_message(chat_id, 
-                        "⏳ I'm still processing your previous request. Please wait a moment and try again.")
+                        f"Hi {user_name}! How can I help you today? 😊")
                     # Clean up our task
                     if chat_id in background_manager.active_tasks:
                         del background_manager.active_tasks[chat_id]
@@ -517,6 +551,50 @@ class SofiAssistant:
         # Private chat: use ultra-fast processing
         return await self.process_message(chat_id, message, user_data)
     
+    def _check_active_run(self, thread_id: str) -> Optional[str]:
+        """Check if thread has an active run"""
+        try:
+            runs = self.client.beta.threads.runs.list(
+                thread_id=thread_id,
+                limit=1,
+                order="desc"
+            )
+            
+            if runs.data:
+                latest_run = runs.data[0]
+                if latest_run.status in ["queued", "in_progress", "requires_action"]:
+                    logger.info(f"🔍 Found active run {latest_run.id} with status {latest_run.status}")
+                    return latest_run.id
+            
+            return None
+        except Exception as e:
+            logger.error(f"❌ Error checking active run: {e}")
+            return None
+    
+    async def _wait_for_run_completion(self, thread_id: str, run_id: str, max_wait_seconds: int = 3) -> bool:
+        """Wait for run to complete with timeout"""
+        try:
+            start_time = time.time()
+            
+            while time.time() - start_time < max_wait_seconds:
+                run = self.client.beta.threads.runs.retrieve(
+                    thread_id=thread_id,
+                    run_id=run_id
+                )
+                
+                if run.status in ["completed", "failed", "cancelled", "expired"]:
+                    logger.info(f"✅ Run {run_id} completed with status {run.status}")
+                    return True
+                
+                # Short wait before checking again
+                await asyncio.sleep(0.5)
+            
+            logger.info(f"⏰ Run {run_id} still active after {max_wait_seconds}s timeout")
+            return False
+        except Exception as e:
+            logger.error(f"❌ Error waiting for run completion: {e}")
+            return False
+
     async def _get_or_create_thread(self, chat_id: str) -> str:
         """Get existing thread or create new one for user"""
         try:
