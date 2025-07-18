@@ -239,55 +239,85 @@ class BackgroundTaskManager:
                 return result
             
             elif function_name == "get_user_beneficiaries":
-                # Get user's UUID from chat_id
-                user_uuid = await self._get_user_uuid_from_chat_id(chat_id)
-                if not user_uuid:
+                # Get user's integer ID from chat_id (convert to int for DB compatibility)
+                user_id = await self._get_user_id_from_chat_id(chat_id)
+                if not user_id:
                     return {"success": False, "error": "User not found"}
                 
                 from utils.supabase_beneficiary_service import beneficiary_service
-                beneficiaries_list = await beneficiary_service.format_beneficiaries_list(user_uuid)
-                return {"success": True, "message": beneficiaries_list}
+                if beneficiary_service:
+                    beneficiaries = await beneficiary_service.get_user_beneficiaries(user_id)
+                    
+                    if not beneficiaries:
+                        return {"success": True, "message": "📱 **Your Saved Recipients**\n\nYou haven't saved any recipients yet.\n\nAfter your next transfer, I'll ask if you want to save the recipient for quick future transfers! 😊"}
+                    
+                    response = "📱 **Your Saved Recipients**\n\n"
+                    for i, beneficiary in enumerate(beneficiaries, 1):
+                        response += f"{i}. **{beneficiary.get('nickname', beneficiary.get('beneficiary_name', 'Unknown'))}**\n"
+                        response += f"   {beneficiary.get('beneficiary_name', 'N/A')} - {beneficiary.get('bank_name', 'N/A')}\n"
+                        response += f"   Account: {beneficiary.get('account_number', 'N/A')}\n\n"
+                    
+                    response += "💰 To send money, just say:\n"
+                    response += "• \"Send 5000 to John\"\n"
+                    response += "• \"Transfer 2000 to Mom\"\n"
+                    response += "• Or just mention their name!"
+                    
+                    return {"success": True, "message": response}
+                else:
+                    return {"success": False, "error": "Beneficiary service not available"}
             
             elif function_name == "save_beneficiary":
-                # Get user's UUID from chat_id
-                user_uuid = await self._get_user_uuid_from_chat_id(chat_id)
-                if not user_uuid:
+                # Get user's integer ID from chat_id
+                user_id = await self._get_user_id_from_chat_id(chat_id)
+                if not user_id:
                     return {"success": False, "error": "User not found"}
                 
                 from utils.supabase_beneficiary_service import beneficiary_service
-                return await beneficiary_service.save_beneficiary(
-                    user_id=user_uuid,
-                    name=function_args.get("name"),
-                    bank_name=function_args.get("bank_name"),
-                    account_number=function_args.get("account_number"),
-                    account_holder_name=function_args.get("account_holder_name")
-                )
+                if beneficiary_service:
+                    success = await beneficiary_service.save_beneficiary(
+                        user_id=user_id,
+                        beneficiary_name=function_args.get("account_holder_name"),  # Real name
+                        account_number=function_args.get("account_number"),
+                        bank_code=function_args.get("bank_name"),  # Use bank_name as code for now
+                        bank_name=function_args.get("bank_name"),
+                        nickname=function_args.get("name")  # The friendly name user gave
+                    )
+                    
+                    if success:
+                        return {"success": True, "message": f"✅ Successfully saved {function_args.get('name')} as a beneficiary!"}
+                    else:
+                        return {"success": False, "error": "Failed to save beneficiary"}
+                else:
+                    return {"success": False, "error": "Beneficiary service not available"}
             
             elif function_name == "find_beneficiary_by_name":
-                # Get user's UUID from chat_id
-                user_uuid = await self._get_user_uuid_from_chat_id(chat_id)
-                if not user_uuid:
+                # Get user's integer ID from chat_id
+                user_id = await self._get_user_id_from_chat_id(chat_id)
+                if not user_id:
                     return {"success": False, "error": "User not found"}
                 
                 from utils.supabase_beneficiary_service import beneficiary_service
-                beneficiary = await beneficiary_service.find_beneficiary_by_name(
-                    user_id=user_uuid,
-                    name=function_args.get("name")
-                )
-                
-                if beneficiary:
-                    return {
-                        "success": True, 
-                        "found": True,
-                        "beneficiary": beneficiary,
-                        "message": f"Found {beneficiary['name']}: {beneficiary['account_holder_name']} - {beneficiary['bank_name']} - {beneficiary['account_number']}"
-                    }
+                if beneficiary_service:
+                    beneficiary = await beneficiary_service.find_beneficiary_by_name(
+                        user_id=user_id,
+                        search_term=function_args.get("name")
+                    )
+                    
+                    if beneficiary:
+                        return {
+                            "success": True, 
+                            "found": True,
+                            "beneficiary": beneficiary,
+                            "message": f"Found {beneficiary.get('nickname', beneficiary.get('beneficiary_name'))}: {beneficiary.get('beneficiary_name')} - {beneficiary.get('bank_name')} - {beneficiary.get('account_number')}"
+                        }
+                    else:
+                        return {
+                            "success": True,
+                            "found": False,
+                            "message": f"No saved recipient found with name '{function_args.get('name')}'"
+                        }
                 else:
-                    return {
-                        "success": True,
-                        "found": False,
-                        "message": f"No saved recipient found with name '{function_args.get('name')}'"
-                    }
+                    return {"success": False, "error": "Beneficiary service not available"}
             
             else:
                 return {"error": f"Unknown function: {function_name}"}
@@ -306,6 +336,28 @@ class BackgroundTaskManager:
         except Exception as e:
             logger.error(f"❌ Error getting user UUID: {e}")
             return None
+
+    async def _get_user_id_from_chat_id(self, chat_id: str) -> Optional[int]:
+        """Get user's integer ID from telegram chat_id (for beneficiary service compatibility)"""
+        try:
+            # First try to get from the users table (if it has integer IDs)
+            result = self.supabase.table("users").select("id").eq("telegram_chat_id", str(chat_id)).execute()
+            if result.data:
+                user_id = result.data[0]["id"]
+                # Convert to int if it's a string
+                if isinstance(user_id, str):
+                    return int(user_id)
+                return user_id
+                
+            # Fallback: use chat_id directly as integer
+            return int(chat_id)
+        except Exception as e:
+            logger.error(f"❌ Error getting user integer ID: {e}")
+            # Fallback: use chat_id directly
+            try:
+                return int(chat_id)
+            except:
+                return None
 
 # Global background task manager
 background_manager = BackgroundTaskManager()
