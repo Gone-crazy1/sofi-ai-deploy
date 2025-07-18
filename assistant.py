@@ -30,6 +30,10 @@ class BackgroundTaskManager:
         self.active_tasks = {}
         self.executor = ThreadPoolExecutor(max_workers=50)  # Handle 50+ concurrent users
         self.telegram_bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
+        self.supabase = create_client(
+            os.getenv("SUPABASE_URL"),
+            os.getenv("SUPABASE_KEY")
+        )
         
     async def send_telegram_message(self, chat_id: str, message: str):
         """Send message via Telegram API"""
@@ -229,12 +233,13 @@ class BackgroundTaskManager:
                 # If transfer successful, prepare beneficiary save prompt
                 if result.get("success"):
                     from utils.supabase_beneficiary_service import beneficiary_service
-                    save_prompt = beneficiary_service.create_save_beneficiary_prompt(
-                        recipient_name=result.get("recipient_name", "Recipient"),
-                        bank_name=recipient_bank,
-                        account_number=recipient_account
-                    )
-                    result["save_beneficiary_prompt"] = save_prompt
+                    if beneficiary_service:
+                        save_prompt = beneficiary_service.create_save_prompt(
+                            beneficiary_name=result.get("recipient_name", "Recipient"),
+                            bank_name=recipient_bank,
+                            account_number=recipient_account
+                        )
+                        result["save_beneficiary_prompt"] = save_prompt
                 
                 return result
             
@@ -559,14 +564,26 @@ class SofiAssistant:
             # Get or create thread (fast)
             thread_id = await self._get_or_create_thread(chat_id)
             
-            # 🚀 ENHANCED FIX: Better active run detection with retry logic
+            # 🚀 ENHANCED FIX: Better active run detection with cancellation
             active_run_id = self._check_active_run(thread_id)
             
             if active_run_id:
                 logger.info(f"⏳ Thread {thread_id} has active run {active_run_id}")
                 
+                # Try to cancel the active run if it's stuck
+                try:
+                    self.client.beta.threads.runs.cancel(
+                        thread_id=thread_id,
+                        run_id=active_run_id
+                    )
+                    logger.info(f"🛑 Cancelled active run {active_run_id}")
+                    # Wait a moment for cancellation to take effect
+                    await asyncio.sleep(0.5)
+                except Exception as cancel_error:
+                    logger.warning(f"⚠️ Could not cancel run {active_run_id}: {cancel_error}")
+                
                 # Try to wait for completion (short timeout)
-                completed = await self._wait_for_run_completion(thread_id, active_run_id, max_wait_seconds=3)
+                completed = await self._wait_for_run_completion(thread_id, active_run_id, max_wait_seconds=2)
                 
                 if not completed:
                     # Run is still active, send friendly duplicate response for double messages
