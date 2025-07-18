@@ -147,22 +147,41 @@ class SupabaseBeneficiaryService:
         """Create a user-friendly prompt for saving beneficiaries."""
         return f"👉 Would you like to save {beneficiary_name} - {bank_name} - {account_number} as a beneficiary for future transfers?"
 
+# Create a global instance for backward compatibility
+try:
+    beneficiary_service = SupabaseBeneficiaryService()
+except Exception as e:
+    # If initialization fails (e.g., missing env vars), create a placeholder
+    print(f"Warning: Could not initialize beneficiary_service: {e}")
+    beneficiary_service = None
+
 # Helper functions for backward compatibility
 async def get_user_beneficiaries(user_id: Union[str, int], limit: int = 10) -> List[Dict[str, Any]]:
     """Get user beneficiaries (compatibility wrapper)."""
-    service = SupabaseBeneficiaryService()
-    return await service.get_user_beneficiaries(user_id, limit)
+    if beneficiary_service:
+        return await beneficiary_service.get_user_beneficiaries(user_id, limit)
+    else:
+        service = SupabaseBeneficiaryService()
+        return await service.get_user_beneficiaries(user_id, limit)
 
 async def save_beneficiary(user_id: Union[str, int], beneficiary_name: str, account_number: str, 
                          bank_code: str, bank_name: str, nickname: Optional[str] = None,
                          telegram_chat_id: Optional[str] = None) -> bool:
     """Save beneficiary (compatibility wrapper)."""
-    service = SupabaseBeneficiaryService()
-    return await service.save_beneficiary(
-        user_id, beneficiary_name, account_number, bank_code, bank_name, nickname, telegram_chat_id
-    )
+    if beneficiary_service:
+        return await beneficiary_service.save_beneficiary(
+            user_id, beneficiary_name, account_number, bank_code, bank_name, nickname, telegram_chat_id
+        )
+    else:
+        service = SupabaseBeneficiaryService()
+        return await service.save_beneficiary(
+            user_id, beneficiary_name, account_number, bank_code, bank_name, nickname, telegram_chat_id
+        )
 
 async def find_beneficiary_by_name(user_id: Union[str, int], search_term: str) -> Optional[Dict[str, Any]]:
     """Find beneficiary by name (compatibility wrapper)."""
-    service = SupabaseBeneficiaryService()
-    return await service.find_beneficiary_by_name(user_id, search_term)
+    if beneficiary_service:
+        return await beneficiary_service.find_beneficiary_by_name(user_id, search_term)
+    else:
+        service = SupabaseBeneficiaryService()
+        return await service.find_beneficiary_by_name(user_id, search_term)
