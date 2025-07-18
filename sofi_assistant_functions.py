@@ -151,7 +151,7 @@ SOFI_MONEY_FUNCTIONS = [
         "type": "function",
         "function": {
             "name": "get_user_beneficiaries",
-            "description": "Get all saved beneficiaries for quick transfers",
+            "description": "Get all saved beneficiaries/recipients for the user to show their saved contacts",
             "parameters": {
                 "type": "object",
                 "properties": {},
@@ -160,48 +160,48 @@ SOFI_MONEY_FUNCTIONS = [
         }
     },
     {
-        "type": "function",
+        "type": "function", 
         "function": {
             "name": "save_beneficiary",
-            "description": "Save a recipient as a beneficiary for future transfers",
+            "description": "Save a recipient as a beneficiary for future quick transfers. Use this when user wants to save someone or after successful transfers when asking if they want to save.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "name": {
                         "type": "string",
-                        "description": "Full name of the beneficiary"
-                    },
-                    "account_number": {
-                        "type": "string",
-                        "description": "Bank account number"
+                        "description": "Nickname/friendly name for the beneficiary (e.g., 'Mum', 'John', 'My Wife')"
                     },
                     "bank_name": {
                         "type": "string",
-                        "description": "Bank name"
+                        "description": "Bank name (e.g., 'Opay', 'GTBank', 'Access Bank')"
                     },
-                    "nickname": {
+                    "account_number": {
+                        "type": "string", 
+                        "description": "Account number of the beneficiary"
+                    },
+                    "account_holder_name": {
                         "type": "string",
-                        "description": "Nickname for the beneficiary (optional)"
+                        "description": "Real account holder name from bank verification"
                     }
                 },
-                "required": ["name", "account_number", "bank_name"]
+                "required": ["name", "bank_name", "account_number", "account_holder_name"]
             }
         }
     },
     {
         "type": "function",
         "function": {
-            "name": "verify_pin",
-            "description": "Verify user's transaction PIN",
+            "name": "find_beneficiary_by_name", 
+            "description": "Find a saved beneficiary by their nickname. Use this when user mentions names like 'send money to John' or 'transfer to my wife'",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "pin": {
+                    "name": {
                         "type": "string",
-                        "description": "4-digit PIN to verify"
+                        "description": "Name or nickname to search for among saved beneficiaries"
                     }
                 },
-                "required": ["pin"]
+                "required": ["name"]
             }
         }
     }
@@ -224,7 +224,15 @@ TRANSFER PROCESS:
 - If send_money returns requires_pin=true, say: "Please use the secure link I sent to complete your transfer."
 - If send_money returns success=true, congratulate and show receipt
 - Always show FULL recipient name: "THANKGOD OLUWASEUN NDIDI" (never truncate)
-- After successful transfer, ask: "Do you want to save this recipient as a beneficiary?"
+- After successful transfer, ask: "👉 Would you like to save [RECIPIENT_NAME] - [BANK] - [ACCOUNT] as a beneficiary for future transfers?"
+
+BENEFICIARY SYSTEM (CRITICAL):
+- For "send to John" or "pay my wife" → use find_beneficiary_by_name() first
+- If found, use beneficiary details for transfer
+- If not found, ask for account details
+- After EVERY successful transfer, offer to save recipient
+- For "show my contacts" → use get_user_beneficiaries()
+- When user says "yes" to save, use save_beneficiary()
 
 FUNCTION RESPONSES:
 When functions return data, USE that data in your response:
@@ -232,6 +240,8 @@ When functions return data, USE that data in your response:
 - get_transfer_history() returns transfers → List recent transfers
 - get_virtual_account() returns account → Show account details
 - send_money() with requires_pin → "Please use the secure link to complete your transfer"
+- get_user_beneficiaries() → Show saved contacts list
+- save_beneficiary() → Confirm beneficiary saved
 
 RESPONSES TO AVOID:
 ❌ "Check your bank app"
@@ -245,9 +255,15 @@ CORRECT RESPONSES:
 ✅ "I'll verify that account" → call verify_account_name()
 ✅ "Checking your transaction history" → call get_transfer_history()
 ✅ "Here are your account details" → call get_virtual_account()
+✅ "Let me find John in your contacts" → call find_beneficiary_by_name()
 
 AVAILABLE FUNCTIONS:
 - verify_account_name() - Check recipient before transfer
+- send_money() - Execute transfers (PIN handled automatically)
+- check_balance() - Check wallet balance
+- get_user_beneficiaries() - Show saved contacts
+- save_beneficiary() - Save recipient for future transfers
+- find_beneficiary_by_name() - Find saved contact by name
 - send_money() - Execute transfers (handles PIN via web app)
 - check_balance() - Show current balance  
 - get_virtual_account() - Get account details for receiving money

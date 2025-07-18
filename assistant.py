@@ -168,13 +168,29 @@ class BackgroundTaskManager:
             if func_name == "send_money" and isinstance(func_result, dict):
                 if func_result.get("success"):
                     reference = func_result.get("reference", "N/A")
-                    return f"✅ Transfer completed successfully! Reference: {reference}"
+                    message = f"✅ Transfer completed successfully! Reference: {reference}"
+                    
+                    # Add beneficiary save prompt if available
+                    if func_result.get("save_beneficiary_prompt"):
+                        message += f"\n\n{func_result['save_beneficiary_prompt']}"
+                    
+                    return message
                 elif func_result.get("error"):
                     return f"❌ Transfer failed: {func_result.get('error')}"
             elif func_name == "check_balance" and isinstance(func_result, dict):
                 if func_result.get("balance") is not None:
                     balance = func_result.get("balance", 0)
                     return f"💰 Your current balance is ₦{balance:,.2f}"
+            elif func_name == "get_user_beneficiaries" and isinstance(func_result, dict):
+                if func_result.get("success"):
+                    return func_result.get("message", "✅ Beneficiaries loaded")
+            elif func_name == "save_beneficiary" and isinstance(func_result, dict):
+                if func_result.get("success"):
+                    return func_result.get("message", "✅ Beneficiary saved successfully!")
+                else:
+                    return func_result.get("error", "❌ Failed to save beneficiary")
+            elif func_name == "find_beneficiary_by_name" and isinstance(func_result, dict):
+                return func_result.get("message", "✅ Search completed")
         
         return "✅ Your request has been processed successfully!"
     
@@ -202,19 +218,94 @@ class BackgroundTaskManager:
                 
                 # Import and execute transfer
                 from functions.transfer_functions import send_money
-                return await send_money(
+                result = await send_money(
                     chat_id=chat_id,
                     account_number=recipient_account,
                     bank_name=recipient_bank,
                     amount=float(amount),
                     narration=reason
                 )
+                
+                # If transfer successful, prepare beneficiary save prompt
+                if result.get("success"):
+                    from utils.supabase_beneficiary_service import beneficiary_service
+                    save_prompt = beneficiary_service.create_save_beneficiary_prompt(
+                        recipient_name=result.get("recipient_name", "Recipient"),
+                        bank_name=recipient_bank,
+                        account_number=recipient_account
+                    )
+                    result["save_beneficiary_prompt"] = save_prompt
+                
+                return result
+            
+            elif function_name == "get_user_beneficiaries":
+                # Get user's UUID from chat_id
+                user_uuid = await self._get_user_uuid_from_chat_id(chat_id)
+                if not user_uuid:
+                    return {"success": False, "error": "User not found"}
+                
+                from utils.supabase_beneficiary_service import beneficiary_service
+                beneficiaries_list = await beneficiary_service.format_beneficiaries_list(user_uuid)
+                return {"success": True, "message": beneficiaries_list}
+            
+            elif function_name == "save_beneficiary":
+                # Get user's UUID from chat_id
+                user_uuid = await self._get_user_uuid_from_chat_id(chat_id)
+                if not user_uuid:
+                    return {"success": False, "error": "User not found"}
+                
+                from utils.supabase_beneficiary_service import beneficiary_service
+                return await beneficiary_service.save_beneficiary(
+                    user_id=user_uuid,
+                    name=function_args.get("name"),
+                    bank_name=function_args.get("bank_name"),
+                    account_number=function_args.get("account_number"),
+                    account_holder_name=function_args.get("account_holder_name")
+                )
+            
+            elif function_name == "find_beneficiary_by_name":
+                # Get user's UUID from chat_id
+                user_uuid = await self._get_user_uuid_from_chat_id(chat_id)
+                if not user_uuid:
+                    return {"success": False, "error": "User not found"}
+                
+                from utils.supabase_beneficiary_service import beneficiary_service
+                beneficiary = await beneficiary_service.find_beneficiary_by_name(
+                    user_id=user_uuid,
+                    name=function_args.get("name")
+                )
+                
+                if beneficiary:
+                    return {
+                        "success": True, 
+                        "found": True,
+                        "beneficiary": beneficiary,
+                        "message": f"Found {beneficiary['name']}: {beneficiary['account_holder_name']} - {beneficiary['bank_name']} - {beneficiary['account_number']}"
+                    }
+                else:
+                    return {
+                        "success": True,
+                        "found": False,
+                        "message": f"No saved recipient found with name '{function_args.get('name')}'"
+                    }
+            
             else:
                 return {"error": f"Unknown function: {function_name}"}
                 
         except Exception as e:
             logger.error(f"❌ Background function execution error: {e}")
             return {"error": str(e)}
+    
+    async def _get_user_uuid_from_chat_id(self, chat_id: str) -> Optional[str]:
+        """Get user's UUID from telegram chat_id"""
+        try:
+            result = self.supabase.table("users").select("id").eq("telegram_chat_id", str(chat_id)).execute()
+            if result.data:
+                return result.data[0]["id"]
+            return None
+        except Exception as e:
+            logger.error(f"❌ Error getting user UUID: {e}")
+            return None
 
 # Global background task manager
 background_manager = BackgroundTaskManager()

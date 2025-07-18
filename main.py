@@ -75,8 +75,8 @@ admin_handler = AdminCommandHandler()
 from utils.user_onboarding import SofiUserOnboarding
 onboarding_service = SofiUserOnboarding()
 
-# Import beneficiary management system
-from utils.beneficiary_manager import beneficiary_manager
+# Import beneficiary management system (NEW Supabase integration)
+from utils.legacy_beneficiary_handler import legacy_beneficiary_handler
 
 # Import transaction history system
 from utils.transaction_history import handle_transaction_history_query
@@ -1037,7 +1037,7 @@ async def handle_message(chat_id: str, message: str, user_data: dict = None, vir
         
         # Fallback to legacy handlers if assistant fails
         # Check for beneficiary commands first (before other handlers)
-        beneficiary_response = await beneficiary_manager.handle_beneficiary_command(chat_id, message, user_data or {})
+        beneficiary_response = await legacy_beneficiary_handler.handle_beneficiary_command(chat_id, message, user_data or {})
         if beneficiary_response:
             return beneficiary_response
         
