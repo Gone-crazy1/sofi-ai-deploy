@@ -3,10 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Enter PIN - Sofi AI</title>
-    
-    <!-- Favicon -->
-    <link rel="icon" type="image/x-icon" href="/static/images/favicon.ico">
+    <title>Test PIN - Sofi AI</title>
     
     <style>
         * {
@@ -54,17 +51,12 @@
             color: #667eea;
             margin-bottom: 15px;
             font-size: 18px;
-            text-align: center;
         }
         
         .transfer-details p {
             margin-bottom: 8px;
-            font-size: 14px;
             color: #333;
-        }
-        
-        .transfer-details strong {
-            color: #667eea;
+            font-size: 14px;
         }
         
         .pin-input {
@@ -96,8 +88,8 @@
             background: #667eea;
             color: white;
             border: none;
-            padding: 15px 30px;
-            border-radius: 5px;
+            padding: 12px 30px;
+            border-radius: 6px;
             font-size: 16px;
             cursor: pointer;
             width: 100%;
@@ -119,26 +111,12 @@
             margin-bottom: 10px;
             display: none;
         }
-        
-        .loading {
+
+        .success-message {
+            color: green;
+            font-size: 14px;
+            margin-bottom: 10px;
             display: none;
-            margin-top: 10px;
-            color: #667eea;
-        }
-        
-        .loading-spinner {
-            border: 3px solid #f3f3f3;
-            border-top: 3px solid #667eea;
-            border-radius: 50%;
-            width: 30px;
-            height: 30px;
-            animation: spin 1s linear infinite;
-            margin: 10px auto;
-        }
-        
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
         }
     </style>
 </head>
@@ -147,15 +125,13 @@
         <h1>Enter Your PIN</h1>
         
         <!-- Transfer Details -->
-        {% if transfer_data %}
         <div class="transfer-details">
             <h3>Transfer Details</h3>
-            <p><strong>Amount:</strong> ₦{{ "{:,.0f}".format(transfer_data.amount) }}</p>
-            <p><strong>To:</strong> {{ transfer_data.recipient_name }}</p>
-            <p><strong>Bank:</strong> {{ transfer_data.bank }}</p>
-            <p><strong>Account:</strong> {{ transfer_data.account_number }}</p>
+            <p><strong>Amount:</strong> ₦100</p>
+            <p><strong>To:</strong> THANKGOD OLUWASEUN NDIDI</p>
+            <p><strong>Bank:</strong> Unknown Bank</p>
+            <p><strong>Account:</strong> 8104965538</p>
         </div>
-        {% endif %}
         
         <form id="pinForm" autocomplete="off">
             <div class="pin-input">
@@ -194,21 +170,17 @@
             </div>
             
             <div class="error-message" id="errorMessage"></div>
+            <div class="success-message" id="successMessage"></div>
             
             <button type="submit" class="submit-btn" id="submitBtn" disabled>Submit</button>
         </form>
-        
-        <div class="loading" id="loadingDiv">
-            <div class="loading-spinner"></div>
-            <p>Verifying PIN...</p>
-        </div>
     </div>
     
     <script>
         const pinInputs = document.querySelectorAll('.pin-digit');
         const submitBtn = document.getElementById('submitBtn');
         const errorMessage = document.getElementById('errorMessage');
-        const loadingDiv = document.getElementById('loadingDiv');
+        const successMessage = document.getElementById('successMessage');
         
         // Auto-focus and navigation
         pinInputs.forEach((input, index) => {
@@ -252,12 +224,19 @@
         function showError(message) {
             errorMessage.textContent = message;
             errorMessage.style.display = 'block';
+            successMessage.style.display = 'none';
             
             pinInputs.forEach(input => input.value = '');
             pinInputs[0].focus();
         }
         
-        document.getElementById('pinForm').addEventListener('submit', async function(e) {
+        function showSuccess(message) {
+            successMessage.textContent = message;
+            successMessage.style.display = 'block';
+            errorMessage.style.display = 'none';
+        }
+        
+        document.getElementById('pinForm').addEventListener('submit', function(e) {
             e.preventDefault();
             
             const pin = Array.from(pinInputs).map(input => input.value).join('');
@@ -267,55 +246,11 @@
                 return;
             }
             
-            submitBtn.disabled = true;
-            loadingDiv.style.display = 'block';
-            
-            try {
-                const urlParams = new URLSearchParams(window.location.search);
-                const transactionId = urlParams.get('txn_id');
-                
-                // Add timeout to prevent hanging
-                const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
-                
-                const response = await fetch('/api/verify-pin', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        pin: pin,
-                        transaction_id: transactionId
-                    }),
-                    signal: controller.signal
-                });
-                
-                clearTimeout(timeoutId);
-                const result = await response.json();
-                
-                if (response.ok && result.success) {
-                    // Show success message briefly before redirect
-                    loadingDiv.innerHTML = '<div class="loading-spinner"></div><p>✅ Success! Redirecting...</p>';
-                    
-                    // Redirect after short delay
-                    setTimeout(() => {
-                        if (result.redirect_url) {
-                            window.location.href = result.redirect_url;
-                        } else {
-                            window.location.href = '/success';
-                        }
-                    }, 1000);
-                } else {
-                    throw new Error(result.error || 'PIN verification failed');
-                }
-            } catch (error) {
-                if (error.name === 'AbortError') {
-                    showError('Request timed out. Please try again.');
-                } else {
-                    showError(error.message || 'PIN verification failed. Please try again.');
-                }
-                submitBtn.disabled = false;
-                loadingDiv.style.display = 'none';
+            // Test PIN validation
+            if (pin === '1234') {
+                showSuccess('✅ PIN verified! (Test mode)');
+            } else {
+                showError('❌ Incorrect PIN. Try 1234 for demo.');
             }
         });
         
@@ -324,11 +259,6 @@
             // Focus first input
             if (pinInputs[0]) {
                 pinInputs[0].focus();
-            }
-            
-            // Ensure loading is hidden initially
-            if (loadingDiv) {
-                loadingDiv.style.display = 'none';
             }
         });
     </script>

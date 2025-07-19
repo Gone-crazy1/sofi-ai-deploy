@@ -2,11 +2,6 @@ from flask import Flask, request, jsonify, url_for, render_template, abort, make
 from flask_cors import CORS
 import os, requests, hashlib, logging, json, asyncio, tempfile, re, threading
 from datetime import datetime
-from dotenv import load_dotenv
-
-# Load environment variables first
-load_dotenv()
-
 from supabase import create_client
 import openai
 from openai import OpenAI
@@ -20,6 +15,7 @@ from paystack import get_paystack_service
 from paystack.paystack_webhook import handle_paystack_webhook
 # AI Assistant Integration - Powered by Pip install AI Technologies
 from assistant import get_assistant
+from dotenv import load_dotenv
 import random
 from PIL import Image
 from io import BytesIO
@@ -966,7 +962,7 @@ async def handle_crypto_commands(chat_id: str, message: str, user_data: dict) ->
         return None
 
 async def handle_message(chat_id: str, message: str, user_data: dict = None, virtual_account: dict = None) -> str:
-    """Main message handler with SMART ROUTING - Fast responses for simple messages, Assistant API for complex operations"""
+    """Main message handler with AI Assistant integration - Powered by Pip install AI Technologies"""
     try:
         # Check for admin commands first (highest priority)
         admin_command = await admin_handler.detect_admin_command(message, chat_id)
@@ -974,114 +970,112 @@ async def handle_message(chat_id: str, message: str, user_data: dict = None, vir
             admin_response = await admin_handler.handle_admin_command(admin_command, message, chat_id)
             return admin_response
         
-        # Process message with OpenAI Assistant API
-        sofi_money = SofiMoney()
+        # Legacy smart transfer code removed - now using AI Assistant
         
+        # Try AI Assistant first for better AI handling
         try:
-            # Create or get existing thread for this user
-            if not user_data or not user_data.get('thread_id'):
-                thread = openai_client.beta.threads.create()
-                thread_id = thread.id
-                # Save thread_id to user data
-                await sofi_money.save_user_data(chat_id, {'thread_id': thread_id})
-            else:
-                thread_id = user_data.get('thread_id')
-
-            # Add message to thread
-            openai_client.beta.threads.messages.create(
-                thread_id=thread_id,
-                role="user",
-                content=message
-            )
-
-            # Run the assistant
-            run = openai_client.beta.threads.runs.create(
-                thread_id=thread_id,
-                assistant_id=os.getenv('OPENAI_ASSISTANT_ID')
-            )
-
-            # Wait for completion
-            while run.status in ['queued', 'in_progress']:
-                await asyncio.sleep(0.5)
-                run = openai_client.beta.threads.runs.retrieve(
-                    thread_id=thread_id,
-                    run_id=run.id
-                )
-
-            # Handle requires_action status (function calls)
-            if run.status == 'requires_action':
-                tool_calls = run.required_action.submit_tool_outputs.tool_calls
-                tool_outputs = []
-                
-                for tool_call in tool_calls:
-                    function_name = tool_call.function.name
-                    function_args = json.loads(tool_call.function.arguments)
-                    
-                    logger.info(f"� Calling function: {function_name} with args: {function_args}")
-                    
-                    # Execute the function
-                    if hasattr(sofi_money, function_name):
-                        try:
-                            result = await getattr(sofi_money, function_name)(**function_args)
+            assistant = get_assistant()
+            
+            # Prepare user data for context
+            context_data = user_data or {}
+            if virtual_account:
+                context_data['virtual_account'] = virtual_account
+            
+            # Process message with AI Assistant
+            response, function_data = await assistant.process_message(chat_id, message, context_data)
+            
+            # Check if any function returned requires_pin or completed transfer
+            if function_data:
+                logger.info(f"🔧 DEBUG: Function data received: {json.dumps(function_data, indent=2, default=str)}")
+                for func_name, func_result in function_data.items():
+                    if isinstance(func_result, dict) and func_result.get("requires_pin"):
+                        logger.info(f"🔐 Function {func_name} requires PIN entry - sending web PIN link")
+                        
+                        # Check if it's the new web PIN system
+                        if func_result.get("show_web_pin"):
+                            # Send the PIN entry message with web app button
+                            pin_message = func_result.get("message", "Please enter your PIN")
+                            pin_keyboard = func_result.get("keyboard", {})
                             
-                            # Check if function requires PIN entry
-                            if isinstance(result, dict) and result.get("requires_pin"):
-                                logger.info(f"� Function {function_name} requires PIN entry - sending web PIN link")
-                                pin_url = f"https://sofi-ai-deploy.onrender.com/pin-entry?action={function_name}&params={urllib.parse.quote(json.dumps(function_args))}&chat_id={chat_id}"
-                                return f"🔐 To complete this transaction, please verify your PIN securely:\n\n{pin_url}\n\n⚡ Quick & secure verification in under 1 second!"
+                            # Debug logging
+                            logger.info(f"🔧 DEBUG: Sending web PIN button")
+                            logger.info(f"📱 PIN Message: {pin_message}")
+                            logger.info(f"⌨️ Keyboard: {pin_keyboard}")
                             
-                            tool_outputs.append({
-                                "tool_call_id": tool_call.id,
-                                "output": json.dumps(result)
-                            })
-                        except Exception as e:
-                            logger.error(f"Error executing function {function_name}: {e}")
-                            tool_outputs.append({
-                                "tool_call_id": tool_call.id,
-                                "output": json.dumps({"error": str(e)})
-                            })
-                    else:
-                        tool_outputs.append({
-                            "tool_call_id": tool_call.id,
-                            "output": json.dumps({"error": f"Function {function_name} not found"})
-                        })
+                            # Send message with PIN button
+                            send_reply(chat_id, pin_message, pin_keyboard)
+                            
+                            # Return special marker to prevent duplicate message sending
+                            return "PIN_ALREADY_SENT"
+                        
 
-                # Submit tool outputs
-                run = openai_client.beta.threads.runs.submit_tool_outputs(
-                    thread_id=thread_id,
-                    run_id=run.id,
-                    tool_outputs=tool_outputs
-                )
-
-                # Wait for completion again
-                while run.status in ['queued', 'in_progress']:
-                    await asyncio.sleep(0.5)
-                    run = openai_client.beta.threads.runs.retrieve(
-                        thread_id=thread_id,
-                        run_id=run.id
-                    )
-
-            # Get the assistant's response
-            if run.status == 'completed':
-                messages = openai_client.beta.threads.messages.list(thread_id=thread_id)
-                latest_message = messages.data[0]
-                response = latest_message.content[0].text.value
+                        
+                        # Only web PIN is supported now - inline PIN system removed
+                    
+                    # Check if any function returned a successful transfer with auto receipt
+                    if isinstance(func_result, dict) and func_result.get("auto_send_receipt") and func_result.get("success"):
+                        logger.info(f"📧 Function {func_name} completed transfer - auto-sending receipt")
+                        
+                        # Generate and send beautiful HTML receipt
+                        receipt_data = func_result.get("receipt_data", {})
+                        if receipt_data:
+                            await send_beautiful_receipt(chat_id, receipt_data, func_result)
+                        
+                        # Return the receipt message directly
+                        return func_result.get("message", "Transfer completed successfully!")
+            
+            # If assistant handled it successfully, return the response
+            if response and not response.startswith("Sorry, I encountered an error"):
+                logger.info(f"✅ AI Assistant handled message from {chat_id}")
                 return response
             else:
-                logger.error(f"Run failed with status: {run.status}")
-                return "I'm having trouble processing your request right now. Please try again."
+                logger.info(f"⚠️ AI Assistant failed, falling back to legacy handlers")
         
-        except Exception as e:
-            error_msg = str(e).lower()
-            
-            # Handle "Thread already has an active run" error gracefully
-            if "already has an active run" in error_msg:
-                logger.warning(f"⚠️ Active run conflict: {e}")
-                return "I'm still processing your previous request. Please wait a moment before sending another message. 🕐"
-            
-            else:
-                logger.error(f"❌ OpenAI Assistant error: {e}")
-                return "I'm having trouble processing your request right now. Please try again."
+        except Exception as assistant_error:
+            logger.error(f"❌ AI Assistant error: {str(assistant_error)}")
+            logger.info("🔄 Falling back to legacy message handlers")
+        
+        # Fallback to legacy handlers if assistant fails
+        # Check for beneficiary commands first (before other handlers)
+        beneficiary_response = await legacy_beneficiary_handler.handle_beneficiary_command(chat_id, message, user_data or {})
+        if beneficiary_response:
+            return beneficiary_response
+        
+        # Check for transaction history queries
+        history_response = await handle_transaction_history_query(chat_id, message, user_data)
+        if history_response:
+            return history_response
+        
+        # Check for 2-month summary requests
+        summary_keywords = ['2 month', 'two month', 'monthly summary', 'financial summary', 'spending summary', 
+                           'transaction summary', 'summarize my transactions', 'past 2 months', 'last 2 months']
+        if any(keyword in message.lower() for keyword in summary_keywords):
+            summary_response = await transaction_summarizer.get_2_month_summary(chat_id, user_data)
+            return summary_response
+        
+        # Check for balance inquiry
+        balance_response = await handle_balance_inquiry(chat_id, message, user_data, virtual_account)
+        if balance_response:
+            return balance_response
+        
+        # Check for transfer intent
+        transfer_response = await handle_transfer_flow(chat_id, message, user_data)
+        if transfer_response:
+            return transfer_response
+        
+        # Check for airtime/data commands
+        airtime_response = await handle_airtime_commands(chat_id, message, user_data, virtual_account)
+        if airtime_response:
+            return airtime_response
+        
+        # Check for crypto commands
+        crypto_response = await handle_crypto_commands(chat_id, message, user_data)
+        if crypto_response:
+            return crypto_response
+        
+        # Fall back to general AI conversation
+        ai_response = await generate_ai_reply(chat_id, message)
+        return ai_response
         
     except Exception as e:
         logger.error(f"Error handling message: {e}")
@@ -1814,6 +1808,26 @@ def test_pin_page():
                          transfer_data=sample_transaction)
 
 
+
+@app.route("/test-pin")
+def test_pin_page():
+    """Test PIN page with sample data"""
+    return render_template("test-pin.html")
+
+@app.route("/test-pin-real")
+def test_pin_page_real():
+    """Test PIN page with real template"""
+    # Create a sample transaction for testing
+    sample_transaction = {
+        'amount': 100.00,
+        'recipient_name': 'THANKGOD OLUWASEUN NDIDI',
+        'bank': 'Unknown Bank',
+        'account_number': '8104965538'
+    }
+    
+    return render_template("pin-entry.html", 
+                         transaction_id="test_demo",
+                         transfer_data=sample_transaction)
 
 @app.route("/api/verify-pin", methods=["POST"])
 def verify_pin_api():
