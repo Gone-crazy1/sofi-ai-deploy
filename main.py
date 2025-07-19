@@ -2,6 +2,11 @@ from flask import Flask, request, jsonify, url_for, render_template, abort, make
 from flask_cors import CORS
 import os, requests, hashlib, logging, json, asyncio, tempfile, re, threading
 from datetime import datetime
+from dotenv import load_dotenv
+
+# Load environment variables FIRST
+load_dotenv()
+
 from supabase import create_client
 import openai
 from openai import OpenAI
@@ -15,7 +20,6 @@ from paystack import get_paystack_service
 from paystack.paystack_webhook import handle_paystack_webhook
 # AI Assistant Integration - Powered by Pip install AI Technologies
 from assistant import get_assistant
-from dotenv import load_dotenv
 import random
 from PIL import Image
 from io import BytesIO
@@ -63,9 +67,6 @@ print("🚀 Sofi AI started in FAST MODE for optimal response times")
 # 🔒 SECURITY ENDPOINTS
 from utils.security_endpoints import init_security_endpoints
 from functions.transfer_functions import BANK_CODE_TO_NAME
-
-# Load environment variables from .env file
-load_dotenv()
 
 # Import admin handler AFTER environment loading
 from utils.admin_command_handler import AdminCommandHandler
@@ -1791,23 +1792,6 @@ def success_page():
     }
     
     return render_template("success.html", receipt_data=receipt_data)
-
-@app.route("/test-pin")
-def test_pin_page():
-    """Test PIN page with sample data"""
-    # Create a sample transaction for testing
-    sample_transaction = {
-        'amount': 5000.00,
-        'recipient_name': 'John Doe',
-        'bank': 'GTBank',
-        'account_number': '0123456789'
-    }
-    
-    return render_template("pin-entry.html", 
-                         transaction_id="test_demo",
-                         transfer_data=sample_transaction)
-
-
 
 @app.route("/test-pin")
 def test_pin_page():
