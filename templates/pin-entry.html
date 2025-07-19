@@ -82,11 +82,20 @@
             text-align: center;
             font-size: 24px;
             font-weight: bold;
+            -webkit-text-security: disc; /* Safari/Chrome - shows dots */
+            font-family: text-security-disc; /* Firefox fallback */
         }
         
         .pin-digit:focus {
             border-color: #667eea;
             outline: none;
+        }
+        
+        /* Alternative method for broader browser support */
+        .pin-digit::placeholder {
+            color: #ccc;
+            -webkit-text-security: none;
+            font-family: Arial, sans-serif;
         }
         
         .submit-btn {
@@ -179,27 +188,73 @@
         const errorMessage = document.getElementById('errorMessage');
         const loadingDiv = document.getElementById('loadingDiv');
         
-        // Auto-focus and navigation
+        // Store actual PIN values (hidden from display)
+        let actualPinValues = ['', '', '', ''];
+        
+        // Auto-focus and navigation with PIN masking
         pinInputs.forEach((input, index) => {
             input.addEventListener('input', function(e) {
-                this.value = this.value.replace(/\D/g, '');
+                let inputValue = this.value.replace(/\D/g, ''); // Only allow digits
                 
-                if (this.value && index < pinInputs.length - 1) {
-                    pinInputs[index + 1].focus();
+                if (inputValue.length > 0) {
+                    // Store the actual digit
+                    actualPinValues[index] = inputValue[inputValue.length - 1];
+                    // Display a dot/bullet instead
+                    this.value = '•';
+                    
+                    // Move to next input if available
+                    if (index < pinInputs.length - 1) {
+                        pinInputs[index + 1].focus();
+                    }
+                } else {
+                    // Clear the stored value if input is empty
+                    actualPinValues[index] = '';
+                    this.value = '';
                 }
                 
                 checkPinComplete();
             });
             
             input.addEventListener('keydown', function(e) {
-                if (e.key === 'Backspace' && !this.value && index > 0) {
-                    pinInputs[index - 1].focus();
+                if (e.key === 'Backspace') {
+                    e.preventDefault();
+                    // Clear current input and stored value
+                    actualPinValues[index] = '';
+                    this.value = '';
+                    
+                    // Move to previous input if available and current is empty
+                    if (index > 0) {
+                        pinInputs[index - 1].focus();
+                    }
+                    
+                    checkPinComplete();
+                }
+                
+                // Prevent non-numeric input
+                if (!/[0-9]/.test(e.key) && !['Backspace', 'Delete', 'Tab', 'Enter'].includes(e.key)) {
+                    e.preventDefault();
+                }
+            });
+            
+            // Handle paste events
+            input.addEventListener('paste', function(e) {
+                e.preventDefault();
+                const pastedData = e.clipboardData.getData('text').replace(/\D/g, '');
+                
+                if (pastedData.length >= 4) {
+                    // Fill all PIN inputs with dots
+                    for (let i = 0; i < 4; i++) {
+                        actualPinValues[i] = pastedData[i] || '';
+                        pinInputs[i].value = actualPinValues[i] ? '•' : '';
+                    }
+                    pinInputs[3].focus(); // Focus on last input
+                    checkPinComplete();
                 }
             });
         });
         
         function checkPinComplete() {
-            const pin = Array.from(pinInputs).map(input => input.value).join('');
+            const pin = actualPinValues.join('');
             submitBtn.disabled = pin.length !== 4;
             
             if (errorMessage.style.display === 'block') {
@@ -211,6 +266,8 @@
             errorMessage.textContent = message;
             errorMessage.style.display = 'block';
             
+            // Clear all inputs and stored values
+            actualPinValues = ['', '', '', ''];
             pinInputs.forEach(input => input.value = '');
             pinInputs[0].focus();
         }
@@ -218,7 +275,7 @@
         document.getElementById('pinForm').addEventListener('submit', async function(e) {
             e.preventDefault();
             
-            const pin = Array.from(pinInputs).map(input => input.value).join('');
+            const pin = actualPinValues.join('');
             
             if (pin.length !== 4) {
                 showError('Please enter a 4-digit PIN');
@@ -230,21 +287,26 @@
             
             try {
                 const urlParams = new URLSearchParams(window.location.search);
+                const secureToken = urlParams.get('token');
                 const transactionId = urlParams.get('txn_id');
                 
                 // Add timeout to prevent hanging
                 const controller = new AbortController();
                 const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
                 
+                const requestBody = { pin: pin };
+                if (secureToken) {
+                    requestBody.secure_token = secureToken;
+                } else if (transactionId) {
+                    requestBody.transaction_id = transactionId;
+                }
+                
                 const response = await fetch('/api/verify-pin', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({
-                        pin: pin,
-                        transaction_id: transactionId
-                    }),
+                    body: JSON.stringify(requestBody),
                     signal: controller.signal
                 });
                 
@@ -253,16 +315,16 @@
                 
                 if (response.ok && result.success) {
                     // Show success message briefly before redirect
-                    loadingDiv.innerHTML = '<div class="loading-spinner"></div><p>✅ Success! Redirecting...</p>';
+                    loadingDiv.innerHTML = '<div class="loading-spinner"></div><p>✅ PIN Verified! Processing transfer...</p>';
                     
                     // Redirect after short delay
                     setTimeout(() => {
                         if (result.redirect_url) {
                             window.location.href = result.redirect_url;
                         } else {
-                            window.location.href = '/success';
+                            window.location.href = '/success?processed=true';
                         }
-                    }, 1000);
+                    }, 1500);
                 } else {
                     throw new Error(result.error || 'PIN verification failed');
                 }
@@ -273,6 +335,15 @@
                     showError(error.message || 'PIN verification failed. Please try again.');
                 }
                 submitBtn.disabled = false;
+                loadingDiv.style.display = 'none';
+            }
+        });
+        
+        // Auto-focus first input on page load
+        window.addEventListener('load', function() {
+            pinInputs[0].focus();
+        });
+    </script>
                 loadingDiv.style.display = 'none';
             }
         });

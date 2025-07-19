@@ -34,6 +34,7 @@
         
         const PinVerificationApp = () => {
             const [pin, setPin] = useState('');
+            const [displayPin, setDisplayPin] = useState(['', '', '', '']); // For masked display
             const [loading, setLoading] = useState(false);
             const [error, setError] = useState('');
             const [success, setSuccess] = useState('');
@@ -326,21 +327,61 @@
                                         inputMode="numeric"
                                         pattern="[0-9]*"
                                         maxLength="1"
-                                        value={pin[index] || ''}
+                                        value={displayPin[index] || ''}
                                         onChange={(e) => {
-                                            const newPin = pin.split('');
-                                            newPin[index] = e.target.value.replace(/[^0-9]/g, '');
-                                            setPin(newPin.join('').slice(0, 4));
+                                            const inputValue = e.target.value.replace(/[^0-9]/g, '');
                                             
-                                            // Auto-focus next input
-                                            if (e.target.value && index < 3) {
-                                                const nextInput = e.target.parentElement.nextElementSibling?.querySelector('input');
-                                                if (nextInput) nextInput.focus();
+                                            if (inputValue) {
+                                                // Update actual PIN
+                                                const newPin = pin.split('');
+                                                newPin[index] = inputValue;
+                                                setPin(newPin.join('').slice(0, 4));
+                                                
+                                                // Update display with dot
+                                                const newDisplayPin = [...displayPin];
+                                                newDisplayPin[index] = '•';
+                                                setDisplayPin(newDisplayPin);
+                                                
+                                                // Auto-focus next input
+                                                if (index < 3) {
+                                                    const nextInput = e.target.parentElement.nextElementSibling?.querySelector('input');
+                                                    if (nextInput) nextInput.focus();
+                                                }
+                                            } else {
+                                                // Clear if input is empty
+                                                const newPin = pin.split('');
+                                                newPin[index] = '';
+                                                setPin(newPin.join(''));
+                                                
+                                                const newDisplayPin = [...displayPin];
+                                                newDisplayPin[index] = '';
+                                                setDisplayPin(newDisplayPin);
+                                            }
+                                        }}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Backspace') {
+                                                e.preventDefault();
+                                                
+                                                // Clear current input
+                                                const newPin = pin.split('');
+                                                newPin[index] = '';
+                                                setPin(newPin.join(''));
+                                                
+                                                const newDisplayPin = [...displayPin];
+                                                newDisplayPin[index] = '';
+                                                setDisplayPin(newDisplayPin);
+                                                
+                                                // Move to previous input
+                                                if (index > 0) {
+                                                    const prevInput = e.target.parentElement.previousElementSibling?.querySelector('input');
+                                                    if (prevInput) prevInput.focus();
+                                                }
                                             }
                                         }}
                                         className="w-full h-full text-center text-2xl font-bold border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
                                         disabled={loading}
                                         autoFocus={index === 0}
+                                        style={{ fontFamily: 'monospace' }} // Better display for dots
                                     />
                                 </div>
                             ))}

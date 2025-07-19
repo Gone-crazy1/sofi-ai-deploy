@@ -21,21 +21,9 @@ SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
 def get_supabase_client():
-    """Get Supabase client instance with better error handling"""
+    """Get Supabase client instance"""
     try:
-        # Try to get environment variables
-        supabase_url = os.getenv("SUPABASE_URL")
-        supabase_key = os.getenv("SUPABASE_KEY") or os.getenv("SUPABASE_SERVICE_ROLE_KEY")
-        
-        if not supabase_url:
-            logging.error("SUPABASE_URL not found in environment variables")
-            return None
-            
-        if not supabase_key:
-            logging.error("SUPABASE_KEY not found in environment variables") 
-            return None
-            
-        return create_client(supabase_url, supabase_key)
+        return create_client(SUPABASE_URL, SUPABASE_KEY)
     except Exception as e:
         logging.error(f"Error creating Supabase client: {e}")
         return None
@@ -70,31 +58,47 @@ class SecureTransactionValidator:
                 logger.error("Database connection not available")
                 return False
             
-            # Get user's stored PIN hash and chat ID for salt
-            result = self.client.table("users").select("pin_hash, telegram_chat_id").eq("id", user_id).execute()
+            # Get user's stored PIN hash
+            result = self.client.table("users").select("pin").eq("id", user_id).execute()
             
             if not result.data:
                 logger.error(f"User {user_id} not found")
                 return False
             
-            user_data = result.data[0]
-            stored_pin_hash = user_data.get("pin_hash")
-            chat_id = user_data.get("telegram_chat_id")
-            
+            stored_pin_hash = result.data[0].get("pin")
             if not stored_pin_hash:
                 logger.error(f"No PIN found for user {user_id}")
                 return False
             
-            if not chat_id:
-                logger.error(f"No chat ID found for user {user_id}")
-                return False
+            # 🚀 OPTIMIZED: Try fast verification first, fallback to slow for compatibility
             
-            # Hash the provided PIN using the same method as onboarding (PBKDF2)
-            provided_pin_hash = hashlib.pbkdf2_hmac('sha256', 
-                                                   provided_pin.encode('utf-8'), 
-                                                   str(chat_id).encode('utf-8'), 
-                                                   100000)  # 100,000 iterations
-            provided_pin_hash = provided_pin_hash.hex()
+            # Try fast hash first (10k iterations - 10x faster)
+            provided_pin_hash_fast = hashlib.pbkdf2_hmac('sha256', 
+                                                       provided_pin.encode('utf-8'), 
+                                                       str(user_id).encode('utf-8'), 
+                                                       10000).hex()
+            
+            # Check if fast hash matches
+            if stored_pin_hash == provided_pin_hash_fast:
+                logger.info(f"✅ Fast PIN verification successful for user {user_id}")
+                return True
+            
+            # Fallback to old slow method for backward compatibility
+            provided_pin_hash_slow = hashlib.pbkdf2_hmac('sha256', 
+                                                       provided_pin.encode('utf-8'), 
+                                                       str(user_id).encode('utf-8'), 
+                                                       100000).hex()
+            
+            if stored_pin_hash == provided_pin_hash_slow:
+                logger.info(f"🔄 Slow PIN verification successful, migrating to fast hash for user {user_id}")
+                # Update to fast hash for future speed
+                self.client.table("users").update({
+                    "pin": provided_pin_hash_fast
+                }).eq("id", user_id).execute()
+                return True
+            
+            # Fallback to SHA256 method (if any old users still use this)
+            provided_pin_hash = hashlib.sha256(provided_pin.encode()).hexdigest()
             
             # Compare hashes
             pin_valid = stored_pin_hash == provided_pin_hash
@@ -446,163 +450,27 @@ class SecureTransactionValidator:
 # Create global validator instance
 validator = SecureTransactionValidator()
 
-# SIMPLIFIED PIN VERIFICATION (NO PIN_ATTEMPTS TABLE REQUIRED)
-async def verify_user_pin_simple(user_id: str, provided_pin: str) -> bool:
-    """
-    Simplified PIN verification that doesn't require pin_attempts table
-    
-    Args:
-        user_id: User's unique identifier
-        provided_pin: PIN provided by user
-        
-    Returns:
-        bool: True if PIN is correct, False otherwise
-    """
-    try:
-        from supabase import create_client
-        import os
-        import hashlib
-        
-        supabase = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
-        
-        # Get user's stored PIN hash and chat ID for salt
-        result = supabase.table("users").select("pin_hash, telegram_chat_id").eq("id", user_id).execute()
-        
-        if not result.data:
-            logger.error(f"User {user_id} not found")
-            return False
-        
-        user_data = result.data[0]
-        stored_pin_hash = user_data.get("pin_hash")
-        chat_id = user_data.get("telegram_chat_id")
-        
-        if not stored_pin_hash:
-            logger.error(f"No PIN found for user {user_id}")
-            return False
-        
-        if not chat_id:
-            logger.error(f"No chat ID found for user {user_id}")
-            return False
-        
-        # Hash the provided PIN using the same method as onboarding (PBKDF2)
-        provided_pin_hash = hashlib.pbkdf2_hmac('sha256', 
-                                               provided_pin.encode('utf-8'), 
-                                               str(chat_id).encode('utf-8'), 
-                                               100000)  # 100,000 iterations
-        provided_pin_hash = provided_pin_hash.hex()
-        
-        # Compare hashes
-        pin_valid = stored_pin_hash == provided_pin_hash
-        
-        logger.info(f"PIN verification for user {user_id}: {'Success' if pin_valid else 'Failed'}")
-        return pin_valid
-        
-    except Exception as e:
-        logger.error(f"Error verifying PIN for user {user_id}: {e}")
-        return False
-
-async def is_user_locked_simple(user_id: str) -> bool:
-    """
-    Simplified user lock check (always returns False for now)
-    """
-    return False
-
-async def track_pin_attempt_simple(user_id: str, success: bool) -> Dict:
-    """
-    Simplified PIN attempt tracking (just logs for now)
-    """
-    logger.info(f"PIN attempt for user {user_id}: {'Success' if success else 'Failed'}")
-    return {"success": True}
-
-# GLOBAL FUNCTIONS FOR BACKWARD COMPATIBILITY
+# Export functions for backward compatibility
 async def verify_user_pin(user_id: str, provided_pin: str) -> bool:
-    """Global function that uses simplified PIN verification"""
-    return await verify_user_pin_simple(user_id, provided_pin)
-
-async def is_user_locked(user_id: str) -> bool:
-    """Global function that uses simplified lock check"""
-    return await is_user_locked_simple(user_id)
+    """Verify user's PIN"""
+    return await validator.verify_user_pin(user_id, provided_pin)
 
 async def track_pin_attempt(user_id: str, success: bool) -> Dict:
-    """Global function that uses simplified attempt tracking"""
-    return await track_pin_attempt_simple(user_id, success)
+    """Track PIN attempt"""
+    return await validator.track_pin_attempt(user_id, success)
 
-async def check_sufficient_balance(user_id: str, amount: float) -> bool:
-    """
-    Check if user has sufficient balance for transaction
-    
-    Args:
-        user_id: User's unique identifier
-        amount: Amount to check
-        
-    Returns:
-        bool: True if sufficient balance, False otherwise
-    """
-    try:
-        from supabase import create_client
-        import os
-        
-        supabase = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
-        
-        # Get user's balance
-        result = supabase.table("users").select("wallet_balance").eq("id", user_id).execute()
-        
-        if not result.data:
-            logger.error(f"User {user_id} not found for balance check")
-            return False
-        
-        current_balance = result.data[0].get("wallet_balance", 0)
-        sufficient = current_balance >= amount
-        
-        logger.info(f"Balance check for user {user_id}: ₦{current_balance} >= ₦{amount} = {sufficient}")
-        return sufficient
-        
-    except Exception as e:
-        logger.error(f"Error checking balance for user {user_id}: {e}")
-        return False
-
-async def validate_transaction_limits(user_id: str, amount: float) -> Dict:
-    """
-    Validate transaction against limits
-    
-    Args:
-        user_id: User's unique identifier
-        amount: Transaction amount
-        
-    Returns:
-        dict: Validation result
-    """
-    try:
-        # For now, just check basic limits
-        max_transfer = 500000  # ₦500,000 max per transfer
-        min_transfer = 100     # ₦100 minimum
-        
-        if amount < min_transfer:
-            return {
-                "valid": False,
-                "error": f"Minimum transfer amount is ₦{min_transfer:,.0f}"
-            }
-        
-        if amount > max_transfer:
-            return {
-                "valid": False,
-                "error": f"Maximum transfer amount is ₦{max_transfer:,.0f}"
-            }
-        
-        return {"valid": True}
-        
-    except Exception as e:
-        logger.error(f"Error validating transaction limits for user {user_id}: {e}")
-        return {"valid": False, "error": "Validation error"}
+async def is_user_locked(user_id: str) -> bool:
+    """Check if user is locked"""
+    return await validator.is_user_locked(user_id)
 
 async def get_user_balance(user_id: str) -> Dict:
-    """
-    Get user balance by user ID (global function for backward compatibility)
-    
-    Args:
-        user_id: User's unique identifier
-        
-    Returns:
-        dict: Balance information
-    """
+    """Get user balance"""
     return await validator.get_user_balance(user_id)
+
+async def check_sufficient_balance(user_id: str, amount: float, include_fees: bool = True) -> Dict:
+    """Check if user has sufficient balance"""
+    return await validator.check_sufficient_balance(user_id, amount, include_fees)
+
+async def validate_transaction_limits(user_id: str, amount: float) -> Dict:
+    """Validate transaction limits"""
+    return await validator.validate_transaction_limits(user_id, amount)
