@@ -35,6 +35,13 @@ class SofiUserOnboarding:
     
     def __init__(self):
         self.paystack_service = PaystackService()
+        # Initialize 9PSB API
+        from utils.ninepsb_api import NINEPSBApi
+        self.ninepsb_api = NINEPSBApi(
+            api_key=os.getenv("NINEPSB_API_KEY"),
+            secret_key=os.getenv("NINEPSB_SECRET_KEY"),
+            base_url=os.getenv("NINEPSB_BASE_URL")
+        )
     
     async def create_new_user(self, user_data: Dict) -> Dict:
         """
@@ -76,6 +83,39 @@ class SofiUserOnboarding:
                 if not pin.isdigit() or len(pin) != 4:
                     return {
                         'success': False,
+            ninepsb_wallet = None
+            if bvn:
+                ninepsb_wallet = self.ninepsb_api.lookup_existing_wallet(bvn=bvn)
+            elif phone:
+                ninepsb_wallet = self.ninepsb_api.lookup_existing_wallet(phone=phone)
+            # If wallet exists, use its details; else, create new wallet
+            if ninepsb_wallet and isinstance(ninepsb_wallet, dict) and ninepsb_wallet.get('accountNumber'):
+                account_number = ninepsb_wallet.get('accountNumber')
+                bank_name = ninepsb_wallet.get('bankName', '9PSB')
+                bank_code = ninepsb_wallet.get('bankCode', '999')
+                wallet_created = False
+            else:
+                # Create new wallet via 9PSB
+                wallet_result = self.ninepsb_api.create_virtual_account(telegram_id, {
+                    "firstName": full_name.split(" ")[0] if full_name else "",
+                    "lastName": full_name.split(" ")[-1] if full_name else "",
+                    "otherNames": " ".join(full_name.split(" ")[1:-1]) if len(full_name.split(" ")) > 2 else "N/A",
+                    "phone": phone,
+                    "email": email,
+                    "bvn": bvn,
+                    **user_data
+                })
+                if wallet_result and isinstance(wallet_result, dict) and wallet_result.get('accountNumber'):
+                    account_number = wallet_result.get('accountNumber')
+                    bank_name = wallet_result.get('bankName', '9PSB')
+                    bank_code = wallet_result.get('bankCode', '999')
+                    wallet_created = True
+                else:
+                    return {
+                        'success': False,
+                        'error': f"Failed to create or lookup 9PSB wallet: {wallet_result}",
+                        'existing_user': False
+                    }
                         'error': 'PIN must be exactly 4 digits'
                     }
                 
@@ -185,9 +225,12 @@ class SofiUserOnboarding:
                 'full_name': full_name,              # ✅ Correct
                 'email': email,                      # ✅ Correct
                 'phone': phone,                      # ✅ Correct (not phone_number)
-                'paystack_customer_code': customer_code,  # ✅ Correct
                 'wallet_balance': 0.0,               # ✅ Correct
-                'created_at': datetime.now().isoformat()
+                'created_at': datetime.now().isoformat(),
+                'ninepsb_account_number': account_number,
+                'ninepsb_bank_name': bank_name,
+                'ninepsb_bank_code': bank_code,
+                'ninepsb_wallet_created': wallet_created,
             }
             
             # Add PIN hash if provided
@@ -229,22 +272,20 @@ class SofiUserOnboarding:
             
             # Step 3: Save virtual account data with correct format
             try:
-                # Use minimal fields that work (no user_id foreign key constraint issues)
                 account_record = {
-                    'telegram_chat_id': telegram_id, # ✅ String field that works
-                    'account_number': account_number, # ✅ Correct column name
-                    'bank_name': bank_name,          # ✅ Correct column name
-                    'bank_code': bank_code,          # ✅ Correct column name
-                    'created_at': datetime.now().isoformat()
+                    'telegram_chat_id': telegram_id,
+                    'account_number': account_number,
+                    'bank_name': bank_name,
+                    'bank_code': bank_code,
+                    'created_at': datetime.now().isoformat(),
+                    'ninepsb_wallet_created': wallet_created,
                 }
-                
                 if supabase:
                     result = supabase.table('virtual_accounts').upsert(account_record).execute()
-                    logger.info(f"Virtual account {account_number} saved")
-                        
+                    logger.info(f"9PSB virtual account {account_number} saved")
             except Exception as e:
-                logger.warning(f"Could not save virtual account: {e}")
-                # Continue anyway since account was created
+                logger.warning(f"Could not save 9PSB virtual account: {e}")
+                # Continue anyway since wallet was created or found
             
             # Step 4: Send welcome notification with account details
             try:

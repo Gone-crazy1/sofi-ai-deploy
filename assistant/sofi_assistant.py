@@ -18,8 +18,13 @@ class SofiAssistant:
     """OpenAI Assistant integration for Sofi AI with function calling"""
     
     def __init__(self):
-        """Initialize the OpenAI Assistant"""
-        self.client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        """Initialize the OpenAI Assistant with v2 API"""
+        self.client = OpenAI(
+            api_key=os.getenv("OPENAI_API_KEY"),
+            default_headers={
+                "OpenAI-Beta": "assistants=v2"  # Fix deprecated v1 API
+            }
+        )
         self.assistant_id = os.getenv("OPENAI_ASSISTANT_ID")
         
         if not self.assistant_id:
@@ -31,11 +36,16 @@ class SofiAssistant:
         logger.info(f"✅ Sofi Assistant initialized with ID: {self.assistant_id}")
     
     def get_or_create_thread(self, chat_id: str) -> str:
-        """Get existing thread or create new one for user"""
+        """Get existing thread or create new one for user with v2 API"""
         if chat_id not in self.user_threads:
-            thread = self.client.beta.threads.create()
-            self.user_threads[chat_id] = thread.id
-            logger.info(f"📧 Created new thread for user {chat_id}: {thread.id}")
+            try:
+                thread = self.client.beta.threads.create()
+                self.user_threads[chat_id] = thread.id
+                logger.info(f"📧 Created new thread for user {chat_id}: {thread.id}")
+            except Exception as e:
+                logger.error(f"Error creating thread: {e}")
+                # Fallback - disable assistant for now
+                return None
         
         return self.user_threads[chat_id]
     
@@ -175,6 +185,10 @@ class SofiAssistant:
         from functions.security_functions import verify_pin
         from functions.notification_functions import send_receipt, send_alert, update_transaction_status
         from functions.verification_functions import verify_account_name
+        from functions.beneficiary_functions import save_beneficiary
+        from functions.beneficiary_functions import get_user_beneficiaries
+        from functions.beneficiary_functions import get_beneficiary_details
+
         
         # Function mapping
         function_map = {
@@ -189,6 +203,9 @@ class SofiAssistant:
             'get_transfer_history': get_transfer_history,
             'get_wallet_statement': get_wallet_statement,
             'verify_account_name': verify_account_name,
+            'save_beneficiary': save_beneficiary,
+            'get_user_beneficiaries': get_user_beneficiaries,
+            'get_beneficiary_details': get_beneficiary_details
         }
         
         if function_name not in function_map:

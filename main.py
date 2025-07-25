@@ -1,11 +1,50 @@
+import os
+# --- 9PSB Virtual Account Creation Test ---
+from utils.ninepsb_api import NINEPSBApi
+
+
+def test_create_virtual_account():
+    from utils.waas_auth import get_access_token
+    api_key = os.getenv("NINEPSB_API_KEY")
+    secret_key = os.getenv("NINEPSB_SECRET_KEY")
+    base_url = os.getenv("NINEPSB_BASE_URL")
+    token = get_access_token()
+    print("Access Token:", token)
+    psb = NINEPSBApi(api_key, secret_key, base_url)
+    response = psb.create_virtual_account("user123", {
+        "first_name": "Janet",
+        "last_name": "Chinedu",
+        "email": "janet@email.com",
+        "phone": "08012345678"
+    })
+    print("\U0001F680 API Response:", response)
+
+if __name__ == "__main__":
+    test_create_virtual_account()
+from utils.waas_auth import get_access_token
+
+# Test: Fetch and print 9PSB access token
+if __name__ == "__main__":
+    token = get_access_token()
+    print("Access Token:", token)
 from flask import Flask, request, jsonify, url_for, render_template, abort, make_response
 from flask_cors import CORS
 import os, requests, hashlib, logging, json, asyncio, tempfile, re, threading
 from datetime import datetime
+
 from dotenv import load_dotenv
 
 # Load environment variables FIRST
 load_dotenv()
+
+# 9PSB API credentials
+NINEPSB_USERNAME = os.getenv("NINEPSB_USERNAME")
+NINEPSB_PASSWORD = os.getenv("NINEPSB_PASSWORD")
+NINEPSB_CLIENT_ID = os.getenv("NINEPSB_CLIENT_ID")
+NINEPSB_CLIENT_SECRET = os.getenv("NINEPSB_CLIENT_SECRET")
+NINEPSB_API_KEY = os.getenv("NINEPSB_API_KEY")
+NINEPSB_SECRET_KEY = os.getenv("NINEPSB_SECRET_KEY")
+NINEPSB_BASE_URL = os.getenv("NINEPSB_BASE_URL")
 
 from supabase import create_client
 import openai
@@ -35,9 +74,9 @@ from unittest.mock import MagicMock
 import time
 from functools import lru_cache
 
-# Cache for instant balance responses (30 seconds)
+# Cache for instant balance responses (20 seconds)
 balance_cache = {}
-CACHE_DURATION = 30  # seconds
+CACHE_DURATION = 20  # seconds
 
 def get_cached_balance(chat_id):
     """Get cached balance for instant response"""
@@ -509,9 +548,9 @@ def process_photo(file_id):
         if is_construction:
             return True, ("I see this is about Sofi's development status. Let me explain what's currently available:\n\n"
                          "✅ Send and receive money instantly\n"
-                         "✅ Buy airtime and data\n"
-                         "✅ Basic account management\n"
-                         "✅ Transaction history\n\n"
+                         "📱 Buy airtime and data\n"
+                         "💰 Basic account management\n"
+                         "📊 Transaction history\n\n"
                          "Features coming soon:\n"
                          "🔄 Bill payments\n"
                          "🔄 Investment options\n"
@@ -2250,65 +2289,32 @@ async def send_beautiful_receipt(chat_id, receipt_data, transfer_result):
         txn_id = receipt_data.get('transaction_id', 'N/A') if receipt_data else 'N/A'
         send_reply(chat_id, f"✅ Transfer completed successfully!\nTransaction ID: {txn_id}")
 
-# ⚡ TELEGRAM ID TO UUID RESOLVER for Supabase queries
-async def resolve_telegram_id_to_uuid(telegram_chat_id: str) -> dict:
-    """
-    Resolve Telegram chat ID to Supabase UUID
-    
-    Args:
-        telegram_chat_id: The Telegram chat ID (string/number)
-    
-    Returns:
-        dict: {'success': bool, 'uuid': str or None, 'error': str or None}
-    """
-    try:
-        # Ensure telegram_chat_id is a string
-        telegram_chat_id = str(telegram_chat_id)
-        
-        # Query Supabase users table to find UUID by telegram_chat_id
-        result = supabase.table("users").select("id").eq("telegram_chat_id", telegram_chat_id).execute()
-        
-        if result.data and len(result.data) > 0:
-            user_uuid = result.data[0]["id"]
-            logger.info(f"✅ Resolved Telegram ID {telegram_chat_id} to UUID {user_uuid}")
-            return {
-                'success': True,
-                'uuid': user_uuid,
-                'error': None
-            }
-        else:
-            logger.warning(f"❌ No user found for Telegram ID {telegram_chat_id}")
-            return {
-                'success': False,
-                'uuid': None,
-                'error': f"User not found. Please complete onboarding first by visiting https://pipinstallsofi.com/onboard"
-            }
-            
-    except Exception as e:
-        logger.error(f"❌ Error resolving Telegram ID {telegram_chat_id} to UUID: {str(e)}")
-        return {
-            'success': False,
-            'uuid': None,
-            'error': f"Database error while resolving user ID: {str(e)}"
-        }
+# --- 9PSB Webhook Endpoint ---
+from flask import request
+import json
 
-async def get_user_uuid_from_telegram_id(telegram_chat_id: str) -> str:
-    """
-    Quick helper to get UUID from Telegram ID
-    
-    Args:
-        telegram_chat_id: The Telegram chat ID
-    
-    Returns:
-        str: The UUID if found, None if not found
-        
-    Raises:
-        ValueError: If user not found or database error
-    """
-    result = await resolve_telegram_id_to_uuid(telegram_chat_id)
-    
-    if result['success']:
-        return result['uuid']
-    else:
-        raise ValueError(result['error'])
+@app.route("/webhook/9psb", methods=["POST"])
+def ninepsb_webhook():
+    try:
+        event = request.get_json(force=True)
+        event_type = event.get("eventType")
+        account_id = event.get("accountId")
+        amount = event.get("amount")
+        txn_ref = event.get("transactionRef")
+        timestamp = event.get("timestamp")
+        # Log to Supabase transactions table
+        from supabase import create_client
+        supabase = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
+        supabase.table("bank_transactions").insert({
+            "account_id": account_id,
+            "amount": amount,
+            "event_type": event_type,
+            "transaction_ref": txn_ref,
+            "timestamp": timestamp,
+            "raw_event": json.dumps(event)
+        }).execute()
+        return {"status": "success"}, 200
+    except Exception as e:
+        print(f"❌ Webhook error: {e}")
+        return {"status": "error", "message": str(e)}, 400
 

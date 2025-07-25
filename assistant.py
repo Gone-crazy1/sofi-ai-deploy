@@ -551,107 +551,107 @@ class SofiAssistant:
     async def _start_background_processing(self, chat_id: str, message: str, user_data: Dict = None):
         """Start the actual OpenAI processing in background"""
         try:
-            # Prevent duplicate processing with user-level locking
+            # 🚀 ENHANCED FIX: Prevent duplicate processing with better user-level locking
             if chat_id in background_manager.active_tasks:
-                logger.info(f"🔄 Background task already running for {chat_id}")
+                logger.info(f"🔄 Background task already running for {chat_id} - sending duplicate message response")
+                # For double messages, send the same type of response instead of ignoring
+                await background_manager.send_telegram_message(chat_id, 
+                    "Hi there! How can I help you today? 😊")
                 return
             
             background_manager.active_tasks[chat_id] = time.time()
             
-            # Get or create thread
+            # Get or create thread (fast)
             thread_id = await self._get_or_create_thread(chat_id)
             
-            # AGGRESSIVE FIX: Handle active runs properly
-            max_retries = 5
-            retry_count = 0
+            # 🚀 ENHANCED FIX: Better active run detection with cancellation
+            active_run_id = self._check_active_run(thread_id)
             
-            while retry_count < max_retries:
-                # Check for active runs
-                active_run_id = self._check_active_run(thread_id)
+            if active_run_id:
+                logger.info(f"⏳ Thread {thread_id} has active run {active_run_id}")
                 
-                if active_run_id:
-                    logger.info(f"🛑 Active run {active_run_id} found, attempting to handle it (attempt {retry_count + 1})")
-                    
-                    # Try to cancel the active run
-                    try:
-                        self.client.beta.threads.runs.cancel(
-                            thread_id=thread_id,
-                            run_id=active_run_id
-                        )
-                        logger.info(f"✅ Cancelled active run {active_run_id}")
-                        
-                        # Wait for cancellation to take effect
-                        await asyncio.sleep(1.0)
-                        
-                        # Verify cancellation worked
-                        run_status = self.client.beta.threads.runs.retrieve(
-                            thread_id=thread_id,
-                            run_id=active_run_id
-                        )
-                        
-                        if run_status.status in ["cancelled", "completed", "failed", "expired"]:
-                            logger.info(f"✅ Run {active_run_id} is now {run_status.status}")
-                            break
-                        else:
-                            logger.warning(f"⚠️ Run {active_run_id} still active with status {run_status.status}")
-                            
-                    except Exception as cancel_error:
-                        logger.error(f"❌ Failed to cancel run {active_run_id}: {cancel_error}")
-                    
-                    retry_count += 1
-                    if retry_count < max_retries:
-                        await asyncio.sleep(0.5)  # Wait before retry
-                else:
-                    # No active run, we can proceed
-                    break
-            
-            # If we still have an active run after all retries, create a new thread
-            if retry_count >= max_retries:
-                logger.warning(f"⚠️ Could not resolve active run after {max_retries} attempts, creating new thread")
-                # Create a completely new thread to bypass the stuck run
-                new_thread = self.client.beta.threads.create()
-                thread_id = new_thread.id
-                
-                # Update user's thread ID in database
+                # Try to cancel the active run if it's stuck
                 try:
-                    self.supabase.table("users").update({
-                        "assistant_thread_id": thread_id,
-                        "updated_at": datetime.utcnow().isoformat()
-                    }).eq("telegram_chat_id", chat_id).execute()
-                    logger.info(f"✅ Created new thread {thread_id} for user {chat_id}")
-                except Exception as db_error:
-                    logger.error(f"❌ Failed to update thread ID in database: {db_error}")
+                    self.client.beta.threads.runs.cancel(
+                        thread_id=thread_id,
+                        run_id=active_run_id
+                    )
+                    logger.info(f"🛑 Cancelled active run {active_run_id}")
+                    # Wait a moment for cancellation to take effect
+                    await asyncio.sleep(0.5)
+                except Exception as cancel_error:
+                    logger.warning(f"⚠️ Could not cancel run {active_run_id}: {cancel_error}")
+                
+                # Try to wait for completion (short timeout)
+                completed = await self._wait_for_run_completion(thread_id, active_run_id, max_wait_seconds=2)
+                
+                if not completed:
+                    # Run is still active, send friendly duplicate response for double messages
+                    user_name = user_data.get('first_name', 'there') if user_data else 'there'
+                    await background_manager.send_telegram_message(chat_id, 
+                        f"Hi {user_name}! I'm still working on your previous message. How can I help you today? 😊")
+                    # Clean up our task
+                    if chat_id in background_manager.active_tasks:
+                        del background_manager.active_tasks[chat_id]
+                    return
+                
+                logger.info(f"✅ Previous run completed, proceeding with new message")
+            
+            # Add small delay to prevent race conditions with rapid double messages
+            await asyncio.sleep(0.1)
+            
+            # Double-check for active runs one more time after delay
+            active_run_id_recheck = self._check_active_run(thread_id)
+            if active_run_id_recheck:
+                logger.info(f"⏳ Race condition detected: Found active run {active_run_id_recheck} after delay")
+                user_name = user_data.get('first_name', 'there') if user_data else 'there'
+                await background_manager.send_telegram_message(chat_id, 
+                    f"Hi {user_name}! How can I help you today? 😊")
+                if chat_id in background_manager.active_tasks:
+                    del background_manager.active_tasks[chat_id]
+                return
             
             # Add user context to the message
             context_message = self._prepare_context_message(message, chat_id, user_data)
             
-            # Create message (should work now)
+            # 🚀 ENHANCED FIX: Safe message creation with better double message handling
             try:
                 self.client.beta.threads.messages.create(
                     thread_id=thread_id,
                     role="user",
                     content=context_message
                 )
-                logger.info(f"✅ Message added to thread {thread_id}")
             except Exception as msg_error:
-                logger.error(f"❌ Failed to create message: {msg_error}")
-                # Last resort: send error message to user
-                await background_manager.send_telegram_message(chat_id, 
-                    "❌ I'm experiencing technical difficulties. Please try again in a moment.")
-                return
+                if "while a run" in str(msg_error) and "is active" in str(msg_error):
+                    logger.warning(f"⚠️ Message creation failed due to active run: {msg_error}")
+                    user_name = user_data.get('first_name', 'there') if user_data else 'there'
+                    await background_manager.send_telegram_message(chat_id, 
+                        f"Hi {user_name}! How can I help you today? 😊")
+                    # Clean up our task
+                    if chat_id in background_manager.active_tasks:
+                        del background_manager.active_tasks[chat_id]
+                    return
+                else:
+                    raise msg_error
             
-            # Create run (should work now)
+            # 🚀 ENHANCED FIX: Safe run creation with better double message handling
             try:
                 run = self.client.beta.threads.runs.create(
                     thread_id=thread_id,
                     assistant_id=self.assistant_id
                 )
-                logger.info(f"✅ Run {run.id} created for thread {thread_id}")
             except Exception as run_error:
-                logger.error(f"❌ Failed to create run: {run_error}")
-                await background_manager.send_telegram_message(chat_id, 
-                    "❌ I'm experiencing technical difficulties. Please try again in a moment.")
-                return
+                if "while a run" in str(run_error) and "is active" in str(run_error):
+                    logger.warning(f"⚠️ Run creation failed due to active run: {run_error}")
+                    user_name = user_data.get('first_name', 'there') if user_data else 'there'
+                    await background_manager.send_telegram_message(chat_id, 
+                        f"Hi {user_name}! How can I help you today? 😊")
+                    # Clean up our task
+                    if chat_id in background_manager.active_tasks:
+                        del background_manager.active_tasks[chat_id]
+                    return
+                else:
+                    raise run_error
             
             # Start background completion processing
             await background_manager.process_openai_run_background(
@@ -662,9 +662,13 @@ class SofiAssistant:
             logger.error(f"❌ Background processing setup error: {e}")
             await background_manager.send_telegram_message(chat_id, 
                 "❌ Sorry, I encountered an issue. Please try again.")
+            # Clean up our task
+            if chat_id in background_manager.active_tasks:
+                del background_manager.active_tasks[chat_id]
         finally:
-            # Always clean up our task tracking
-            background_manager.active_tasks.pop(chat_id, None)
+            # Ensure we clean up the task tracking
+            if chat_id in background_manager.active_tasks:
+                del background_manager.active_tasks[chat_id]
     
     async def process_telegram_message(self, chat_id: str, message: str, user_data: Dict = None, 
                                      chat_type: str = 'private', group_id: str = None, 
@@ -754,35 +758,28 @@ class SofiAssistant:
     async def _get_or_create_thread(self, chat_id: str) -> str:
         """Get existing thread or create new one for user"""
         try:
-            # Check if user has existing thread in database (try both column names)
-            result = self.supabase.table("users").select("assistant_thread_id").eq("telegram_chat_id", chat_id).execute()
+            # Check if user has existing thread in database
+            result = self.supabase.table("users").select("assistant_thread_id").eq("telegram_id", chat_id).execute()
             
             if result.data and result.data[0].get("assistant_thread_id"):
-                thread_id = result.data[0]["assistant_thread_id"]
-                logger.info(f"✅ Found existing thread {thread_id} for user {chat_id}")
-                return thread_id
+                return result.data[0]["assistant_thread_id"]
             
             # Create new thread
             thread = self.client.beta.threads.create()
             
             # Update user record with thread ID
-            try:
-                self.supabase.table("users").update({
-                    "assistant_thread_id": thread.id,
-                    "updated_at": datetime.utcnow().isoformat()
-                }).eq("telegram_chat_id", chat_id).execute()
-                logger.info(f"✅ Created and saved new thread {thread.id} for user {chat_id}")
-            except Exception as db_error:
-                logger.warning(f"⚠️ Could not save thread ID to database: {db_error}")
-                # Continue anyway with the thread
+            self.supabase.table("users").update({
+                "assistant_thread_id": thread.id,
+                "updated_at": datetime.utcnow().isoformat()
+            }).eq("telegram_id", chat_id).execute()
             
+            logger.info(f"✅ Created new thread {thread.id} for user {chat_id}")
             return thread.id
             
         except Exception as e:
             logger.error(f"❌ Error managing thread: {e}")
             # Fallback: create temporary thread
             thread = self.client.beta.threads.create()
-            logger.info(f"✅ Created fallback thread {thread.id} for user {chat_id}")
             return thread.id
     
     def _prepare_context_message(self, message: str, chat_id: str, user_data: Dict = None) -> str:
