@@ -1,12 +1,12 @@
 """
-💰 BALANCE CHECKING UTILITIES
+Balance Checking Utilities
 
 Provides clean balance checking functions that work with the existing system
 """
 
 import logging
+import os
 from typing import Dict
-from utils.permanent_memory import get_user_balance as secure_get_user_balance
 
 logger = logging.getLogger(__name__)
 
@@ -21,171 +21,212 @@ async def get_user_balance(chat_id: str, force_sync: bool = True) -> float:
     Returns:
         float: User's current balance
     """
-    try:        # Get user ID from chat ID
+    try:
+        # Try to use secure balance function if available
+        try:
+            from utils.permanent_memory import get_user_balance as secure_get_user_balance
+            return await secure_get_user_balance(chat_id)
+        except ImportError:
+            pass
+        
+        # Fallback to direct database query
         from supabase import create_client
-        import os
         
         client = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
         
         # Try telegram_chat_id first, then chat_id as fallback
-        user_result = client.table("users").select("id, wallet_balance").eq("telegram_chat_id", str(chat_id)).execute()
+        result = client.table("virtual_accounts").select("balance, user_id").eq("telegram_chat_id", str(chat_id)).execute()
         
-        if not user_result.data:
-            # Try with chat_id column as fallback
-            user_result = client.table("users").select("id, wallet_balance").eq("chat_id", str(chat_id)).execute()
+        if not result.data:
+            # Try with chat_id field as fallback
+            result = client.table("virtual_accounts").select("balance, user_id").eq("chat_id", str(chat_id)).execute()
         
-        if not user_result.data:
-            logger.error(f"User not found for chat_id {chat_id} (tried both telegram_chat_id and chat_id columns)")
-            return 0.0
-        
-        user_id = user_result.data[0]["id"]
-        current_wallet_balance = user_result.data[0].get("wallet_balance", 0)
-        
-        # Use secure balance checking
-        balance_info = await secure_get_user_balance(str(user_id))
-        
-        if balance_info["success"]:
-            real_balance = float(balance_info["balance"])
+        if result.data:
+            current_balance = float(result.data[0].get("balance", 0))
+            user_id = result.data[0].get("user_id")
             
-            # Force sync if there's a discrepancy and force_sync is True
-            if force_sync and abs(real_balance - (current_wallet_balance or 0)) > 0.01:
-                logger.info(f"Syncing balance for user {chat_id}: {current_wallet_balance} → {real_balance}")
-                
-                # Update wallet_balance in users table
-                client.table("users").update({
-                    "wallet_balance": real_balance
-                }).eq("id", user_id).execute()
-                
-                # Also update virtual_accounts table if exists
-                va_result = client.table("virtual_accounts").select("id").eq("user_id", user_id).execute()
-                if va_result.data:
-                    client.table("virtual_accounts").update({
-                        "balance": real_balance
-                    }).eq("user_id", user_id).execute()
+            if force_sync and user_id:
+                # Force sync balance from transactions if balance is 0
+                if current_balance == 0:
+                    synced_balance = await sync_balance_from_transactions(user_id)
+                    if synced_balance > 0:
+                        # Update the balance in virtual_accounts
+                        client.table("virtual_accounts").update({
+                            "balance": synced_balance
+                        }).eq("user_id", user_id).execute()
+                        return synced_balance
             
-            return real_balance
+            return current_balance
         else:
-            logger.error(f"Error getting balance: {balance_info.get('error')}")
+            logger.warning(f"No virtual account found for chat_id: {chat_id}")
             return 0.0
             
     except Exception as e:
-        logger.error(f"Error in get_user_balance: {e}")
+        logger.error(f"Error getting user balance for {chat_id}: {e}")
+        return 0.0
+
+async def sync_balance_from_transactions(user_id: str) -> float:
+    """
+    Calculate balance from transaction history
+    
+    Args:
+        user_id: User ID
+        
+    Returns:
+        float: Calculated balance from transactions
+    """
+    try:
+        from supabase import create_client
+        
+        client = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
+        
+        # Get all successful transactions for the user
+        credit_result = client.table("bank_transactions").select("amount").eq("user_id", user_id).eq("transaction_type", "credit").eq("status", "success").execute()
+        
+        debit_result = client.table("bank_transactions").select("amount").eq("user_id", user_id).eq("transaction_type", "debit").eq("status", "success").execute()
+        
+        total_credits = sum(float(tx.get("amount", 0)) for tx in credit_result.data)
+        total_debits = sum(float(tx.get("amount", 0)) for tx in debit_result.data)
+        
+        calculated_balance = total_credits - total_debits
+        
+        logger.info(f"Synced balance for user {user_id}: Credits={total_credits}, Debits={total_debits}, Balance={calculated_balance}")
+        
+        return max(0, calculated_balance)  # Never return negative balance
+        
+    except Exception as e:
+        logger.error(f"Error syncing balance from transactions for user {user_id}: {e}")
         return 0.0
 
 async def check_virtual_account(chat_id: str) -> Dict:
     """
-    Get virtual account details for a user - now with smart detection
+    Check virtual account details for a user
     
     Args:
         chat_id: Telegram chat ID
         
     Returns:
-        dict: Virtual account information with proper status
+        Dict: Virtual account information
     """
     try:
         from supabase import create_client
-        import os
         
         client = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
         
-        # First get user ID from telegram_chat_id
-        user_result = client.table("users").select("id").eq("telegram_chat_id", str(chat_id)).execute()
+        # Get virtual account details
+        result = client.table("virtual_accounts").select("*").eq("telegram_chat_id", str(chat_id)).execute()
         
-        if not user_result.data:
-            logger.error(f"User not found for chat_id {chat_id}")
-            return {
-                "status": "user_not_found",
-                "accountNumber": "Not available",
-                "bankName": "Wema Bank", 
-                "accountName": "Not available",
-                "balance": 0.0
-            }
-        
-        user_id = user_result.data[0]["id"]
-        
-        # Get virtual account by user_id
-        result = client.table("virtual_accounts").select("*").eq("user_id", user_id).execute()
+        if not result.data:
+            # Try with chat_id field as fallback
+            result = client.table("virtual_accounts").select("*").eq("chat_id", str(chat_id)).execute()
         
         if result.data:
             account = result.data[0]
-            account_number = account.get("account_number")
-            
-            # Check if account is properly set up
-            if account_number and account_number != "Not available":
-                return {
-                    "status": "active",
-                    "accountNumber": account_number,
-                    "bankName": account.get("bank_name", "Wema Bank"),
-                    "accountName": account.get("account_name", "Sofi User"),
-                    "balance": account.get("balance", 0.0)
-                }
-            else:
-                return {
-                    "status": "incomplete_setup",
-                    "accountNumber": "Setup in progress...",
-                    "bankName": "Wema Bank",
-                    "accountName": "Setup in progress...",
-                    "balance": 0.0
-                }
-        else:
-            logger.warning(f"No virtual account found for user_id {user_id}")
             return {
-                "status": "not_created",
-                "accountNumber": "Not available",
-                "bankName": "Wema Bank",
-                "accountName": "Not available",
+                "success": True,
+                "account_number": account.get("account_number", "N/A"),
+                "account_name": account.get("account_name", "N/A"),
+                "bank_name": account.get("bank_name", "N/A"),
+                "balance": float(account.get("balance", 0)),
+                "user_id": account.get("user_id"),
+                "created_at": account.get("created_at")
+            }
+        else:
+            return {
+                "success": False,
+                "error": "Virtual account not found",
+                "account_number": "N/A",
+                "account_name": "N/A",
+                "bank_name": "N/A",
                 "balance": 0.0
             }
             
     except Exception as e:
-        logger.error(f"Error checking virtual account: {e}")
+        logger.error(f"Error checking virtual account for {chat_id}: {e}")
         return {
-            "status": "error",
-            "accountNumber": "Not available",
-            "bankName": "Wema Bank",
-            "accountName": "Not available", 
+            "success": False,
+            "error": str(e),
+            "account_number": "N/A",
+            "account_name": "N/A",
+            "bank_name": "N/A",
             "balance": 0.0
         }
 
-async def update_user_balance(user_id: str, new_balance: float) -> Dict:
+async def update_user_balance(chat_id: str, new_balance: float) -> bool:
     """
-    Update user balance in Supabase
+    Update user balance in virtual_accounts table
     
     Args:
-        user_id: User ID
-        new_balance: New balance amount
+        chat_id: Telegram chat ID
+        new_balance: New balance to set
         
     Returns:
-        dict: Success status and updated balance
+        bool: Success status
     """
     try:
         from supabase import create_client
-        import os
+        from datetime import datetime
         
         client = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
         
-        # Update balance in virtual_accounts table
+        # Update balance
         result = client.table("virtual_accounts").update({
-            "balance": new_balance
-        }).eq("user_id", user_id).execute()
+            "balance": new_balance,
+            "updated_at": datetime.now().isoformat()
+        }).eq("telegram_chat_id", str(chat_id)).execute()
+        
+        if not result.data:
+            # Try with chat_id field as fallback
+            result = client.table("virtual_accounts").update({
+                "balance": new_balance,
+                "updated_at": datetime.now().isoformat()
+            }).eq("chat_id", str(chat_id)).execute()
         
         if result.data:
-            logger.info(f"Successfully updated balance for user {user_id} to {new_balance}")
-            return {
-                "success": True,
-                "balance": new_balance,
-                "message": "Balance updated successfully"
-            }
+            logger.info(f"Updated balance for {chat_id} to {new_balance}")
+            return True
         else:
-            logger.error(f"Failed to update balance for user {user_id}")
-            return {
-                "success": False,
-                "error": "Failed to update balance in database"
-            }
+            logger.warning(f"Failed to update balance for {chat_id}")
+            return False
             
     except Exception as e:
-        logger.error(f"Error updating user balance: {e}")
-        return {
-            "success": False,
-            "error": str(e)
-        }
+        logger.error(f"Error updating balance for {chat_id}: {e}")
+        return False
+
+async def get_balance_with_formatting(chat_id: str) -> str:
+    """
+    Get formatted balance string for display
+    
+    Args:
+        chat_id: Telegram chat ID
+        
+    Returns:
+        str: Formatted balance message
+    """
+    try:
+        balance = await get_user_balance(chat_id)
+        account_info = await check_virtual_account(chat_id)
+        
+        if account_info["success"]:
+            return f"""💰 **Your Sofi Wallet Balance**
+
+Current Balance: ₦{balance:,.2f}
+
+📋 **Account Details:**
+• Account Number: {account_info['account_number']}
+• Account Name: {account_info['account_name']}
+• Bank: {account_info['bank_name']}
+
+💡 You can send money, buy airtime, or save with Sofi AI!"""
+        else:
+            return f"""💰 **Your Sofi Wallet Balance**
+
+Current Balance: ₦{balance:,.2f}
+
+⚠️ Account details not available. Contact support if needed.
+
+💡 You can send money, buy airtime, or save with Sofi AI!"""
+            
+    except Exception as e:
+        logger.error(f"Error formatting balance for {chat_id}: {e}")
+        return "❌ Unable to retrieve balance. Please try again later."
