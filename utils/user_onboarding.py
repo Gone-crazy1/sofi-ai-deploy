@@ -83,6 +83,10 @@ class SofiUserOnboarding:
                 if not pin.isdigit() or len(pin) != 4:
                     return {
                         'success': False,
+                        'error': 'PIN must be exactly 4 digits'
+                    }
+            
+            # Check if wallet exists via 9PSB API
             ninepsb_wallet = None
             if bvn:
                 ninepsb_wallet = self.ninepsb_api.lookup_existing_wallet(bvn=bvn)
