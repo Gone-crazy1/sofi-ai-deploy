@@ -134,6 +134,62 @@ logger = logging.getLogger(__name__)
 security_middleware = init_security(app)
 logger.info("🔒 Sofi AI Security System activated")
 
+# 📱 WHATSAPP WEBHOOK INTEGRATION
+try:
+    from whatsapp_webhook import WhatsAppSofiBot
+    
+    # Initialize WhatsApp bot
+    whatsapp_bot = WhatsAppSofiBot()
+    
+    @app.route("/whatsapp-webhook", methods=["GET", "POST"])
+    def whatsapp_webhook():
+        """WhatsApp Cloud API webhook endpoint"""
+        if request.method == "GET":
+            # Webhook verification
+            mode = request.args.get("hub.mode")
+            token = request.args.get("hub.verify_token")
+            challenge = request.args.get("hub.challenge")
+            
+            verify_token = os.getenv("WHATSAPP_VERIFY_TOKEN")
+            
+            if mode == "subscribe" and token == verify_token:
+                logger.info("✅ WhatsApp webhook verified successfully")
+                return challenge, 200
+            else:
+                logger.warning(f"❌ WhatsApp webhook verification failed - Expected: {verify_token}, Got: {token}")
+                return "Verification failed", 403
+        
+        elif request.method == "POST":
+            # Handle incoming WhatsApp messages
+            try:
+                data = request.get_json()
+                logger.info(f"📱 WhatsApp webhook received: {json.dumps(data, indent=2)}")
+                
+                # Process message asynchronously
+                whatsapp_bot.process_whatsapp_message(data)
+                
+                return jsonify({"status": "received"}), 200
+            except Exception as e:
+                logger.error(f"❌ WhatsApp webhook error: {str(e)}")
+                return jsonify({"error": "Internal server error"}), 500
+    
+    @app.route("/whatsapp-status")
+    def whatsapp_status():
+        """Check WhatsApp integration status"""
+        return jsonify({
+            "status": "active",
+            "phone_number_id": os.getenv("WHATSAPP_PHONE_NUMBER_ID"),
+            "webhook_url": f"{request.url_root}whatsapp-webhook",
+            "timestamp": datetime.now().isoformat()
+        })
+    
+    logger.info("📱 WhatsApp webhook routes registered successfully")
+    
+except ImportError as e:
+    logger.warning(f"⚠️ WhatsApp webhook not available: {str(e)}")
+except Exception as e:
+    logger.error(f"❌ WhatsApp webhook initialization failed: {str(e)}")
+
 # 🔒 INITIALIZE SECURITY ENDPOINTS
 init_security_endpoints(app)
 logger.info("🔒 Security endpoints initialized")
