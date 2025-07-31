@@ -120,9 +120,8 @@ class SofiUserOnboarding:
                         'error': f"Failed to create or lookup 9PSB wallet: {wallet_result}",
                         'existing_user': False
                     }
-                        'error': 'PIN must be exactly 4 digits'
-                    }
                 
+                # Validate PIN confirmation if provided
                 if pin != confirm_pin:
                     return {
                         'success': False,
