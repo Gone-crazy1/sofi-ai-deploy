@@ -187,18 +187,6 @@ class BankAPI:
     
     def _get_bank_code(self, bank_name: str) -> Optional[str]:
         """Convert bank name to Paystack bank code - INCLUDING OPAY"""
-        
-        # If input is already a bank code (3-6 digits), return it directly
-        if bank_name.isdigit() and len(bank_name) >= 3:
-            # Validate that this is a known bank code
-            valid_codes = ["044", "058", "057", "033", "011", "032", "070", "232", "221", 
-                          "035", "030", "082", "214", "215", "076", "023", "050", "068",
-                          "999992", "999991", "50211", "50515", "565"]
-            if bank_name in valid_codes:
-                return bank_name
-            # For unknown codes, still return them (Paystack might support more)
-            return bank_name
-        
         bank_codes = {
             # Traditional Banks
             "access": "044", "access bank": "044",

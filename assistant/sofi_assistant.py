@@ -207,7 +207,7 @@ class SofiAssistant:
             'get_user_beneficiaries': get_user_beneficiaries,
             'get_beneficiary_details': get_beneficiary_details
         }
-        
+    
         if function_name not in function_map:
             raise ValueError(f"Unknown function: {function_name}")
         

@@ -134,62 +134,6 @@ logger = logging.getLogger(__name__)
 security_middleware = init_security(app)
 logger.info("🔒 Sofi AI Security System activated")
 
-# 📱 WHATSAPP WEBHOOK INTEGRATION
-try:
-    from whatsapp_webhook import WhatsAppSofiBot
-    
-    # Initialize WhatsApp bot
-    whatsapp_bot = WhatsAppSofiBot()
-    
-    @app.route("/whatsapp-webhook", methods=["GET", "POST"])
-    def whatsapp_webhook():
-        """WhatsApp Cloud API webhook endpoint"""
-        if request.method == "GET":
-            # Webhook verification
-            mode = request.args.get("hub.mode")
-            token = request.args.get("hub.verify_token")
-            challenge = request.args.get("hub.challenge")
-            
-            verify_token = os.getenv("WHATSAPP_VERIFY_TOKEN")
-            
-            if mode == "subscribe" and token == verify_token:
-                logger.info("✅ WhatsApp webhook verified successfully")
-                return challenge, 200
-            else:
-                logger.warning(f"❌ WhatsApp webhook verification failed - Expected: {verify_token}, Got: {token}")
-                return "Verification failed", 403
-        
-        elif request.method == "POST":
-            # Handle incoming WhatsApp messages
-            try:
-                data = request.get_json()
-                logger.info(f"📱 WhatsApp webhook received: {json.dumps(data, indent=2)}")
-                
-                # Process message asynchronously
-                whatsapp_bot.process_whatsapp_message(data)
-                
-                return jsonify({"status": "received"}), 200
-            except Exception as e:
-                logger.error(f"❌ WhatsApp webhook error: {str(e)}")
-                return jsonify({"error": "Internal server error"}), 500
-    
-    @app.route("/whatsapp-status")
-    def whatsapp_status():
-        """Check WhatsApp integration status"""
-        return jsonify({
-            "status": "active",
-            "phone_number_id": os.getenv("WHATSAPP_PHONE_NUMBER_ID"),
-            "webhook_url": f"{request.url_root}whatsapp-webhook",
-            "timestamp": datetime.now().isoformat()
-        })
-    
-    logger.info("📱 WhatsApp webhook routes registered successfully")
-    
-except ImportError as e:
-    logger.warning(f"⚠️ WhatsApp webhook not available: {str(e)}")
-except Exception as e:
-    logger.error(f"❌ WhatsApp webhook initialization failed: {str(e)}")
-
 # 🔒 INITIALIZE SECURITY ENDPOINTS
 init_security_endpoints(app)
 logger.info("🔒 Security endpoints initialized")
@@ -300,7 +244,7 @@ def send_photo_to_telegram(chat_id, photo_data, caption=None):
         return None
 
 def detect_intent(message):
-    """Enhanced intent detector using AI with chatgpt-4o-latest and Nigerian expressions support - Powered by Pip install AI Technologies"""
+    """Enhanced intent detector using AI with gpt-3.5-turbo and Nigerian expressions support - Powered by Pip install AI Technologies"""
     try:
         # Step 1: Enhance message with Nigerian expressions understanding
         enhanced_analysis = enhance_nigerian_message(message)
@@ -325,7 +269,7 @@ IMPORTANT NIGERIAN CONTEXT:
 - Always interpret enhanced/translated messages while maintaining cultural context        """
         
         response = openai_client.chat.completions.create(
-            model="chatgpt-4o-latest",
+            model="gpt-3.5-turbo",
             messages=[
                 {"role": "system", "content": enhanced_system_prompt},
                 {"role": "user", "content": f"Original: {message}\nEnhanced: {enhanced_message}"}
@@ -491,7 +435,7 @@ Proudly powered by Pip install AI Technologies - the future of AI banking."""
             account_context = f"\nUser has virtual account: {account_number} at {bank_name}"
             conversation[0]["content"] += account_context        # Generate response
         response = openai_client.chat.completions.create(
-            model="chatgpt-4o-latest",
+            model="gpt-3.5-turbo",
             messages=conversation,
             temperature=0.7,  # Slightly more creative for natural conversation
             max_tokens=500
@@ -545,7 +489,7 @@ def process_photo(file_id):
         prompt = get_image_prompt()
         
         response = openai_client.chat.completions.create(
-            model="chatgpt-4o-latest",
+            model="gpt-3.5-turbo",
             messages=[
                 {
                     "role": "system",
@@ -1294,10 +1238,10 @@ def create_sofi_ai_response_with_custom_prompt(user_message, context="general"):
     except Exception as e:
         logger.error(f"Error with custom prompt: {e}")
 
-        # Fallback to ChatGPT 4o latest model
+        # Fallback to GPT-3.5-turbo model
         try:
             response = openai_client.chat.completions.create(
-                model="gpt-4o-latest",
+                model="gpt-3.5-turbo",
                 messages=[
                     {
                         "role": "system",
@@ -1735,6 +1679,259 @@ def handle_paystack_webhook_route():
 def handle_paystack_webhook_legacy():
     """Legacy webhook route for backward compatibility"""
     return handle_paystack_webhook_route()
+
+# WhatsApp Cloud API Helper Functions
+def send_whatsapp_message(to_number: str, message_text: str) -> bool:
+    """Send a WhatsApp message using Cloud API"""
+    try:
+        access_token = os.getenv("WHATSAPP_ACCESS_TOKEN")
+        phone_number_id = os.getenv("WHATSAPP_PHONE_NUMBER_ID")
+        
+        if not access_token or not phone_number_id:
+            logger.error("WhatsApp credentials not configured")
+            return False
+        
+        url = f"https://graph.facebook.com/v22.0/{phone_number_id}/messages"
+        
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json"
+        }
+        
+        payload = {
+            "messaging_product": "whatsapp",
+            "to": to_number,
+            "text": {"body": message_text}
+        }
+        
+        response = requests.post(url, json=payload, headers=headers)
+        
+        if response.status_code == 200:
+            logger.info(f"WhatsApp message sent successfully to {to_number}")
+            return True
+        else:
+            logger.error(f"Failed to send WhatsApp message: {response.text}")
+            return False
+            
+    except Exception as e:
+        logger.error(f"Error sending WhatsApp message: {e}")
+        return False
+
+def parse_whatsapp_message(data: dict) -> tuple:
+    """Parse incoming WhatsApp webhook data"""
+    try:
+        if not data.get("entry"):
+            return None, None
+            
+        entry = data["entry"][0]
+        changes = entry.get("changes", [])
+        
+        if not changes:
+            return None, None
+            
+        value = changes[0].get("value", {})
+        messages = value.get("messages", [])
+        
+        if not messages:
+            return None, None
+            
+        message = messages[0]
+        sender = message.get("from")
+        
+        # Handle different message types
+        if message.get("type") == "text":
+            text = message.get("text", {}).get("body", "").lower()
+        else:
+            text = ""  # Handle other message types if needed
+            
+        return sender, text
+        
+    except Exception as e:
+        logger.error(f"Error parsing WhatsApp message: {e}")
+        return None, None
+
+async def route_whatsapp_message(sender: str, text: str) -> str:
+    """Route WhatsApp message to appropriate handler"""
+    try:
+        # Import onboarding functions
+        from utils.whatsapp_onboarding import (
+            handle_whatsapp_onboarding_response,
+            process_whatsapp_onboarding_step,
+            send_whatsapp_onboarding_link,
+            get_user_onboarding_state
+        )
+        
+        # Check if user is in onboarding process
+        onboarding_state = get_user_onboarding_state(sender)
+        if onboarding_state:
+            onboarding_response = process_whatsapp_onboarding_step(sender, text)
+            if onboarding_response:
+                return onboarding_response
+        
+        # Handle button responses (interactive messages)
+        if text in ["quick_signup", "full_onboard", "learn_more"]:
+            return handle_whatsapp_onboarding_response(sender, text)
+        
+        # Account creation commands
+        if any(keyword in text for keyword in ["signup", "sign up", "create account", "register", "join", "onboard"]):
+            send_whatsapp_onboarding_link(sender)
+            return "🎉 Welcome! I've sent you onboarding options above. Please choose how you'd like to proceed."
+        
+        # Check if user exists in database
+        try:
+            from supabase import create_client
+            supabase_url = os.getenv("SUPABASE_URL")
+            supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_KEY")
+            supabase = create_client(supabase_url, supabase_key)
+            
+            user_result = supabase.table("users").select("*").eq("whatsapp_phone", sender).execute()
+            user_exists = bool(user_result.data)
+        except:
+            user_exists = False
+        
+        # If user doesn't exist, offer onboarding
+        if not user_exists and not onboarding_state:
+            return f"""👋 Hi! I'm Sofi, your AI financial assistant.
+
+I notice you're new here. Let me help you create your account!
+
+Type 'signup' to get started, or I can help you with:
+• Account creation
+• Balance checking  
+• Money transfers
+• Airtime purchases
+
+What would you like to do?"""
+        
+        # Balance check
+        if "balance" in text:
+            from utils.balance_helper import get_user_balance
+            try:
+                # Use sender phone number as chat_id for WhatsApp users
+                balance = await get_user_balance(sender)
+                return f"💰 Your Sofi balance is ₦{balance:,.2f}"
+            except Exception as e:
+                logger.error(f"Balance check failed: {e}")
+                return "❌ Unable to check balance. Please try again later."
+        
+        # Send money command
+        if "send" in text and "to" in text:
+            try:
+                # Simple parsing: "send 2000 to uche"
+                import re
+                match = re.search(r'send\s+(\d+)\s+to\s+(\w+)', text)
+                if match:
+                    amount = float(match.group(1))
+                    recipient = match.group(2)
+                    
+                    # For now, return a message that transfer needs more info
+                    return f"💸 To send ₦{amount:,.2f} to {recipient}, I need their account details. Please use the Sofi app for secure transfers: https://{os.getenv('DOMAIN', 'pipinstallsofi.com')}"
+                else:
+                    return "❌ Please use format: 'send 2000 to John'"
+            except Exception as e:
+                logger.error(f"Send money parsing failed: {e}")
+                return "❌ Transfer failed. Please check the format and try again."
+        
+        # Airtime purchase
+        if "airtime" in text:
+            try:
+                # Simple parsing: extract amount
+                import re
+                match = re.search(r'(\d+)', text)
+                if match:
+                    amount = float(match.group(1))
+                    return f"📱 To buy ₦{amount:,.2f} airtime, please use the Sofi app for secure purchases: https://{os.getenv('DOMAIN', 'pipinstallsofi.com')}"
+                else:
+                    return "❌ Please specify amount: 'airtime 1000'"
+            except Exception as e:
+                logger.error(f"Airtime parsing failed: {e}")
+                return "❌ Airtime purchase failed. Please try again."
+        
+        # Help and default message
+        domain = os.getenv('DOMAIN', 'pipinstallsofi.com')
+        return f"""🤖 I can help you with:
+
+💰 **Account & Balance**
+• 'balance' - Check your account
+• 'signup' - Create new account
+
+💸 **Transactions** 
+• 'send 2000 to Uche' - Send money
+• 'airtime 5000' - Buy airtime
+
+🔒 **Secure Features**
+For full security and all features, use the Sofi app:
+🌐 https://{domain}
+
+What would you like to do?"""
+        
+    except Exception as e:
+        logger.error(f"WhatsApp routing error: {e}")
+        return "❌ Sorry, I encountered an error. Please try again later."
+
+@app.route("/whatsapp-webhook", methods=["GET", "POST"])
+def whatsapp_webhook():
+    """Handle WhatsApp Cloud API webhooks"""
+    
+    if request.method == "GET":
+        # Webhook verification
+        verify_token = os.getenv("WHATSAPP_VERIFY_TOKEN")
+        
+        mode = request.args.get("hub.mode")
+        token = request.args.get("hub.verify_token")
+        challenge = request.args.get("hub.challenge")
+        
+        if mode == "subscribe" and token == verify_token:
+            logger.info("WhatsApp webhook verified successfully")
+            return challenge
+        else:
+            logger.warning("WhatsApp webhook verification failed")
+            return "Forbidden", 403
+    
+    elif request.method == "POST":
+        # Handle incoming messages
+        try:
+            data = request.get_json()
+            
+            if not data:
+                return "Bad Request", 400
+            
+            # Parse the message
+            sender, text = parse_whatsapp_message(data)
+            
+            if not sender or not text:
+                logger.info("WhatsApp webhook: No valid message found")
+                return "OK", 200
+            
+            logger.info(f"WhatsApp message from {sender}: {text}")
+            
+            # Route and process the message
+            import asyncio
+            response_text = asyncio.run(route_whatsapp_message(sender, text))
+            
+            # Send response
+            success = send_whatsapp_message(sender, response_text)
+            
+            if success:
+                logger.info(f"WhatsApp response sent to {sender}")
+            else:
+                logger.error(f"Failed to send WhatsApp response to {sender}")
+            
+            return "OK", 200
+            
+        except Exception as e:
+            logger.error(f"WhatsApp webhook error: {e}")
+            return "Internal Server Error", 500
+
+@app.route("/9psb-webhook", methods=["POST"])
+def ninepsb_webhook():
+    """Handle 9PSB transaction webhooks for credit/debit alerts"""
+    try:
+        from utils.ninepsb_webhook import handle_9psb_webhook
+        return handle_9psb_webhook()
+    except Exception as e:
+        logger.error(f"9PSB webhook error: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.route("/api/create_virtual_account", methods=["POST"])
 def create_virtual_account():
@@ -2345,32 +2542,31 @@ async def send_beautiful_receipt(chat_id, receipt_data, transfer_result):
         txn_id = receipt_data.get('transaction_id', 'N/A') if receipt_data else 'N/A'
         send_reply(chat_id, f"✅ Transfer completed successfully!\nTransaction ID: {txn_id}")
 
-# --- 9PSB Webhook Endpoint ---
-from flask import request
-import json
+# --- 9PSB Webhook Test Endpoint Only ---
 
-@app.route("/webhook/9psb", methods=["POST"])
-def ninepsb_webhook():
+@app.route("/webhook/9psb/test", methods=["POST", "GET"])
+def test_ninepsb_webhook():
+    """Test endpoint for 9PSB webhook"""
     try:
-        event = request.get_json(force=True)
-        event_type = event.get("eventType")
-        account_id = event.get("accountId")
-        amount = event.get("amount")
-        txn_ref = event.get("transactionRef")
-        timestamp = event.get("timestamp")
-        # Log to Supabase transactions table
-        from supabase import create_client
-        supabase = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
-        supabase.table("bank_transactions").insert({
-            "account_id": account_id,
-            "amount": amount,
-            "event_type": event_type,
-            "transaction_ref": txn_ref,
-            "timestamp": timestamp,
-            "raw_event": json.dumps(event)
-        }).execute()
-        return {"status": "success"}, 200
+        if request.method == "GET":
+            return {"status": "ready", "message": "9PSB webhook endpoint is ready"}, 200
+            
+        # Handle test webhook
+        test_data = request.get_json() or {
+            "eventType": "wallet.created",
+            "data": {
+                "userId": "test_user_123",
+                "accountNumber": "1234567890",
+                "accountName": "TEST USER",
+                "bankName": "9PSB",
+                "walletId": "wallet_123"
+            }
+        }
+        
+        result = ninepsb_webhook_handler.handle_webhook(test_data)
+        return {"status": "success", "result": result}, 200
+        
     except Exception as e:
-        print(f"❌ Webhook error: {e}")
-        return {"status": "error", "message": str(e)}, 400
+        logger.error(f"❌ Test webhook error: {e}")
+        return {"status": "error", "message": str(e)}, 500
 

@@ -160,35 +160,12 @@ class SofiMoneyTransferService:
                     "action_required": "set_pin"
                 }
             
-            # 🚀 OPTIMIZED: Try fast verification first (10k iterations), fallback to slow (100k)
-            # This ensures compatibility with both old and new PIN hashes
-            
-            # Try optimized hash first (10x faster)
-            pin_hash_fast = hashlib.pbkdf2_hmac('sha256', 
-                                              pin.encode('utf-8'), 
-                                              str(telegram_chat_id).encode('utf-8'), 
-                                              10000)  # ⚡ 10,000 iterations (fast)
-            pin_hash_fast = pin_hash_fast.hex()
-            
-            # Check if it matches the stored hash
-            if pin_hash_fast == user["pin_hash"]:
-                pin_hash = pin_hash_fast
-                logger.info(f"✅ Fast PIN verification successful for {telegram_chat_id}")
-            else:
-                # Fallback to slow method for older PIN hashes
-                logger.info(f"🔄 Trying slow PIN verification for {telegram_chat_id}")
-                pin_hash = hashlib.pbkdf2_hmac('sha256', 
-                                             pin.encode('utf-8'), 
-                                             str(telegram_chat_id).encode('utf-8'), 
-                                             100000)  # 100,000 iterations (slow)
-                pin_hash = pin_hash.hex()
-                
-                # If slow method works, update to fast hash
-                if pin_hash == user["pin_hash"]:
-                    logger.info(f"🔄 Migrating PIN hash to fast version for {telegram_chat_id}")
-                    self.supabase.table("users").update({
-                        "pin_hash": pin_hash_fast  # Update to fast hash
-                    }).eq("telegram_chat_id", telegram_chat_id).execute()
+            # Use the same hashing method as onboarding (pbkdf2_hmac with telegram_chat_id as salt)
+            pin_hash = hashlib.pbkdf2_hmac('sha256', 
+                                         pin.encode('utf-8'), 
+                                         str(telegram_chat_id).encode('utf-8'), 
+                                         100000)  # 100,000 iterations
+            pin_hash = pin_hash.hex()
             
             if pin_hash == user["pin_hash"]:
                 self.supabase.table("users").update({
@@ -398,11 +375,11 @@ Your money has been sent successfully.
             if new_pin != confirm_pin:
                 return {"success": False, "error": "PIN confirmation does not match"}
             
-            # 🚀 OPTIMIZED: Use fast hashing for new PINs (10k iterations)
+            # Use the same hashing method as onboarding (pbkdf2_hmac with telegram_chat_id as salt)
             pin_hash = hashlib.pbkdf2_hmac('sha256', 
                                          new_pin.encode('utf-8'), 
                                          str(telegram_chat_id).encode('utf-8'), 
-                                         10000)  # ⚡ 10,000 iterations (10x faster)
+                                         100000)  # 100,000 iterations
             pin_hash = pin_hash.hex()
             
             result = self.supabase.table("users").update({
@@ -929,11 +906,11 @@ Net Movement: ₦{total_in - total_out:,.2f}
             if pin in weak_pins:
                 return {"success": False, "error": "Please choose a stronger PIN. Avoid sequences or repeated digits."}
             
-            # 🚀 OPTIMIZED: Hash the PIN using fast method (10k iterations)
+            # Hash the PIN using the same method as onboarding (pbkdf2_hmac with telegram_chat_id as salt)
             pin_hash = hashlib.pbkdf2_hmac('sha256', 
                                          pin.encode('utf-8'), 
                                          str(telegram_chat_id).encode('utf-8'), 
-                                         10000)  # ⚡ 10,000 iterations (10x faster)
+                                         100000)  # 100,000 iterations
             pin_hash = pin_hash.hex()
             
             # Update user record

@@ -9,7 +9,9 @@ USERNAME = os.getenv("NINEPSB_USERNAME")
 PASSWORD = os.getenv("NINEPSB_PASSWORD")
 CLIENT_ID = os.getenv("NINEPSB_CLIENT_ID")
 CLIENT_SECRET = os.getenv("NINEPSB_CLIENT_SECRET")
-AUTH_URL = os.getenv("NINEPSB_AUTH_URL")
+
+# Use the correct authentication endpoint
+AUTH_URL = "http://102.216.128.75:9090/bank9ja/api/v2/k1/authenticate"
 
 def get_access_token():
     payload = {

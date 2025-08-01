@@ -1,0 +1,58 @@
+🧪 9PSB Virtual Account Test Results
+==================================================
+
+[2025-08-01 00:33:50] 🚀 Starting 9PSB Virtual Account Test
+[2025-08-01 00:33:50] 🔧 Checking environment variables...
+[2025-08-01 00:33:50] ✅ All environment variables found
+[2025-08-01 00:33:50]    Auth URL: http://102.216.128.75:9090/bank9ja/api/v2/k1/authenticate
+[2025-08-01 00:33:50]    Base URL: http://102.216.128.75:9090/waas
+[2025-08-01 00:33:50]    Username: pipinstall
+[2025-08-01 00:33:50] 
+🔐 Testing authentication...
+[2025-08-01 00:33:50]    Auth Status: 200
+[2025-08-01 00:33:50]    Auth Response: {"accessToken":"eyJhbGciOiJSUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICJ0ek1WWmtzOG1zcG01TmNHazNFdW1BVjZWYTFRQTVpTlYwcHVfU3hZQldBIn0.eyJleHAiOjE3NTQwMTIwMjcsImlhdCI6MTc1NDAwNDgyNywianRpIjoiMTU2NzM5ZTUtNDE5...
+[2025-08-01 00:33:50] ✅ Authentication successful: eyJhbGciOiJSUzI1NiIs...
+[2025-08-01 00:33:50] 
+🏦 Testing virtual account creation...
+[2025-08-01 00:33:50]    URL: http://102.216.128.75:9090/waas/api/v1/open_wallet
+[2025-08-01 00:33:50]    User ID: mosese_test_6211
+[2025-08-01 00:33:50]    Phone: 08054177284
+[2025-08-01 00:33:50]    Email: mosese.test599@gmail.com
+[2025-08-01 00:33:50]    Payload: {
+  "userId": "mosese_test_6211",
+  "firstName": "Mosese",
+  "lastName": "Smart Ayobami",
+  "otherNames": "N/A",
+  "gender": 1,
+  "dateOfBirth": "05/05/1990",
+  "phoneNo": "08054177284",
+  "phoneNumber": "08054177284",
+  "email": "mosese.test599@gmail.com",
+  "bvn": "22190239861",
+  "channel": "APP",
+  "password": "Sofi@1234",
+  "transactionTrackingRef": "931e4a39-47f2-497a-9ce1-50541cb024f9"
+}
+[2025-08-01 00:33:52]    Response Status: 200
+[2025-08-01 00:33:52]    Response Text: {"status":"SUCCESS","message":"Account Opening successful","data":{"orderRef":"1100060144","fullName":"PIPINSTALL/SMART AYOBAMI N/A","accountNumber":"1100060144","customerID":"006014"}}
+[2025-08-01 00:33:52]    Response JSON: {
+  "status": "SUCCESS",
+  "message": "Account Opening successful",
+  "data": {
+    "orderRef": "1100060144",
+    "fullName": "PIPINSTALL/SMART AYOBAMI N/A",
+    "accountNumber": "1100060144",
+    "customerID": "006014"
+  }
+}
+[2025-08-01 00:33:52] 🎉 SUCCESS! Virtual Account Created!
+[2025-08-01 00:33:52]    🏦 Account Number: 1100060144
+[2025-08-01 00:33:52]    📄 Full Data: {
+  "orderRef": "1100060144",
+  "fullName": "PIPINSTALL/SMART AYOBAMI N/A",
+  "accountNumber": "1100060144",
+  "customerID": "006014"
+}
+[2025-08-01 00:33:52] 
+✅ Test completed!
+[2025-08-01 00:33:52] 📄 Check this file for full results: 9psb_test_results.txt

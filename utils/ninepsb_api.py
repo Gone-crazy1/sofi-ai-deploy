@@ -1,103 +1,416 @@
-# Renamed from 9psb_api.py to ninepsb_api.py
+# 9PSB WAAS API Integration - Complete Implementation
 
 from utils.waas_auth import get_access_token
 import requests
 import os
-
+import uuid
+import json
+from datetime import datetime
 
 class NINEPSBApi:
-    def lookup_existing_wallet(self, bvn=None, phone=None):
-        """
-        Lookup an existing wallet in 9PSB by BVN or phone number.
-        Returns wallet details if found, else None.
-        """
-        # You may need to adjust the endpoint and params to match 9PSB API docs
-        if bvn:
-            url = f"{self.base_url}/api/v1/wallet/bvn/{bvn}"
-        elif phone:
-            url = f"{self.base_url}/api/v1/wallet/phone/{phone}"
-        else:
-            return None
-        headers = {
-            "Authorization": f"Bearer {get_access_token()}",
-            "x-api-key": self.api_key,
-            "x-secret-key": self.secret_key,
-            "Content-Type": "application/json"
-        }
-        try:
-            response = requests.get(url, headers=headers, timeout=15)
-            if response.status_code == 200:
-                return response.json()
-            else:
-                return None
-        except Exception:
-            return None
     def __init__(self, api_key, secret_key, base_url):
         self.api_key = api_key
         self.secret_key = secret_key
-        # base_url should be the API root, e.g. 'http://102.216.128.75:9090/bank9ja/api/v2/k1'
-        # NOT the /authenticate endpoint
-        self.base_url = base_url
-
-    def create_virtual_account(self, user_id, user_data):
-        """
-        Create a virtual account for a user.
-        Usage:
-            - Ensure .env NINEPSB_BASE_URL is set to API root, e.g. 'http://102.216.128.75:9090/bank9ja/api/v2/k1'
-            - Do NOT use the /authenticate endpoint as base_url
-        """
+        # Ensure base URL points to WAAS root
+        if 'authenticate' in base_url:
+            self.base_url = base_url.replace('/bank9ja/api/v2/k1/authenticate', '/waas')
+        else:
+            self.base_url = base_url
+        
+    def _get_headers(self):
+        """Get common headers for API requests"""
         token = get_access_token()
-        url = f"{self.base_url}/api/v1/open_wallet"  # Correct endpoint for virtual account creation
-        headers = {
+        if not token:
+            return None
+            
+        return {
             "Authorization": f"Bearer {token}",
             "x-api-key": self.api_key,
             "x-secret-key": self.secret_key,
             "Content-Type": "application/json"
         }
-        import uuid
-        # Ensure all required fields are present with sensible defaults
-        # Map all required fields for 9PSB API
-        # Convert dateOfBirth to dd/mm/yyyy if needed
+        
+    def create_virtual_account(self, user_id, user_data):
+        """Create a virtual account using correct 9PSB endpoint"""
+        headers = self._get_headers()
+        if not headers:
+            return {"error": "Failed to get access token"}
+            
+        # Use the correct endpoint provided by 9PSB agent
+        url = "http://102.216.128.75:9090/waas/api/v1/open_wallet"
+        
+        # Prepare payload with required fields for 9PSB wallet creation
         dob = user_data.get("dateOfBirth") or "05/05/1988"
-        if dob and ("-" in dob and "/" not in dob):
-            # Convert 'dd-mm-yyyy' to 'dd/mm/yyyy'
+        if "-" in dob and "/" not in dob:
             dob = dob.replace("-", "/")
-        # Map gender string to int: 1 for male, 2 for female
-        gender_raw = user_data.get("gender") or "M"
+        
+        gender_raw = user_data.get("gender", "M")
         gender_map = {"M": 1, "F": 2, "male": 1, "female": 2, 1: 1, 2: 2}
         gender = gender_map.get(str(gender_raw).strip().lower().capitalize(), 1)
-        phone_value = user_data.get("phoneNo") or user_data.get("phoneNumber") or user_data.get("phone") or "08055006199"
-        other_names_value = user_data.get("otherNames")
-        if other_names_value is None or str(other_names_value).strip() == "":
-            other_names_value = user_data.get("middleName") or user_data.get("other_names") or "N/A"
-        if other_names_value is None or str(other_names_value).strip() == "":
-            other_names_value = "N/A"
+        
+        phone = user_data.get("phoneNo") or user_data.get("phone") or "08055006199"
+        other_names = user_data.get("otherNames") or user_data.get("middleName") or "N/A"
+        
         payload = {
-            "userId": user_id,
-            "firstName": user_data.get("firstName") or user_data.get("first_name") or "David",
-            "lastName": user_data.get("lastName") or user_data.get("last_name") or "Adeleke",
-            "otherNames": other_names_value,
+            "userId": str(user_id),
+            "firstName": user_data.get("firstName") or user_data.get("first_name") or "Test",
+            "lastName": user_data.get("lastName") or user_data.get("last_name") or "User",
+            "otherNames": other_names,
             "gender": gender,
             "dateOfBirth": dob,
-            "phoneNo": phone_value,
-            "phoneNumber": phone_value,
-            "email": user_data.get("email") or "david.adeleke@email.com",
+            "phoneNo": phone,
+            "email": user_data.get("email") or "test@example.com",
             "bvn": user_data.get("bvn") or "22190239861",
-            "channel": user_data.get("channel") or "APP",
-            # "userName": user_data.get("userName") or user_data.get("username") or "pipinstall",  # REMOVED to fix fullName
+            "channel": "APP",
             "password": user_data.get("password") or "Sofi@1234",
-            "transactionTrackingRef": user_data.get("transactionTrackingRef") or str(uuid.uuid4()),
-            **user_data
+            "transactionTrackingRef": str(uuid.uuid4())
         }
-        # Remove userName if present in user_data
-        if "userName" in payload:
-            del payload["userName"]
-        response = requests.post(url, json=payload, headers=headers, timeout=15)
+        
         try:
-            return response.json()
-        except Exception:
-            return {"error": "Invalid response", "status_code": response.status_code, "text": response.text}
-
-    # Placeholder for other 9PSB API methods
-    def verify_deposit(self, transaction_id):
-        pass
+            print(f"🔍 Creating wallet at: {url}")
+            print(f"🔍 Payload: {json.dumps(payload, indent=2)}")
+            
+            response = requests.post(url, json=payload, headers=headers, timeout=30)
+            print(f"🔍 Response Status: {response.status_code}")
+            print(f"🔍 Response: {response.text}")
+            
+            if response.status_code in [200, 201]:
+                return response.json()
+            else:
+                return {
+                    "error": "Wallet creation failed",
+                    "status_code": response.status_code,
+                    "response": response.text
+                }
+        except Exception as e:
+            return {"error": f"Request failed: {str(e)}"}
+    
+    def upgrade_wallet(self, user_id, tier_level=2):
+        """Upgrade wallet to higher tier (Tier 1, 2, or 3)"""
+        headers = self._get_headers()
+        if not headers:
+            return {"error": "Failed to get access token"}
+            
+        url = f"{self.base_url}/api/v1/upgrade_wallet"
+        
+        payload = {
+            "userId": str(user_id),
+            "tierLevel": tier_level,
+            "transactionTrackingRef": str(uuid.uuid4())
+        }
+        
+        try:
+            response = requests.post(url, json=payload, headers=headers, timeout=30)
+            print(f"🔍 Upgrade Response: {response.status_code} - {response.text}")
+            
+            if response.status_code in [200, 201]:
+                return response.json()
+            else:
+                return {
+                    "error": "Wallet upgrade failed",
+                    "status_code": response.status_code,
+                    "response": response.text
+                }
+        except Exception as e:
+            return {"error": f"Upgrade request failed: {str(e)}"}
+    
+    def get_wallet_details(self, user_id):
+        """Get wallet details and balance"""
+        headers = self._get_headers()
+        if not headers:
+            return {"error": "Failed to get access token"}
+            
+        url = f"{self.base_url}/api/v1/wallet_details/{user_id}"
+        
+        try:
+            response = requests.get(url, headers=headers, timeout=15)
+            
+            if response.status_code == 200:
+                return response.json()
+            else:
+                return {
+                    "error": "Failed to get wallet details",
+                    "status_code": response.status_code,
+                    "response": response.text
+                }
+        except Exception as e:
+            return {"error": f"Request failed: {str(e)}"}
+    
+    def fund_wallet(self, user_id, amount, reference=None):
+        """Fund wallet (for testing purposes)"""
+        headers = self._get_headers()
+        if not headers:
+            return {"error": "Failed to get access token"}
+            
+        url = f"{self.base_url}/api/v1/fund_wallet"
+        
+        payload = {
+            "userId": str(user_id),
+            "amount": float(amount),
+            "reference": reference or str(uuid.uuid4()),
+            "transactionTrackingRef": str(uuid.uuid4())
+        }
+        
+        try:
+            response = requests.post(url, json=payload, headers=headers, timeout=30)
+            
+            if response.status_code in [200, 201]:
+                return response.json()
+            else:
+                return {
+                    "error": "Wallet funding failed",
+                    "status_code": response.status_code,
+                    "response": response.text
+                }
+        except Exception as e:
+            return {"error": f"Funding request failed: {str(e)}"}
+    
+    def transfer_funds(self, from_user_id, to_account, amount, bank_code=None, narration="Transfer"):
+        """Transfer funds from wallet to another account"""
+        headers = self._get_headers()
+        if not headers:
+            return {"error": "Failed to get access token"}
+            
+        url = f"{self.base_url}/api/v1/transfer"
+        
+        payload = {
+            "fromUserId": str(from_user_id),
+            "toAccount": str(to_account),
+            "amount": float(amount),
+            "bankCode": bank_code,
+            "narration": narration,
+            "transactionTrackingRef": str(uuid.uuid4())
+        }
+        
+        try:
+            response = requests.post(url, json=payload, headers=headers, timeout=30)
+            
+            if response.status_code in [200, 201]:
+                return response.json()
+            else:
+                return {
+                    "error": "Transfer failed",
+                    "status_code": response.status_code,
+                    "response": response.text
+                }
+        except Exception as e:
+            return {"error": f"Transfer request failed: {str(e)}"}
+    
+    def get_transaction_history(self, user_id, start_date=None, end_date=None, limit=50):
+        """Get transaction history for a wallet"""
+        headers = self._get_headers()
+        if not headers:
+            return {"error": "Failed to get access token"}
+            
+        url = f"{self.base_url}/api/v1/transaction_history/{user_id}"
+        
+        params = {"limit": limit}
+        if start_date:
+            params["startDate"] = start_date
+        if end_date:
+            params["endDate"] = end_date
+        
+        try:
+            response = requests.get(url, headers=headers, params=params, timeout=15)
+            
+            if response.status_code == 200:
+                return response.json()
+            else:
+                return {
+                    "error": "Failed to get transaction history",
+                    "status_code": response.status_code,
+                    "response": response.text
+                }
+        except Exception as e:
+            return {"error": f"Request failed: {str(e)}"}
+    
+    def lookup_existing_wallet(self, bvn=None, phone=None):
+        """Lookup existing wallet by BVN or phone number"""
+        headers = self._get_headers()
+        if not headers:
+            return {"error": "Failed to get access token"}
+        
+        if bvn:
+            url = f"{self.base_url}/api/v1/wallet/lookup/bvn/{bvn}"
+        elif phone:
+            url = f"{self.base_url}/api/v1/wallet/lookup/phone/{phone}"
+        else:
+            return {"error": "BVN or phone number required"}
+        
+        try:
+            response = requests.get(url, headers=headers, timeout=15)
+            
+            if response.status_code == 200:
+                return response.json()
+            else:
+                return {
+                    "error": "Lookup failed",
+                    "status_code": response.status_code,
+                    "response": response.text
+                }
+        except Exception as e:
+            return {"error": f"Lookup request failed: {str(e)}"}
+    
+    def verify_bvn(self, bvn, first_name=None, last_name=None, date_of_birth=None):
+        """Verify BVN details"""
+        headers = self._get_headers()
+        if not headers:
+            return {"error": "Failed to get access token"}
+            
+        url = f"{self.base_url}/api/v1/verify_bvn"
+        
+        payload = {
+            "bvn": str(bvn),
+            "firstName": first_name,
+            "lastName": last_name,
+            "dateOfBirth": date_of_birth
+        }
+        
+        # Remove None values
+        payload = {k: v for k, v in payload.items() if v is not None}
+        
+        try:
+            response = requests.post(url, json=payload, headers=headers, timeout=30)
+            
+            if response.status_code in [200, 201]:
+                return response.json()
+            else:
+                return {
+                    "error": "BVN verification failed",
+                    "status_code": response.status_code,
+                    "response": response.text
+                }
+        except Exception as e:
+            return {"error": f"BVN verification request failed: {str(e)}"}
+            
+    def get_banks_list(self):
+        """Get list of supported banks"""
+        headers = self._get_headers()
+        if not headers:
+            return {"error": "Failed to get access token"}
+            
+        url = f"{self.base_url}/api/v1/banks"
+        
+        try:
+            response = requests.get(url, headers=headers, timeout=15)
+            
+            if response.status_code == 200:
+                return response.json()
+            else:
+                return {
+                    "error": "Failed to get banks list",
+                    "status_code": response.status_code,
+                    "response": response.text
+                }
+        except Exception as e:
+            return {"error": f"Request failed: {str(e)}"}
+            
+    def verify_account_name(self, account_number, bank_code):
+        """Verify account name with bank"""
+        headers = self._get_headers()
+        if not headers:
+            return {"error": "Failed to get access token"}
+            
+        url = f"{self.base_url}/api/v1/name_enquiry"
+        
+        payload = {
+            "accountNumber": str(account_number),
+            "bankCode": str(bank_code)
+        }
+        
+        try:
+            response = requests.post(url, json=payload, headers=headers, timeout=15)
+            
+            if response.status_code in [200, 201]:
+                return response.json()
+            else:
+                return {
+                    "error": "Account verification failed",
+                    "status_code": response.status_code,
+                    "response": response.text
+                }
+        except Exception as e:
+            return {"error": f"Account verification request failed: {str(e)}"}
+            
+    # VAS Services (Airtime, Data, Bills)
+    def buy_airtime(self, user_id, phone_number, amount, network):
+        """Buy airtime using wallet balance"""
+        headers = self._get_headers()
+        if not headers:
+            return {"error": "Failed to get access token"}
+            
+        url = f"{self.base_url}/api/v1/buy_airtime"
+        
+        payload = {
+            "userId": str(user_id),
+            "phoneNumber": str(phone_number),
+            "amount": float(amount),
+            "network": str(network).upper(),
+            "transactionTrackingRef": str(uuid.uuid4())
+        }
+        
+        try:
+            response = requests.post(url, json=payload, headers=headers, timeout=30)
+            
+            if response.status_code in [200, 201]:
+                return response.json()
+            else:
+                return {
+                    "error": "Airtime purchase failed",
+                    "status_code": response.status_code,
+                    "response": response.text
+                }
+        except Exception as e:
+            return {"error": f"Airtime purchase request failed: {str(e)}"}
+            
+    def buy_data(self, user_id, phone_number, data_plan_code, network):
+        """Buy data bundle using wallet balance"""
+        headers = self._get_headers()
+        if not headers:
+            return {"error": "Failed to get access token"}
+            
+        url = f"{self.base_url}/api/v1/buy_data"
+        
+        payload = {
+            "userId": str(user_id),
+            "phoneNumber": str(phone_number),
+            "dataPlanCode": str(data_plan_code),
+            "network": str(network).upper(),
+            "transactionTrackingRef": str(uuid.uuid4())
+        }
+        
+        try:
+            response = requests.post(url, json=payload, headers=headers, timeout=30)
+            
+            if response.status_code in [200, 201]:
+                return response.json()
+            else:
+                return {
+                    "error": "Data purchase failed",
+                    "status_code": response.status_code,
+                    "response": response.text
+                }
+        except Exception as e:
+            return {"error": f"Data purchase request failed: {str(e)}"}
+            
+    def get_data_plans(self, network):
+        """Get available data plans for a network"""
+        headers = self._get_headers()
+        if not headers:
+            return {"error": "Failed to get access token"}
+            
+        url = f"{self.base_url}/api/v1/data_plans/{network.upper()}"
+        
+        try:
+            response = requests.get(url, headers=headers, timeout=15)
+            
+            if response.status_code == 200:
+                return response.json()
+            else:
+                return {
+                    "error": "Failed to get data plans",
+                    "status_code": response.status_code,
+                    "response": response.text
+                }
+        except Exception as e:
+            return {"error": f"Request failed: {str(e)}"}
