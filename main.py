@@ -1751,22 +1751,31 @@ def parse_whatsapp_message(data: dict) -> tuple:
         return None, None
 
 async def route_whatsapp_message(sender: str, text: str) -> str:
-    """Route WhatsApp message to appropriate handler"""
+    """Route WhatsApp message to GPT-3.5 Turbo powered Sofi Assistant"""
     try:
-        # Import onboarding functions
-        from utils.whatsapp_onboarding import (
-            handle_whatsapp_onboarding_response,
-            process_whatsapp_onboarding_step,
-            send_whatsapp_onboarding_link,
-            get_user_onboarding_state
-        )
+        # Import the GPT-3.5 Turbo integration
+        from utils.whatsapp_gpt_integration import sofi_whatsapp_gpt
         
-        # Check if user is in onboarding process
-        onboarding_state = get_user_onboarding_state(sender)
-        if onboarding_state:
-            onboarding_response = process_whatsapp_onboarding_step(sender, text)
-            if onboarding_response:
-                return onboarding_response
+        logger.info(f"📱 Processing WhatsApp message from {sender}: {text}")
+        
+        # Use GPT-3.5 Turbo to generate intelligent response
+        response = await sofi_whatsapp_gpt.process_whatsapp_message(sender, text)
+        
+        logger.info(f"🤖 Sofi GPT response to {sender}: {response[:100]}...")
+        return response
+        
+    except Exception as e:
+        logger.error(f"WhatsApp GPT routing error: {e}")
+        # Fallback response if GPT fails
+        return """🤖 Hi! I'm Sofi, your AI banking assistant. 
+
+I can help you with:
+💰 Balance checking
+💸 Money transfers  
+📱 Airtime purchases
+🔐 Account creation
+
+Try asking me something like "check balance" or "help me send money"!"""
         
         # Handle button responses (interactive messages)
         if text in ["quick_signup", "full_onboard", "learn_more"]:
@@ -1871,53 +1880,23 @@ What would you like to do?"""
 
 @app.route("/whatsapp-webhook", methods=["GET", "POST"])
 def whatsapp_webhook():
-    """Handle WhatsApp Cloud API webhooks"""
+    """Handle WhatsApp Cloud API webhooks with comprehensive database integration"""
     
-    if request.method == "GET":
-        # Webhook verification
-        verify_token = os.getenv("WHATSAPP_VERIFY_TOKEN")
+    try:
+        from utils.whatsapp_webhook_handler import whatsapp_handler
         
-        mode = request.args.get("hub.mode")
-        token = request.args.get("hub.verify_token")
-        challenge = request.args.get("hub.challenge")
+        if request.method == "GET":
+            # Webhook verification
+            verify_token = os.getenv("WHATSAPP_VERIFY_TOKEN", "sofi_ai_webhook_verify_2024")
+            return whatsapp_handler.handle_webhook_get(verify_token)
         
-        if mode == "subscribe" and token == verify_token:
-            logger.info("WhatsApp webhook verified successfully")
-            return challenge
-        else:
-            logger.warning("WhatsApp webhook verification failed")
-            return "Forbidden", 403
-    
-    elif request.method == "POST":
-        # Handle incoming messages
-        try:
-            data = request.get_json()
+        elif request.method == "POST":
+            # Handle incoming messages with full database integration
+            return whatsapp_handler.handle_webhook_post()
             
-            if not data:
-                return "Bad Request", 400
-            
-            # Parse the message
-            sender, text = parse_whatsapp_message(data)
-            
-            if not sender or not text:
-                logger.info("WhatsApp webhook: No valid message found")
-                return "OK", 200
-            
-            logger.info(f"WhatsApp message from {sender}: {text}")
-            
-            # Route and process the message
-            import asyncio
-            response_text = asyncio.run(route_whatsapp_message(sender, text))
-            
-            # Send response
-            success = send_whatsapp_message(sender, response_text)
-            
-            if success:
-                logger.info(f"WhatsApp response sent to {sender}")
-            else:
-                logger.error(f"Failed to send WhatsApp response to {sender}")
-            
-            return "OK", 200
+    except Exception as e:
+        logger.error(f"❌ WhatsApp webhook error: {e}")
+        return "Internal Server Error", 500
             
         except Exception as e:
             logger.error(f"WhatsApp webhook error: {e}")
