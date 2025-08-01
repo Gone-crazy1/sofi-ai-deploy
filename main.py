@@ -1880,19 +1880,33 @@ What would you like to do?"""
 
 @app.route("/whatsapp-webhook", methods=["GET", "POST"])
 def whatsapp_webhook():
-    """Handle WhatsApp Cloud API webhooks with comprehensive database integration"""
-    
+    """WhatsApp Cloud API webhook endpoint with full Sofi assistant integration"""
     try:
-        from utils.whatsapp_webhook_handler import whatsapp_handler
-        
         if request.method == "GET":
             # Webhook verification
             verify_token = os.getenv("WHATSAPP_VERIFY_TOKEN", "sofi_ai_webhook_verify_2024")
-            return whatsapp_handler.handle_webhook_get(verify_token)
+            
+            # Get query parameters
+            mode = request.args.get("hub.mode")
+            token = request.args.get("hub.verify_token")
+            challenge = request.args.get("hub.challenge")
+            
+            if mode == "subscribe" and token == verify_token:
+                logger.info("✅ WhatsApp webhook verified successfully")
+                return challenge, 200
+            else:
+                logger.error("❌ WhatsApp webhook verification failed")
+                return "Verification failed", 403
         
         elif request.method == "POST":
-            # Handle incoming messages with full database integration
-            return whatsapp_handler.handle_webhook_post()
+            # Handle incoming WhatsApp messages with full assistant integration
+            from utils.whatsapp_assistant_integration import handle_whatsapp_webhook
+            
+            data = request.get_json()
+            result = handle_whatsapp_webhook(data)
+            
+            logger.info(f"WhatsApp webhook processed: {result}")
+            return jsonify({"status": "success", "result": result}), 200
             
     except Exception as e:
         logger.error(f"❌ WhatsApp webhook error: {e}")
