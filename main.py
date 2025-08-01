@@ -1897,10 +1897,6 @@ def whatsapp_webhook():
     except Exception as e:
         logger.error(f"❌ WhatsApp webhook error: {e}")
         return "Internal Server Error", 500
-            
-        except Exception as e:
-            logger.error(f"WhatsApp webhook error: {e}")
-            return "Internal Server Error", 500
 
 @app.route("/9psb-webhook", methods=["POST"])
 def ninepsb_webhook():
