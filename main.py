@@ -1962,25 +1962,26 @@ def send_whatsapp_message(to_number: str, message_text: str, interactive_button:
         return False
 
 def parse_whatsapp_message(data: dict) -> tuple:
-    """Parse incoming WhatsApp webhook data"""
+    """Parse incoming WhatsApp webhook data and extract message ID"""
     try:
         if not data.get("entry"):
-            return None, None
+            return None, None, None
             
         entry = data["entry"][0]
         changes = entry.get("changes", [])
         
         if not changes:
-            return None, None
+            return None, None, None
             
         value = changes[0].get("value", {})
         messages = value.get("messages", [])
         
         if not messages:
-            return None, None
+            return None, None, None
             
         message = messages[0]
         sender = message.get("from")
+        message_id = message.get("id")  # Extract message ID for read receipts
         
         # Handle different message types
         if message.get("type") == "text":
@@ -1988,15 +1989,24 @@ def parse_whatsapp_message(data: dict) -> tuple:
         else:
             text = ""  # Handle other message types if needed
             
-        return sender, text
+        return sender, text, message_id
         
     except Exception as e:
         logger.error(f"Error parsing WhatsApp message: {e}")
-        return None, None
+        return None, None, None
 
-async def route_whatsapp_message(sender: str, text: str) -> str:
-    """Route WhatsApp message to OpenAI Assistant API (like Telegram)"""
+async def route_whatsapp_message(sender: str, text: str, message_id: str = None) -> str:
+    """Route WhatsApp message to OpenAI Assistant API with read receipts and typing"""
     try:
+        # 📨 STEP 1: Mark incoming message as read (blue checkmarks)
+        from utils.whatsapp_api import whatsapp_api
+        
+        if message_id:
+            await whatsapp_api.mark_message_as_read(message_id)
+        
+        # ⌨️ STEP 2: Show typing indicator
+        await whatsapp_api.send_typing_indicator(sender, duration=1.5)
+        
         # 🤖 PRIMARY: Use OpenAI Assistant API for ALL messages (like Telegram)
         logger.info(f"� Processing message via Sofi Assistant API: {sender} -> {text}")
         
@@ -2009,10 +2019,10 @@ async def route_whatsapp_message(sender: str, text: str) -> str:
         if assistant_response:
             logger.info(f"✅ Sofi Assistant response generated for {sender}")
             
-            # Send the assistant's response
-            success = send_whatsapp_message(sender, assistant_response)
+            # 📤 Send the assistant's response using WhatsApp API (no extra typing needed)
+            success = await whatsapp_api.send_text_message(sender, assistant_response)
             
-            return "Message sent with Assistant response"
+            return "Message sent with Assistant response and read receipts"
         
         # Fallback only if Assistant fails
         logger.warning(f"⚠️ Assistant failed, using fallback for {sender}")
@@ -2281,17 +2291,17 @@ def whatsapp_webhook():
                 return "Bad Request", 400
             
             # Parse the message
-            sender, text = parse_whatsapp_message(data)
+            sender, text, message_id = parse_whatsapp_message(data)
             
             if not sender or not text:
                 logger.info("WhatsApp webhook: No valid message found")
                 return "OK", 200
             
-            logger.info(f"WhatsApp message from {sender}: {text}")
+            logger.info(f"WhatsApp message from {sender}: {text} (ID: {message_id})")
             
-            # Route and process the message
+            # Route and process the message with read receipts and typing
             import asyncio
-            result = asyncio.run(route_whatsapp_message(sender, text))
+            result = asyncio.run(route_whatsapp_message(sender, text, message_id))
             
             # The route_whatsapp_message now handles sending messages directly
             # No need to send response again here

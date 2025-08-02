@@ -240,15 +240,23 @@ class BankAPI:
     def verify_account(self, account_number: str, bank_code: str) -> Dict[str, Any]:
         """Synchronous wrapper for verify_account_name"""
         try:
-            # Run the async method synchronously
+            # Check if we're already in an async context
             import asyncio
             try:
-                loop = asyncio.get_event_loop()
+                # If there's already a running loop, we can't use run_until_complete
+                loop = asyncio.get_running_loop()
+                logger.warning("Already in event loop - creating task instead")
+                # Create a future and set the result
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future = executor.submit(self._sync_verify_account_name, account_number, bank_code)
+                    result = future.result(timeout=30)
             except RuntimeError:
+                # No running loop, safe to create new one
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
-            
-            result = loop.run_until_complete(self.verify_account_name(account_number, bank_code))
+                result = loop.run_until_complete(self.verify_account_name(account_number, bank_code))
+                loop.close()
             
             # Convert the result format to match expected format
             if result.get('success'):
@@ -268,6 +276,41 @@ class BankAPI:
             logger.error(f"Error in synchronous verify_account: {e}")
             return {
                 'verified': False,
+                'error': f"Error verifying account: {str(e)}"
+            }
+    
+    def _sync_verify_account_name(self, account_number: str, bank_code: str) -> Dict[str, Any]:
+        """Synchronous version of verify_account_name for thread execution"""
+        try:
+            response = requests.get(
+                f"{self.paystack_base_url}/bank/resolve",
+                headers=self._paystack_headers(),
+                params={
+                    "account_number": account_number,
+                    "bank_code": bank_code
+                }
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                if result.get("status") and "data" in result:
+                    account_data = result["data"]
+                    return {
+                        'success': True,
+                        'account_name': account_data.get('account_name'),
+                        'bank_name': account_data.get('bank_name', 'Unknown Bank'),
+                        'account_number': account_number
+                    }
+            
+            return {
+                'success': False,
+                'error': 'Account verification failed'
+            }
+            
+        except Exception as e:
+            logger.error(f"Error in sync verify_account_name: {e}")
+            return {
+                'success': False,
                 'error': f"Error verifying account: {str(e)}"
             }
     
