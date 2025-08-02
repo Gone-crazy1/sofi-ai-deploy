@@ -28,10 +28,12 @@ class FlowEncryption:
             raise ValueError("WHATSAPP_FLOW_PRIVATE_KEY not found in environment variables")
         
         try:
-            # Decode base64 and load PEM key
-            private_key_pem = base64.b64decode(private_key_b64)
+            # Decode base64 to get PEM string, then encode to bytes for loading
+            private_key_pem_str = base64.b64decode(private_key_b64).decode('utf-8')
+            private_key_pem_bytes = private_key_pem_str.encode('utf-8')
+            
             private_key = serialization.load_pem_private_key(
-                private_key_pem,
+                private_key_pem_bytes,
                 password=None,
                 backend=default_backend()
             )
