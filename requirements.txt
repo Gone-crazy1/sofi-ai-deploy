@@ -8,3 +8,5 @@ pillow
 pydub
 gunicorn
 waitress
+cryptography
+pycryptodome
