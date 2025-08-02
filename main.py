@@ -2004,7 +2004,7 @@ async def route_whatsapp_message(sender: str, text: str) -> str:
         from utils.sofi_assistant_api import sofi_assistant
         
         # Send message to Sofi Assistant and get intelligent response
-        assistant_response = sofi_assistant.send_message_to_assistant(sender, text)
+        assistant_response = await sofi_assistant.send_message_to_assistant(sender, text)
         
         if assistant_response:
             logger.info(f"✅ Sofi Assistant response generated for {sender}")

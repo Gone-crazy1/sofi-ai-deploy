@@ -38,7 +38,7 @@ class SofiAssistantManager:
             logger.error(f"❌ Error creating/getting thread for {phone_number}: {e}")
             raise
     
-    def send_message_to_assistant(self, phone_number: str, message: str) -> str:
+    async def send_message_to_assistant(self, phone_number: str, message: str) -> str:
         """Send message to Sofi Assistant and get response"""
         try:
             logger.info(f"🤖 Sending message to Sofi Assistant: {phone_number} -> {message}")
@@ -63,7 +63,7 @@ class SofiAssistantManager:
             
             # Wait for completion
             logger.info(f"⏳ Waiting for assistant response... Run ID: {run.id}")
-            run = self.wait_for_run_completion(thread_id, run.id)
+            run = await self.wait_for_run_completion(thread_id, run.id)
             
             if run.status == "completed":
                 # Get the assistant's response
@@ -88,7 +88,7 @@ class SofiAssistantManager:
             logger.error(f"❌ Error in assistant conversation for {phone_number}: {e}")
             return "I'm having trouble right now. Please try again in a moment."
     
-    def wait_for_run_completion(self, thread_id: str, run_id: str, max_wait: int = 30) -> Any:
+    async def wait_for_run_completion(self, thread_id: str, run_id: str, max_wait: int = 30) -> Any:
         """Wait for assistant run to complete"""
         start_time = time.time()
         
@@ -104,7 +104,7 @@ class SofiAssistantManager:
                     return run
                 elif run.status == "requires_action":
                     logger.info(f"🔧 Assistant requires action - handling tool calls")
-                    run = self.handle_tool_calls(thread_id, run)
+                    run = await self.handle_tool_calls(thread_id, run)
                     if run.status in ["completed", "failed", "cancelled", "expired"]:
                         return run
                 else:
@@ -118,7 +118,7 @@ class SofiAssistantManager:
         logger.error(f"⏰ Assistant run timed out after {max_wait} seconds")
         return run
     
-    def handle_tool_calls(self, thread_id: str, run: Any) -> Any:
+    async def handle_tool_calls(self, thread_id: str, run: Any) -> Any:
         """Handle function calls from the assistant"""
         try:
             if run.required_action and run.required_action.submit_tool_outputs:
@@ -133,8 +133,8 @@ class SofiAssistantManager:
                     
                     logger.info(f"🔧 Executing function: {function_name}")
                     
-                    # Execute the function (you'll need to implement this)
-                    result = self.execute_function(function_name, function_args)
+                    # Execute the function (now properly async)
+                    result = await self.execute_function(function_name, function_args)
                     
                     tool_outputs.append({
                         "tool_call_id": tool_call.id,
@@ -149,35 +149,32 @@ class SofiAssistantManager:
                 )
                 
                 logger.info(f"✅ Tool outputs submitted, continuing run...")
-                return self.wait_for_run_completion(thread_id, run.id)
+                return await self.wait_for_run_completion(thread_id, run.id)
                 
         except Exception as e:
             logger.error(f"❌ Error handling tool calls: {e}")
             
         return run
     
-    def execute_function(self, function_name: str, function_args: Dict[str, Any]) -> Dict[str, Any]:
+    async def execute_function(self, function_name: str, function_args: Dict[str, Any]) -> Dict[str, Any]:
         """Execute a function call from the assistant"""
         try:
             logger.info(f"⚡ Executing function: {function_name} with args: {function_args}")
             
             # Import and execute the appropriate function
             if function_name == "check_balance":
-                import asyncio
                 from functions.balance_functions import check_balance
-                # Run async function synchronously
+                # Properly await the async function instead of using asyncio.run()
                 phone_number = function_args.get("whatsapp_number", function_args.get("chat_id", ""))
-                result = asyncio.run(check_balance(phone_number))
+                result = await check_balance(phone_number)
                 return result
             elif function_name == "send_money":
-                import asyncio
                 from functions.transfer_functions import send_money
-                result = asyncio.run(send_money(**function_args))
+                result = await send_money(**function_args)
                 return result
             elif function_name == "verify_account_name":
-                import asyncio
                 from functions.transfer_functions import verify_account_name
-                result = asyncio.run(verify_account_name(**function_args))
+                result = await verify_account_name(**function_args)
                 return result
             # Add more function handlers as needed
             else:
@@ -185,7 +182,7 @@ class SofiAssistantManager:
                 return {"error": f"Unknown function: {function_name}"}
                 
         except Exception as e:
-            logger.error(f"❌ Error executing function {function_name}: {e}")
+            logger.error(f"❌ Error executing function {function_name}: {e}", exc_info=True)
             return {"error": f"Failed to execute {function_name}: {str(e)}"}
 
 # Global instance
