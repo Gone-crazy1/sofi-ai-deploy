@@ -17,7 +17,9 @@ class SofiAssistantManager:
     
     def __init__(self):
         self.client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-        self.assistant_id = "asst_0M8grCGnt1Pxhm7J8sn7NXSc"  # Sofi Assistant ID
+        self.assistant_id = os.getenv("OPENAI_ASSISTANT_ID")  # Get from environment variable
+        if not self.assistant_id:
+            raise ValueError("OPENAI_ASSISTANT_ID environment variable is required")
         self.user_threads = {}  # Store thread IDs for each user
         
     def get_or_create_thread(self, phone_number: str) -> str:

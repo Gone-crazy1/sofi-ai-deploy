@@ -1,0 +1,25 @@
+# 🔐 SECURE ENVIRONMENT VARIABLES FOR RENDER.COM
+# ==============================================
+# Copy these to Render.com Environment tab (WITHOUT the actual values shown here)
+
+# OpenAI Configuration
+OPENAI_API_KEY=your_openai_api_key_here
+OPENAI_ASSISTANT_ID=your_assistant_id_here
+
+# WhatsApp Flow Encryption (use the working keys from WORKING_KEYS_FOR_RENDER.txt)
+WHATSAPP_FLOW_PRIVATE_KEY=your_private_key_here
+WHATSAPP_FLOW_PUBLIC_KEY=your_public_key_here
+WHATSAPP_VERIFY_TOKEN=sofi_ai_webhook_verify_2024
+
+# ⚠️  SECURITY NOTES:
+# - Never commit actual API keys to Git
+# - Always use environment variables in production
+# - The actual Assistant ID should be: asst_0M8grCGnt1Pxhm7J8sn7NXSc
+# - But add it securely in Render environment variables, not in code
+
+# 📋 TO UPDATE RENDER ENVIRONMENT:
+# 1. Go to https://dashboard.render.com
+# 2. Find your service → Environment tab  
+# 3. Add OPENAI_ASSISTANT_ID = asst_0M8grCGnt1Pxhm7J8sn7NXSc
+# 4. Update other variables as needed
+# 5. Save and wait for deployment

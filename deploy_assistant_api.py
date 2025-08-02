@@ -31,7 +31,10 @@ def main():
     print("✅ Replaces basic GPT with OpenAI Assistant API")
     print("✅ Creates threads for each WhatsApp user")
     print("✅ Enables intelligent function calling like Telegram")
-    print("✅ Uses Assistant ID: asst_0M8grCGnt1Pxhm7J8sn7NXSc")
+    print("✅ Uses secure environment variables (no hardcoded keys)")
+    print()
+    print("⚠️  IMPORTANT: Update Render environment variables:")
+    print("   Add OPENAI_ASSISTANT_ID to your Render environment")
     print()
     
     # Stage all changes
