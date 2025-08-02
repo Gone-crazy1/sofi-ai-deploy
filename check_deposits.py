@@ -41,33 +41,33 @@ def check_recent_deposits():
             
         # Check virtual accounts
         print('\n🔍 Checking virtual accounts...')
-        accounts = supabase.table('virtual_accounts').select('telegram_chat_id, account_number, balance, created_at').order('created_at', desc=True).limit(10).execute()
+        accounts = supabase.table('virtual_accounts').select('whatsapp_number, account_number, balance, created_at').order('created_at', desc=True).limit(10).execute()
         
         if accounts.data:
             print(f'✅ Found {len(accounts.data)} virtual accounts:')
             for i, acc in enumerate(accounts.data, 1):
-                chat_id = acc.get('telegram_chat_id')
+                whatsapp_number = acc.get('whatsapp_number')
                 account_num = acc.get('account_number')
                 balance = acc.get('balance', 0)
                 created = acc.get('created_at', '')[:19] if acc.get('created_at') else 'Unknown'
                 
-                print(f'  {i}. Chat ID: {chat_id} | Account: {account_num} | Balance: ₦{balance:,.0f} | Created: {created}')
+                print(f'  {i}. WhatsApp: {whatsapp_number} | Account: {account_num} | Balance: ₦{balance:,.0f} | Created: {created}')
         else:
             print('❌ No virtual accounts found')
             
         # Check users table for recent balance updates
         print('\n🔍 Checking users with recent balance changes...')
-        users = supabase.table('users').select('telegram_chat_id, full_name, wallet_balance, updated_at').order('updated_at', desc=True).limit(10).execute()
+        users = supabase.table('users').select('whatsapp_number, full_name, wallet_balance, updated_at').order('updated_at', desc=True).limit(10).execute()
         
         if users.data:
             print(f'✅ Found {len(users.data)} users with recent activity:')
             for i, user in enumerate(users.data, 1):
-                chat_id = user.get('telegram_chat_id')
+                whatsapp_number = user.get('whatsapp_number')
                 name = user.get('full_name', 'Unknown')
                 balance = user.get('wallet_balance', 0)
                 updated = user.get('updated_at', '')[:19] if user.get('updated_at') else 'Unknown'
                 
-                print(f'  {i}. {name} (Chat: {chat_id}) | Balance: ₦{balance:,.0f} | Updated: {updated}')
+                print(f'  {i}. {name} (WhatsApp: {whatsapp_number}) | Balance: ₦{balance:,.0f} | Updated: {updated}')
         
     except Exception as e:
         print(f'❌ Error checking database: {e}')

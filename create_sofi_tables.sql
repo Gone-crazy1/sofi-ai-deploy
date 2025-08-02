@@ -5,7 +5,7 @@
 CREATE TABLE IF NOT EXISTS transfer_requests (
     id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
     user_id UUID REFERENCES users(id) ON DELETE CASCADE,
-    telegram_chat_id TEXT NOT NULL,
+    whatsapp_number TEXT NOT NULL,
     amount DECIMAL(15,2) NOT NULL,
     reason TEXT,
     recipient_code TEXT NOT NULL,
@@ -73,7 +73,7 @@ CREATE TABLE IF NOT EXISTS paystack_errors (
 CREATE TABLE IF NOT EXISTS audit_logs (
     id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
     user_id UUID REFERENCES users(id) ON DELETE CASCADE,
-    telegram_chat_id TEXT,
+    whatsapp_number TEXT,
     action TEXT NOT NULL, -- e.g., 'transfer_initiated', 'refund_requested'
     target_table TEXT,
     target_id UUID,
@@ -109,7 +109,7 @@ CREATE TABLE IF NOT EXISTS sofi_transfer_profit (
 
 -- Create indexes for performance
 CREATE INDEX IF NOT EXISTS idx_transfer_requests_user_id ON transfer_requests(user_id);
-CREATE INDEX IF NOT EXISTS idx_transfer_requests_telegram_chat_id ON transfer_requests(telegram_chat_id);
+CREATE INDEX IF NOT EXISTS idx_transfer_requests_whatsapp_number ON transfer_requests(whatsapp_number);
 CREATE INDEX IF NOT EXISTS idx_transfer_requests_status ON transfer_requests(status);
 CREATE INDEX IF NOT EXISTS idx_payment_attempts_reference ON payment_attempts(reference);
 CREATE INDEX IF NOT EXISTS idx_payment_attempts_status ON payment_attempts(status);

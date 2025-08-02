@@ -35,9 +35,9 @@ SECURITY_CONFIG = {
         'pin_api_per_minute': 15,  # Special limit for PIN API calls
         'block_duration': 300,  # 5 minutes
     },
-    'telegram_bot_ips': [
-        # Telegram bot IP ranges for whitelisting
-        '149.154.160.0/20',  # Telegram datacenter
+    'whatsapp_bot_ips': [
+        # WhatsApp bot IP ranges for whitelisting
+        '149.154.160.0/20',  # WhatsApp datacenter
         '149.154.164.0/22',
         '149.154.168.0/22',
         '149.154.172.0/22',
@@ -74,13 +74,13 @@ SECURITY_CONFIG = {
         '/crawl*', '/spider*', '/bot*'
     },
     'allowed_origins': [
-        'https://api.telegram.org',
+        'https://api.whatsapp.org',
         'https://pipinstallsofi.com',
-        'https://web.telegram.org',
+        'https://web.whatsapp.org',
         'https://t.me'
     ],
     'secure_headers': {
-        'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://telegram.org https://t.me; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' https:; connect-src 'self' https:; frame-ancestors 'none';",
+        'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://whatsapp.org https://t.me; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' https:; connect-src 'self' https:; frame-ancestors 'none';",
         'X-Frame-Options': 'DENY',
         'X-Content-Type-Options': 'nosniff',
         'X-XSS-Protection': '1; mode=block',
@@ -428,7 +428,7 @@ def get_security_status() -> Dict:
         'rate_limiting': True,
         'ip_blocking': True,
         'suspicious_activity_detection': True,
-        'telegram_alerts': True,
+        'whatsapp_alerts': True,
         'timestamp': datetime.now().isoformat()
     }
 
@@ -442,11 +442,11 @@ def unblock_ip(ip: str):
     blocked_ips.discard(ip)
     logger.info(f"🔓 Manually unblocked IP: {ip}")
 
-def is_telegram_bot_ip(ip_address: str) -> bool:
-    """Check if IP address belongs to Telegram bot network"""
+def is_whatsapp_bot_ip(ip_address: str) -> bool:
+    """Check if IP address belongs to WhatsApp bot network"""
     try:
         ip = ipaddress.ip_address(ip_address)
-        for ip_range in SECURITY_CONFIG['telegram_bot_ips']:
+        for ip_range in SECURITY_CONFIG['whatsapp_bot_ips']:
             if ip in ipaddress.ip_network(ip_range):
                 return True
         return False

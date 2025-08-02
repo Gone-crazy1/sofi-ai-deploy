@@ -214,7 +214,7 @@ class SecureTransferHandler:
             from supabase import create_client
             
             client = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
-            result = client.table("virtual_accounts").select("*").eq("telegram_chat_id", str(chat_id)).execute()
+            result = client.table("virtual_accounts").select("*").eq("whatsapp_number", str(chat_id)).execute()
             
             if result.data:
                 return result.data[0]

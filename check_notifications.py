@@ -42,17 +42,17 @@ def check_notification_status():
             print(f'   User UUID: {user_uuid}')
             
             if user_uuid:
-                # Find the telegram chat ID for this user
-                user_query = supabase.table('users').select('telegram_chat_id, full_name').eq('id', user_uuid).execute()
+                # Find the WhatsApp number for this user
+                user_query = supabase.table('users').select('whatsapp_number, full_name').eq('id', user_uuid).execute()
                 
                 if user_query.data:
-                    telegram_chat_id = user_query.data[0].get('telegram_chat_id')
+                    whatsapp_number = user_query.data[0].get('whatsapp_number')
                     full_name = user_query.data[0].get('full_name', 'Unknown')
                     
-                    print(f'   ✅ User found: {full_name} (Chat ID: {telegram_chat_id})')
+                    print(f'   ✅ User found: {full_name} (WhatsApp: {whatsapp_number})')
                     
                     # This is where notification should have been sent
-                    print(f'   📱 Notification should be sent to Telegram chat: {telegram_chat_id}')
+                    print(f'   📱 Notification should be sent to WhatsApp: {whatsapp_number}')
                     
                 else:
                     print(f'   ❌ User not found in users table for UUID: {user_uuid}')

@@ -1,7 +1,7 @@
 """
-SOFI AI ASSISTANT INTEGRATION
-=============================
-OpenAI Assistant integration with money transfer capabilities
+SOFI AI WHATSAPP ASSISTANT INTEGRATION
+=====================================
+OpenAI Assistant integration with WhatsApp and money transfer capabilities
 """
 
 import os
@@ -29,35 +29,52 @@ class BackgroundTaskManager:
     def __init__(self):
         self.active_tasks = {}
         self.executor = ThreadPoolExecutor(max_workers=50)  # Handle 50+ concurrent users
-        self.telegram_bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
+        self.whatsapp_access_token = os.getenv("WHATSAPP_ACCESS_TOKEN")
+        self.whatsapp_phone_number_id = os.getenv("WHATSAPP_PHONE_NUMBER_ID")
         self.supabase = create_client(
             os.getenv("SUPABASE_URL"),
             os.getenv("SUPABASE_KEY")
         )
         
-    async def send_telegram_message(self, chat_id: str, message: str):
-        """Send message via Telegram API"""
+    async def send_whatsapp_message(self, phone_number: str, message: str):
+        """Send message via WhatsApp Cloud API"""
         try:
             import requests
-            url = f"https://api.telegram.org/bot{self.telegram_bot_token}/sendMessage"
+            url = f"https://graph.facebook.com/v18.0/{self.whatsapp_phone_number_id}/messages"
+            headers = {
+                "Authorization": f"Bearer {self.whatsapp_access_token}",
+                "Content-Type": "application/json"
+            }
             payload = {
-                "chat_id": chat_id,
-                "text": message,
-                "parse_mode": "Markdown"
+                "messaging_product": "whatsapp",
+                "to": phone_number,
+                "type": "text",
+                "text": {"body": message}
             }
             # Use background thread for HTTP request
             loop = asyncio.get_event_loop()
-            await loop.run_in_executor(self.executor, 
-                lambda: requests.post(url, json=payload, timeout=5))
-            logger.info(f"✅ Sent completion message to {chat_id}")
+            response = await loop.run_in_executor(self.executor, 
+                lambda: requests.post(url, json=payload, headers=headers, timeout=5))
+            
+            if response.status_code == 200:
+                logger.info(f"✅ Sent completion message to WhatsApp {phone_number}")
+            else:
+                logger.error(f"❌ WhatsApp API error {response.status_code}: {response.text}")
         except Exception as e:
-            logger.error(f"❌ Failed to send Telegram message: {e}")
+            logger.error(f"❌ Failed to send WhatsApp message: {e}")
     
-    async def process_openai_run_background(self, run, thread_id: str, chat_id: str, 
+    async def _send_platform_message(self, whatsapp_number: str, platform: str, message: str):
+        """Send message to WhatsApp (platform parameter kept for compatibility)"""
+        try:
+            await self.send_whatsapp_message(whatsapp_number, message)
+        except Exception as e:
+            logger.error(f"❌ Failed to send WhatsApp message: {e}")
+    
+    async def process_openai_run_background(self, run, thread_id: str, phone_number: str, 
                                           assistant_client, money_service):
         """Process OpenAI run in background without blocking"""
         try:
-            logger.info(f"🚀 Starting background processing for {chat_id}")
+            logger.info(f"🚀 Starting background processing for WhatsApp {phone_number}")
             start_time = time.time()
             
             function_data = {}
@@ -75,7 +92,7 @@ class BackgroundTaskManager:
                     )
                 except Exception as e:
                     logger.error(f"❌ OpenAI API error: {e}")
-                    await self.send_telegram_message(chat_id, 
+                    await self._send_platform_message(phone_number, "whatsapp",
                         "❌ Sorry, I encountered a technical issue. Please try again.")
                     return
                 
@@ -95,11 +112,11 @@ class BackgroundTaskManager:
                     
                     if response_text:
                         elapsed = time.time() - start_time
-                        logger.info(f"⚡ Background processing completed in {elapsed:.2f}s for {chat_id}")
-                        await self.send_telegram_message(chat_id, response_text)
+                        logger.info(f"⚡ Background processing completed in {elapsed:.2f}s for WhatsApp {phone_number}")
+                        await self._send_platform_message(phone_number, "whatsapp", response_text)
                     
                     # Clean up
-                    self.active_tasks.pop(chat_id, None)
+                    self.active_tasks.pop(phone_number, None)
                     return
                 
                 elif run.status == "requires_action":
@@ -116,7 +133,7 @@ class BackgroundTaskManager:
                         try:
                             # Execute function in background
                             result = await self._execute_function_background(
-                                function_name, function_args, chat_id, money_service)
+                                function_name, function_args, phone_number, money_service)
                             function_data[function_name] = result
                             
                             tool_outputs.append({
@@ -139,32 +156,32 @@ class BackgroundTaskManager:
                         )
                     except Exception as e:
                         logger.error(f"❌ Failed to submit tool outputs: {e}")
-                        await self.send_telegram_message(chat_id, 
+                        await self._send_platform_message(phone_number, "whatsapp",
                             "❌ Sorry, I encountered an issue processing your request.")
                         return
                 
                 elif run.status in ["failed", "cancelled", "expired"]:
                     logger.error(f"❌ Background run failed with status: {run.status}")
-                    await self.send_telegram_message(chat_id, 
+                    await self._send_platform_message(phone_number, "whatsapp",
                         f"❌ Sorry, I encountered an error: {run.status}")
-                    self.active_tasks.pop(chat_id, None)
+                    self.active_tasks.pop(phone_number, None)
                     return
                 
                 # Non-blocking wait
                 await asyncio.sleep(0.5)  # Check every 500ms instead of 1s
             
             # Timeout fallback
-            logger.warning(f"⏰ Background processing timeout for {chat_id}")
-            await self.send_telegram_message(chat_id, 
+            logger.warning(f"⏰ Background processing timeout for WhatsApp {phone_number}")
+            await self._send_platform_message(phone_number, "whatsapp",
                 "⏰ Your request is taking longer than expected. I'll continue processing and update you shortly.")
             
         except Exception as e:
-            logger.error(f"❌ Background processing error for {chat_id}: {e}")
-            await self.send_telegram_message(chat_id, 
+            logger.error(f"❌ Background processing error for WhatsApp {phone_number}: {e}")
+            await self._send_platform_message(phone_number, "whatsapp",
                 "❌ Sorry, I encountered an unexpected error. Please try again.")
         finally:
             # Always clean up
-            self.active_tasks.pop(chat_id, None)
+            self.active_tasks.pop(phone_number, None)
     
     def _generate_completion_message(self, function_data: Dict) -> str:
         """Generate completion message from function results"""
@@ -199,7 +216,7 @@ class BackgroundTaskManager:
         return "✅ Your request has been processed successfully!"
     
     async def _execute_function_background(self, function_name: str, function_args: Dict, 
-                                         chat_id: str, money_service) -> Dict[str, Any]:
+                                         phone_number: str, money_service) -> Dict[str, Any]:
         """Execute function in background thread"""
         try:
             # All the same function execution logic, but in background
@@ -209,7 +226,7 @@ class BackgroundTaskManager:
                     bank_code=function_args.get("bank_name") or function_args.get("bank_code")
                 )
             elif function_name == "check_balance":
-                return await money_service.check_user_balance(telegram_chat_id=chat_id)
+                return await money_service.check_user_balance(whatsapp_number=phone_number)
             elif function_name == "send_money":
                 # Background transfer processing
                 recipient_account = function_args.get("account_number") or function_args.get("recipient_account")
@@ -223,7 +240,7 @@ class BackgroundTaskManager:
                 # Import and execute transfer
                 from functions.transfer_functions import send_money
                 result = await send_money(
-                    chat_id=chat_id,
+                    whatsapp_number=phone_number,
                     account_number=recipient_account,
                     bank_name=recipient_bank,
                     amount=float(amount),
@@ -244,8 +261,8 @@ class BackgroundTaskManager:
                 return result
             
             elif function_name == "get_user_beneficiaries":
-                # Get user's integer ID from chat_id (convert to int for DB compatibility)
-                user_id = await self._get_user_id_from_chat_id(chat_id)
+                # Get user's integer ID from phone_number
+                user_id = await self._get_user_id_from_phone_number(phone_number)
                 if not user_id:
                     return {"success": False, "error": "User not found"}
                 
@@ -272,8 +289,8 @@ class BackgroundTaskManager:
                     return {"success": False, "error": "Beneficiary service not available"}
             
             elif function_name == "save_beneficiary":
-                # Get user's integer ID from chat_id
-                user_id = await self._get_user_id_from_chat_id(chat_id)
+                # Get user's integer ID from phone_number
+                user_id = await self._get_user_id_from_phone_number(phone_number)
                 if not user_id:
                     return {"success": False, "error": "User not found"}
                 
@@ -296,8 +313,8 @@ class BackgroundTaskManager:
                     return {"success": False, "error": "Beneficiary service not available"}
             
             elif function_name == "find_beneficiary_by_name":
-                # Get user's integer ID from chat_id
-                user_id = await self._get_user_id_from_chat_id(chat_id)
+                # Get user's integer ID from phone_number
+                user_id = await self._get_user_id_from_phone_number(phone_number)
                 if not user_id:
                     return {"success": False, "error": "User not found"}
                 
@@ -331,10 +348,10 @@ class BackgroundTaskManager:
             logger.error(f"❌ Background function execution error: {e}")
             return {"error": str(e)}
     
-    async def _get_user_uuid_from_chat_id(self, chat_id: str) -> Optional[str]:
-        """Get user's UUID from telegram chat_id"""
+    async def _get_user_uuid_from_phone_number(self, phone_number: str) -> Optional[str]:
+        """Get user's UUID from WhatsApp phone number"""
         try:
-            result = self.supabase.table("users").select("id").eq("telegram_chat_id", str(chat_id)).execute()
+            result = self.supabase.table("users").select("id").eq("whatsapp_number", str(phone_number)).execute()
             if result.data:
                 return result.data[0]["id"]
             return None
@@ -342,11 +359,11 @@ class BackgroundTaskManager:
             logger.error(f"❌ Error getting user UUID: {e}")
             return None
 
-    async def _get_user_id_from_chat_id(self, chat_id: str) -> Optional[int]:
-        """Get user's integer ID from telegram chat_id (for beneficiary service compatibility)"""
+    async def _get_user_id_from_phone_number(self, phone_number: str) -> Optional[int]:
+        """Get user's integer ID from WhatsApp phone number (for beneficiary service compatibility)"""
         try:
             # First try to get from the users table (if it has integer IDs)
-            result = self.supabase.table("users").select("id").eq("telegram_chat_id", str(chat_id)).execute()
+            result = self.supabase.table("users").select("id").eq("whatsapp_number", str(phone_number)).execute()
             if result.data:
                 user_id = result.data[0]["id"]
                 # Convert to int if it's a string
@@ -354,13 +371,15 @@ class BackgroundTaskManager:
                     return int(user_id)
                 return user_id
                 
-            # Fallback: use chat_id directly as integer
-            return int(chat_id)
+            # Fallback: use phone_number hash as integer
+            import hashlib
+            return int(hashlib.md5(phone_number.encode()).hexdigest()[:8], 16)
         except Exception as e:
             logger.error(f"❌ Error getting user integer ID: {e}")
-            # Fallback: use chat_id directly
+            # Fallback: use phone_number hash as integer
             try:
-                return int(chat_id)
+                import hashlib
+                return int(hashlib.md5(phone_number.encode()).hexdigest()[:8], 16)
             except:
                 return None
 
@@ -368,7 +387,7 @@ class BackgroundTaskManager:
 background_manager = BackgroundTaskManager()
 
 class SofiAssistant:
-    """OpenAI Assistant integration for Sofi AI"""
+    """OpenAI Assistant integration for Sofi AI WhatsApp"""
     
     def __init__(self):
         self.client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -379,7 +398,7 @@ class SofiAssistant:
         )
         self.assistant_id = None
         self._create_or_get_assistant()
-        logger.info("✅ Sofi Assistant initialized")
+        logger.info("✅ Sofi WhatsApp Assistant initialized")
     
     def _create_or_get_assistant(self):
         """Create or retrieve the Sofi AI assistant"""
@@ -388,7 +407,7 @@ class SofiAssistant:
             assistants = self.client.beta.assistants.list()
             
             for assistant in assistants.data:
-                if assistant.name == "Sofi AI Banking Assistant":
+                if assistant.name == "Sofi AI WhatsApp Banking Assistant":
                     self.assistant_id = assistant.id
                     logger.info(f"✅ Found existing assistant: {self.assistant_id}")
                     
@@ -403,7 +422,7 @@ class SofiAssistant:
             
             # Create new assistant if not found
             assistant = self.client.beta.assistants.create(
-                name="Sofi AI Banking Assistant",
+                name="Sofi AI WhatsApp Banking Assistant",
                 instructions=SOFI_MONEY_INSTRUCTIONS,
                 tools=SOFI_MONEY_FUNCTIONS,
                 model="gpt-3.5-turbo"  # Use GPT-3.5-turbo for cost optimization
@@ -416,31 +435,32 @@ class SofiAssistant:
             logger.error(f"❌ Error creating assistant: {e}")
             raise
     
-    async def process_message(self, chat_id: str, message: str, user_data: Dict = None) -> Tuple[str, Dict]:
+    async def process_message(self, phone_number: str, message: str, user_data: Dict = None) -> Tuple[str, Dict]:
         """
-        🚀 ULTRA-FAST process message with immediate real results
+        🚀 ULTRA-FAST process WhatsApp message with immediate real results
         
         Target: < 0.1 seconds response time with REAL DATA
+        WhatsApp-only processing
         """
         try:
             start_time = time.time()
-            logger.info(f"⚡ FAST processing message from {chat_id}: {message[:50]}...")
+            logger.info(f"⚡ FAST processing WhatsApp message from {phone_number}: {message[:50]}...")
             
             # STEP 1: Check for instant executable commands first
-            instant_result = await self._try_instant_execution(chat_id, message, user_data)
+            instant_result = await self._try_instant_execution(phone_number, message, user_data)
             if instant_result:
                 elapsed = time.time() - start_time
-                logger.info(f"⚡ INSTANT real result in {elapsed*1000:.1f}ms for {chat_id}")
+                logger.info(f"⚡ INSTANT real result in {elapsed*1000:.1f}ms for {phone_number}")
                 return instant_result, {}
             
             # STEP 2: Generate acknowledgment for complex requests
             quick_response = self._generate_instant_response(message, user_data)
             
             # STEP 3: Start background processing (non-blocking)
-            asyncio.create_task(self._start_background_processing(chat_id, message, user_data))
+            asyncio.create_task(self._start_background_processing(phone_number, message, user_data))
             
             elapsed = time.time() - start_time
-            logger.info(f"⚡ INSTANT response generated in {elapsed*1000:.1f}ms for {chat_id}")
+            logger.info(f"⚡ INSTANT response generated in {elapsed*1000:.1f}ms for {phone_number}")
             
             return quick_response, {}
             
@@ -448,7 +468,7 @@ class SofiAssistant:
             logger.error(f"❌ Error in fast processing: {e}")
             return "I'm here to help! Let me process that for you.", {}
     
-    async def _try_instant_execution(self, chat_id: str, message: str, user_data: Dict = None) -> Optional[str]:
+    async def _try_instant_execution(self, phone_number: str, message: str, user_data: Dict = None) -> Optional[str]:
         """Execute simple commands instantly with real data"""
         message_lower = message.lower().strip()
         
@@ -458,7 +478,7 @@ class SofiAssistant:
             try:
                 # Get real balance instantly
                 from functions.balance_functions import check_balance
-                result = await check_balance(chat_id=chat_id)
+                result = await check_balance(whatsapp_number=phone_number)
                 
                 if result and result.get("success"):
                     balance = result.get("balance", 0)
@@ -476,8 +496,8 @@ class SofiAssistant:
         pin_check_patterns = ['pin status', 'do i have pin', 'pin set', 'my pin']
         if any(pattern in message_lower for pattern in pin_check_patterns):
             try:
-                # Check if user has PIN set
-                result = self.supabase.table("users").select("pin_hash").eq("telegram_chat_id", chat_id).execute()
+                # WhatsApp user lookup for PIN check
+                result = self.supabase.table("users").select("pin_hash").eq("whatsapp_number", phone_number).execute()
                 
                 if result.data and result.data[0].get("pin_hash"):
                     return "🔐 Your transaction PIN is already set and secure."
@@ -493,7 +513,7 @@ class SofiAssistant:
         if any(pattern in message_lower for pattern in account_patterns):
             try:
                 from functions.account_functions import get_virtual_account
-                result = await get_virtual_account(chat_id=chat_id)
+                result = await get_virtual_account(whatsapp_number=phone_number)
                 
                 if result and result.get("success"):
                     account_number = result.get("account_number")
@@ -548,21 +568,21 @@ class SofiAssistant:
         else:
             return f"🤖 Processing your request, {user_name}..."
     
-    async def _start_background_processing(self, chat_id: str, message: str, user_data: Dict = None):
+    async def _start_background_processing(self, phone_number: str, message: str, user_data: Dict = None):
         """Start the actual OpenAI processing in background"""
         try:
             # 🚀 ENHANCED FIX: Prevent duplicate processing with better user-level locking
-            if chat_id in background_manager.active_tasks:
-                logger.info(f"🔄 Background task already running for {chat_id} - sending duplicate message response")
+            if phone_number in background_manager.active_tasks:
+                logger.info(f"🔄 Background task already running for {phone_number} - sending duplicate message response")
                 # For double messages, send the same type of response instead of ignoring
-                await background_manager.send_telegram_message(chat_id, 
+                await background_manager._send_platform_message(phone_number, "whatsapp",
                     "Hi there! How can I help you today? 😊")
                 return
             
-            background_manager.active_tasks[chat_id] = time.time()
+            background_manager.active_tasks[phone_number] = time.time()
             
             # Get or create thread (fast)
-            thread_id = await self._get_or_create_thread(chat_id)
+            thread_id = await self._get_or_create_thread(phone_number)
             
             # 🚀 ENHANCED FIX: Better active run detection with cancellation
             active_run_id = self._check_active_run(thread_id)
@@ -588,11 +608,11 @@ class SofiAssistant:
                 if not completed:
                     # Run is still active, send friendly duplicate response for double messages
                     user_name = user_data.get('first_name', 'there') if user_data else 'there'
-                    await background_manager.send_telegram_message(chat_id, 
+                    await background_manager._send_platform_message(phone_number, "whatsapp",
                         f"Hi {user_name}! I'm still working on your previous message. How can I help you today? 😊")
                     # Clean up our task
-                    if chat_id in background_manager.active_tasks:
-                        del background_manager.active_tasks[chat_id]
+                    if phone_number in background_manager.active_tasks:
+                        del background_manager.active_tasks[phone_number]
                     return
                 
                 logger.info(f"✅ Previous run completed, proceeding with new message")
@@ -605,14 +625,14 @@ class SofiAssistant:
             if active_run_id_recheck:
                 logger.info(f"⏳ Race condition detected: Found active run {active_run_id_recheck} after delay")
                 user_name = user_data.get('first_name', 'there') if user_data else 'there'
-                await background_manager.send_telegram_message(chat_id, 
+                await background_manager._send_platform_message(phone_number, "whatsapp",
                     f"Hi {user_name}! How can I help you today? 😊")
-                if chat_id in background_manager.active_tasks:
-                    del background_manager.active_tasks[chat_id]
+                if phone_number in background_manager.active_tasks:
+                    del background_manager.active_tasks[phone_number]
                 return
             
             # Add user context to the message
-            context_message = self._prepare_context_message(message, chat_id, user_data)
+            context_message = self._prepare_context_message(message, phone_number, user_data)
             
             # 🚀 ENHANCED FIX: Safe message creation with better double message handling
             try:
@@ -625,11 +645,11 @@ class SofiAssistant:
                 if "while a run" in str(msg_error) and "is active" in str(msg_error):
                     logger.warning(f"⚠️ Message creation failed due to active run: {msg_error}")
                     user_name = user_data.get('first_name', 'there') if user_data else 'there'
-                    await background_manager.send_telegram_message(chat_id, 
+                    await background_manager._send_platform_message(phone_number, "whatsapp",
                         f"Hi {user_name}! How can I help you today? 😊")
                     # Clean up our task
-                    if chat_id in background_manager.active_tasks:
-                        del background_manager.active_tasks[chat_id]
+                    if phone_number in background_manager.active_tasks:
+                        del background_manager.active_tasks[phone_number]
                     return
                 else:
                     raise msg_error
@@ -644,72 +664,72 @@ class SofiAssistant:
                 if "while a run" in str(run_error) and "is active" in str(run_error):
                     logger.warning(f"⚠️ Run creation failed due to active run: {run_error}")
                     user_name = user_data.get('first_name', 'there') if user_data else 'there'
-                    await background_manager.send_telegram_message(chat_id, 
+                    await background_manager._send_platform_message(phone_number, "whatsapp",
                         f"Hi {user_name}! How can I help you today? 😊")
                     # Clean up our task
-                    if chat_id in background_manager.active_tasks:
-                        del background_manager.active_tasks[chat_id]
+                    if phone_number in background_manager.active_tasks:
+                        del background_manager.active_tasks[phone_number]
                     return
                 else:
                     raise run_error
             
             # Start background completion processing
             await background_manager.process_openai_run_background(
-                run, thread_id, chat_id, self.client, self.money_service
+                run, thread_id, phone_number, self.client, self.money_service
             )
             
         except Exception as e:
             logger.error(f"❌ Background processing setup error: {e}")
-            await background_manager.send_telegram_message(chat_id, 
+            await background_manager._send_platform_message(phone_number, "whatsapp",
                 "❌ Sorry, I encountered an issue. Please try again.")
             # Clean up our task
-            if chat_id in background_manager.active_tasks:
-                del background_manager.active_tasks[chat_id]
+            if phone_number in background_manager.active_tasks:
+                del background_manager.active_tasks[phone_number]
         finally:
             # Ensure we clean up the task tracking
-            if chat_id in background_manager.active_tasks:
-                del background_manager.active_tasks[chat_id]
+            if phone_number in background_manager.active_tasks:
+                del background_manager.active_tasks[phone_number]
     
-    async def process_telegram_message(self, chat_id: str, message: str, user_data: Dict = None, 
-                                     chat_type: str = 'private', group_id: str = None, 
-                                     is_admin: bool = False, new_member: Dict = None) -> Tuple[str, Dict]:
-        """
-        🚀 ULTRA-FAST Telegram message processing with instant responses
-        """
-        # Group handling (instant response)
-        if chat_type in ['group', 'supergroup']:
-            # Welcome new member logic (instant)
-            if new_member:
-                welcome_text = f"👋 Welcome @{new_member.get('username', 'new_user')} to the group! Please check your private messages to complete onboarding and claim your rewards."
-                function_data = {
-                    'group_admin_action': 'welcome_new_member',
-                    'private_message': f"Hi @{new_member.get('username', 'new_user')}, welcome to Sofi!\nTo start using your account and claim rewards, please complete onboarding here."
-                }
-                return welcome_text, function_data
+    async def _get_or_create_thread(self, phone_number: str) -> str:
+        """Get existing thread or create new one for user"""
+        try:
+            # Check if user has existing thread in database based on WhatsApp number
+            result = self.supabase.table("users").select("assistant_thread_id").eq("whatsapp_number", phone_number).execute()
             
-            # Only respond if mentioned (instant)
-            if 'sofi' not in message.lower() and '@getsofi_bot' not in message.lower():
-                return None, {}
+            if result.data and result.data[0].get("assistant_thread_id"):
+                logger.info(f"🔍 Found existing thread for WhatsApp {phone_number}: {result.data[0]['assistant_thread_id']}")
+                return result.data[0]["assistant_thread_id"]
             
-            # Admin commands (instant responses)
-            if is_admin:
-                if 'kick' in message.lower():
-                    return "🚫 User kicked (simulated).", {'group_admin_action': 'kick'}
-                elif 'promote' in message.lower():
-                    return "🎖️ User promoted to admin (simulated).", {'group_admin_action': 'promote'}
-                elif 'announce' in message.lower():
-                    return "📢 Announcement sent to group (simulated).", {'group_admin_action': 'announce'}
-                elif 'update' in message.lower():
-                    return "🔄 Group update sent (simulated).", {'group_admin_action': 'update'}
-                elif 'tag' in message.lower():
-                    return "🔔 Tagging all members: @all (simulated).", {'group_admin_action': 'tag_all'}
-                else:
-                    return "👋 Hello group! Sofi is here to help.", {'group_admin_action': 'greet'}
-            else:
-                return "👋 Hi! Sofi is here. Mention me for group admin actions.", {'group_admin_action': 'greet'}
+            # Create new thread
+            thread = self.client.beta.threads.create()
+            
+            # Update user record with thread ID based on WhatsApp number
+            self.supabase.table("users").update({
+                "assistant_thread_id": thread.id,
+                "updated_at": datetime.utcnow().isoformat()
+            }).eq("whatsapp_number", phone_number).execute()
+            
+            logger.info(f"✅ Created new thread {thread.id} for WhatsApp user {phone_number}")
+            return thread.id
+            
+        except Exception as e:
+            logger.error(f"❌ Error managing thread for WhatsApp {phone_number}: {e}")
+            # Fallback: create temporary thread
+            thread = self.client.beta.threads.create()
+            return thread.id
+    
+    def _prepare_context_message(self, message: str, phone_number: str, user_data: Dict = None) -> str:
+        """Prepare message with user context"""
+        context = f"WhatsApp Number: {phone_number}\n"
         
-        # Private chat: use ultra-fast processing
-        return await self.process_message(chat_id, message, user_data)
+        if user_data:
+            if user_data.get("first_name"):
+                context += f"User Name: {user_data['first_name']}\n"
+            if user_data.get("virtual_account"):
+                context += f"Has Virtual Account: Yes\n"
+        
+        context += f"Message: {message}"
+        return context
     
     def _check_active_run(self, thread_id: str) -> Optional[str]:
         """Check if thread has an active run"""
@@ -754,46 +774,6 @@ class SofiAssistant:
         except Exception as e:
             logger.error(f"❌ Error waiting for run completion: {e}")
             return False
-
-    async def _get_or_create_thread(self, chat_id: str) -> str:
-        """Get existing thread or create new one for user"""
-        try:
-            # Check if user has existing thread in database
-            result = self.supabase.table("users").select("assistant_thread_id").eq("telegram_id", chat_id).execute()
-            
-            if result.data and result.data[0].get("assistant_thread_id"):
-                return result.data[0]["assistant_thread_id"]
-            
-            # Create new thread
-            thread = self.client.beta.threads.create()
-            
-            # Update user record with thread ID
-            self.supabase.table("users").update({
-                "assistant_thread_id": thread.id,
-                "updated_at": datetime.utcnow().isoformat()
-            }).eq("telegram_id", chat_id).execute()
-            
-            logger.info(f"✅ Created new thread {thread.id} for user {chat_id}")
-            return thread.id
-            
-        except Exception as e:
-            logger.error(f"❌ Error managing thread: {e}")
-            # Fallback: create temporary thread
-            thread = self.client.beta.threads.create()
-            return thread.id
-    
-    def _prepare_context_message(self, message: str, chat_id: str, user_data: Dict = None) -> str:
-        """Prepare message with user context"""
-        context = f"User ID: {chat_id}\n"
-        
-        if user_data:
-            if user_data.get("first_name"):
-                context += f"User Name: {user_data['first_name']}\n"
-            if user_data.get("virtual_account"):
-                context += f"Has Virtual Account: Yes\n"
-        
-        context += f"Message: {message}"
-        return context
 
 # Global assistant instance
 _assistant_instance = None

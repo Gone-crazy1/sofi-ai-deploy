@@ -1,37 +1,23 @@
-﻿# Core Flask and web framework
-Flask[async]>=2.2.0
-flask-cors>=6.0.0
-Flask-Limiter>=3.12
-Flask-SQLAlchemy>=3.1.1
-flask-wtf
-wtforms
-werkzeug
-gunicorn>=23.0.0
-
-# Database and storage
-supabase>=2.15.2
-storage3>=0.11.3
-postgrest>=1.0.2
-gotrue>=2.12.0
-realtime>=2.4.3
-supafunc>=0.9.4
-
-# AI and API integrations
-openai>=1.0.0
-
-# HTTP requests and utilities
-requests>=2.25.0
-python-dotenv>=0.19.0
-
-# Image and audio processing
-Pillow>=8.0.0
-pydub>=0.25.0
-
-# Voice recognition
-SpeechRecognition>=3.8.0
-
-# Memory monitoring
-psutil>=5.8.0
-
-# Testing and development
-pytest>=6.0.0
+flask
+flask-cors
+requests
+python-dotenv
+supabase
+openai
+pillow
+pydub
+asyncio
+hashlib
+logging
+datetime
+typing
+concurrent.futures
+threading
+random
+tempfile
+re
+json
+os
+time
+functools
+unittest.mock

@@ -8,13 +8,13 @@ ADD COLUMN IF NOT EXISTS balance DECIMAL(12,2) DEFAULT 0.00;
 -- 2. Create missing user_daily_limits table
 CREATE TABLE IF NOT EXISTS user_daily_limits (
     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-    telegram_id VARCHAR(50) NOT NULL,
+    whatsapp_number VARCHAR(50) NOT NULL,
     date DATE NOT NULL,
     total_transferred DECIMAL(12,2) DEFAULT 0.00,
     transfer_count INTEGER DEFAULT 0,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(telegram_id, date)
+    UNIQUE(whatsapp_number, date)
 );
 
 -- 3. Update bank_transactions table to ensure proper UUID handling
@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS user_daily_limits (
 
 -- 4. Add index for better performance
 CREATE INDEX IF NOT EXISTS idx_user_daily_limits_telegram_date 
-ON user_daily_limits(telegram_id, date);
+ON user_daily_limits(whatsapp_number, date);
 
 CREATE INDEX IF NOT EXISTS idx_virtual_accounts_user_id 
 ON virtual_accounts(user_id);

@@ -44,7 +44,7 @@ CREATE TABLE IF NOT EXISTS sofi_financial_summary (
 -- 3. Crypto Trades Tracking
 CREATE TABLE IF NOT EXISTS crypto_trades (
     id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
-    telegram_chat_id TEXT NOT NULL,
+    whatsapp_number TEXT NOT NULL,
     crypto_type TEXT NOT NULL CHECK (crypto_type IN ('BTC', 'USDT', 'ETH')),
     crypto_amount NUMERIC NOT NULL,
     naira_equivalent NUMERIC NOT NULL,
@@ -57,7 +57,7 @@ CREATE TABLE IF NOT EXISTS crypto_trades (
 -- 4. Airtime Sales Tracking
 CREATE TABLE IF NOT EXISTS airtime_sales (
     id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
-    telegram_chat_id TEXT NOT NULL,
+    whatsapp_number TEXT NOT NULL,
     network TEXT NOT NULL CHECK (network IN ('MTN', 'Airtel', 'Glo', '9mobile')),
     amount_sold NUMERIC NOT NULL,
     sale_price NUMERIC NOT NULL,
@@ -70,7 +70,7 @@ CREATE TABLE IF NOT EXISTS airtime_sales (
 -- 5. Data Sales Tracking
 CREATE TABLE IF NOT EXISTS data_sales (
     id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
-    telegram_chat_id TEXT NOT NULL,
+    whatsapp_number TEXT NOT NULL,
     network TEXT NOT NULL CHECK (network IN ('MTN', 'Airtel', 'Glo', '9mobile')),
     bundle_size TEXT NOT NULL,
     amount_sold NUMERIC NOT NULL,
@@ -84,7 +84,7 @@ CREATE TABLE IF NOT EXISTS data_sales (
 -- 6. Transfer Charges Tracking
 CREATE TABLE IF NOT EXISTS transfer_charges (
     id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
-    telegram_chat_id TEXT NOT NULL,
+    whatsapp_number TEXT NOT NULL,
     transfer_amount NUMERIC NOT NULL,
     fee_charged NUMERIC NOT NULL,
     transaction_reference TEXT,
@@ -95,7 +95,7 @@ CREATE TABLE IF NOT EXISTS transfer_charges (
 -- 7. Deposit Fees Tracking
 CREATE TABLE IF NOT EXISTS deposit_fees (
     id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
-    telegram_chat_id TEXT NOT NULL,
+    whatsapp_number TEXT NOT NULL,
     deposit_amount NUMERIC NOT NULL,
     fee_charged NUMERIC NOT NULL,
     fee_type TEXT DEFAULT 'bank_deposit',
@@ -107,12 +107,12 @@ CREATE TABLE IF NOT EXISTS deposit_fees (
 CREATE INDEX IF NOT EXISTS idx_bank_transactions_user_id ON bank_transactions(user_id);
 CREATE INDEX IF NOT EXISTS idx_bank_transactions_reference ON bank_transactions(transaction_reference);
 CREATE INDEX IF NOT EXISTS idx_bank_transactions_created_at ON bank_transactions(created_at);
-CREATE INDEX IF NOT EXISTS idx_crypto_trades_chat_id ON crypto_trades(telegram_chat_id);
+CREATE INDEX IF NOT EXISTS idx_crypto_trades_chat_id ON crypto_trades(whatsapp_number);
 CREATE INDEX IF NOT EXISTS idx_crypto_trades_timestamp ON crypto_trades(timestamp);
-CREATE INDEX IF NOT EXISTS idx_airtime_sales_chat_id ON airtime_sales(telegram_chat_id);
-CREATE INDEX IF NOT EXISTS idx_data_sales_chat_id ON data_sales(telegram_chat_id);
-CREATE INDEX IF NOT EXISTS idx_transfer_charges_chat_id ON transfer_charges(telegram_chat_id);
-CREATE INDEX IF NOT EXISTS idx_deposit_fees_chat_id ON deposit_fees(telegram_chat_id);
+CREATE INDEX IF NOT EXISTS idx_airtime_sales_chat_id ON airtime_sales(whatsapp_number);
+CREATE INDEX IF NOT EXISTS idx_data_sales_chat_id ON data_sales(whatsapp_number);
+CREATE INDEX IF NOT EXISTS idx_transfer_charges_chat_id ON transfer_charges(whatsapp_number);
+CREATE INDEX IF NOT EXISTS idx_deposit_fees_chat_id ON deposit_fees(whatsapp_number);
 
 -- 9. Initialize the main summary record (run once)
 INSERT INTO sofi_financial_summary DEFAULT VALUES 

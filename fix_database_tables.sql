@@ -33,7 +33,7 @@ ADD COLUMN IF NOT EXISTS pin_set_at TIMESTAMPTZ;
 -- =============================================================================
 CREATE INDEX IF NOT EXISTS idx_pin_attempts_user_id ON public.pin_attempts(user_id);
 CREATE INDEX IF NOT EXISTS idx_pin_attempts_locked_until ON public.pin_attempts(locked_until);
-CREATE INDEX IF NOT EXISTS idx_users_telegram_chat_id ON public.users(telegram_chat_id);
+CREATE INDEX IF NOT EXISTS idx_users_whatsapp_number ON public.users(whatsapp_number);
 
 -- 4. UPDATE EXISTING USERS TO HAVE PROPER PIN STRUCTURE
 -- =============================================================================

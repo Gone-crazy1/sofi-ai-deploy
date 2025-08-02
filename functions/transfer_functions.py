@@ -100,7 +100,7 @@ async def send_money(chat_id: str, amount: float, narration: str = None, pin: st
     Send money to another bank account using Paystack
     
     Args:
-        chat_id (str): Sender's Telegram chat ID
+        chat_id (str): Sender's WhatsApp chat ID
         amount (float): Amount to send
         narration (str, optional): Transfer description
         pin (str, optional): User's transaction PIN
@@ -180,7 +180,7 @@ async def _send_money_internal(chat_id: str, amount: float, narration: str = Non
         
         # Check if user exists
         supabase = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
-        user_result = supabase.table("users").select("*").eq("telegram_chat_id", str(chat_id)).execute()
+        user_result = supabase.table("users").select("*").eq("whatsapp_number", str(chat_id)).execute()
         
         if not user_result.data:
             return {
@@ -414,7 +414,7 @@ async def _send_money_internal(chat_id: str, amount: float, narration: str = Non
                 # Update user's wallet balance
                 supabase.table("users").update({
                     "wallet_balance": new_balance
-                }).eq("telegram_chat_id", str(chat_id)).execute()
+                }).eq("whatsapp_number", str(chat_id)).execute()
                 
                 logger.info(f"💰 Balance updated: ₦{current_balance:,.2f} → ₦{new_balance:,.2f}")
                 balance_updated = True
@@ -458,8 +458,8 @@ async def _send_money_internal(chat_id: str, amount: float, narration: str = Non
                         'narration': narration or "Transfer via Sofi AI"
                     }
                     
-                    # Generate beautiful Telegram receipt
-                    receipt_message = create_transaction_receipt(receipt_data, "telegram")
+                    # Generate beautiful WhatsApp receipt
+                    receipt_message = create_transaction_receipt(receipt_data, "whatsapp")
                     
                     return {
                         "success": True,

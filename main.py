@@ -171,6 +171,14 @@ WHATSAPP_PHONE_NUMBER_ID = os.getenv("WHATSAPP_PHONE_NUMBER_ID")
 NELLOBYTES_USERID = os.getenv("NELLOBYTES_USERID")
 NELLOBYTES_APIKEY = os.getenv("NELLOBYTES_APIKEY")
 
+# Debug: Check if WhatsApp credentials are loaded
+logger.info(f"🔧 DEBUG: WHATSAPP_ACCESS_TOKEN loaded: {bool(WHATSAPP_ACCESS_TOKEN)}")
+logger.info(f"🔧 DEBUG: WHATSAPP_PHONE_NUMBER_ID loaded: {bool(WHATSAPP_PHONE_NUMBER_ID)}")
+if WHATSAPP_ACCESS_TOKEN:
+    logger.info(f"🔧 DEBUG: Token starts with: {WHATSAPP_ACCESS_TOKEN[:10]}...")
+if WHATSAPP_PHONE_NUMBER_ID:
+    logger.info(f"🔧 DEBUG: Phone ID: {WHATSAPP_PHONE_NUMBER_ID}")
+
 # Initialize Supabase client
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
@@ -1790,11 +1798,14 @@ def handle_paystack_webhook_legacy():
 def send_whatsapp_message(to_number: str, message_text: str, interactive_button: dict = None) -> bool:
     """Send a WhatsApp message using Cloud API with optional interactive button"""
     try:
-        access_token = os.getenv("WHATSAPP_ACCESS_TOKEN")
-        phone_number_id = os.getenv("WHATSAPP_PHONE_NUMBER_ID")
+        # Use global variables instead of calling os.getenv() again
+        access_token = WHATSAPP_ACCESS_TOKEN
+        phone_number_id = WHATSAPP_PHONE_NUMBER_ID
         
         if not access_token or not phone_number_id:
             logger.error("WhatsApp credentials not configured")
+            logger.error(f"ACCESS_TOKEN present: {bool(access_token)}")
+            logger.error(f"PHONE_NUMBER_ID present: {bool(phone_number_id)}")
             return False
         
         url = f"https://graph.facebook.com/v22.0/{phone_number_id}/messages"

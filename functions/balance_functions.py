@@ -17,7 +17,7 @@ async def check_balance(chat_id: str, **kwargs) -> Dict[str, Any]:
     Check user's account balance
     
     Args:
-        chat_id (str): User's Telegram chat ID
+        chat_id (str): User's WhatsApp chat ID
         
     Returns:
         Dict containing balance information
@@ -61,7 +61,7 @@ async def _check_balance_internal(chat_id: str, **kwargs) -> Dict[str, Any]:
         
         # Get user profile for full name
         supabase = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
-        user_result = supabase.table("users").select("*").eq("telegram_chat_id", str(chat_id)).execute()
+        user_result = supabase.table("users").select("*").eq("whatsapp_number", str(chat_id)).execute()
         
         full_name = account_name
         if user_result.data:
