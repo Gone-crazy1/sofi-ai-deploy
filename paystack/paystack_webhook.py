@@ -127,22 +127,28 @@ class PaystackWebhookHandler:
                 return {"success": False, "error": "Database not configured"}
             
             # Find user by customer code or account number and get their UUID
-            user_query = self.supabase.table("users").select("id, telegram_chat_id, wallet_balance").eq("paystack_customer_code", customer_code).execute()
+            user_query = self.supabase.table("users").select("id, telegram_chat_id, whatsapp_number, wallet_balance").eq("paystack_customer_code", customer_code).execute()
             
             if not user_query.data:
-                # Try finding by account number via virtual_accounts table
-                account_query = self.supabase.table("virtual_accounts").select("telegram_chat_id").eq("account_number", account_number).execute()
+                # Try finding by account number via virtual_accounts table  
+                # Check for both telegram_chat_id and whatsapp_number fields
+                account_query = self.supabase.table("virtual_accounts").select("telegram_chat_id, whatsapp_number").eq("account_number", account_number).execute()
                 
                 if not account_query.data:
                     logger.error(f"User not found for payment: {reference}")
                     return {"success": False, "error": "User not found"}
                 
-                # Get telegram_chat_id from virtual_accounts, then find user
-                telegram_chat_id = account_query.data[0]["telegram_chat_id"]
-                user_query = self.supabase.table("users").select("id, telegram_chat_id, wallet_balance").eq("telegram_chat_id", telegram_chat_id).execute()
+                account_data = account_query.data[0]
+                
+                # Try WhatsApp number first, then fallback to Telegram
+                if account_data.get("whatsapp_number"):
+                    user_query = self.supabase.table("users").select("id, telegram_chat_id, whatsapp_number, wallet_balance").eq("whatsapp_number", account_data["whatsapp_number"]).execute()
+                elif account_data.get("telegram_chat_id"):
+                    # Fallback to telegram_chat_id for legacy users
+                    user_query = self.supabase.table("users").select("id, telegram_chat_id, whatsapp_number, wallet_balance").eq("telegram_chat_id", account_data["telegram_chat_id"]).execute()
                 
                 if not user_query.data:
-                    logger.error(f"User not found for telegram_chat_id: {telegram_chat_id}")
+                    logger.error(f"User not found for account {account_number}")
                     return {"success": False, "error": "User not found"}
                 
                 user_data = user_query.data[0]
@@ -151,7 +157,8 @@ class PaystackWebhookHandler:
                 user_data = user_query.data[0]
             
             user_uuid = user_data["id"]  # This is the actual UUID
-            telegram_chat_id = user_data["telegram_chat_id"]  # This is the Telegram ID for notifications
+            telegram_chat_id = user_data.get("telegram_chat_id")  # Legacy Telegram ID
+            whatsapp_number = user_data.get("whatsapp_number")  # WhatsApp number
             current_balance = float(user_data.get("wallet_balance", 0))
             new_balance = current_balance + amount
             
@@ -191,9 +198,9 @@ class PaystackWebhookHandler:
             except Exception as e:
                 logger.warning(f"Could not update virtual account balance: {e}")
             
-            # Send notification to user via Telegram with sender details
+            # Send notification to user via WhatsApp with sender details
             await self.send_credit_notification(
-                telegram_chat_id, 
+                user_uuid,  # Pass UUID instead of telegram_chat_id
                 amount, 
                 new_balance, 
                 sender_name, 
@@ -201,7 +208,9 @@ class PaystackWebhookHandler:
                 narration
             )
             
-            logger.info(f"✅ Credit processed: ₦{amount:,.2f} for user {telegram_chat_id}")
+            # Log with appropriate identifier
+            user_identifier = whatsapp_number if whatsapp_number else telegram_chat_id if telegram_chat_id else user_uuid
+            logger.info(f"✅ Credit processed: ₦{amount:,.2f} for user {user_identifier}")
             return {"success": True, "message": "Credit processed successfully"}
         
         except Exception as e:
@@ -541,8 +550,8 @@ class PaystackWebhookHandler:
                 current_balance = await self.get_user_balance(user_id)
                 new_balance = current_balance + amount
                 
-                # Update user balance
-                self.supabase.table("users").update({"wallet_balance": new_balance}).eq("telegram_chat_id", user_id).execute()
+                # Update user balance using UUID
+                self.supabase.table("users").update({"wallet_balance": new_balance}).eq("id", user_id).execute()
                 
                 # Record refund transaction
                 refund_data = {
@@ -582,12 +591,12 @@ class PaystackWebhookHandler:
             return {"success": False, "error": str(e)}
     
     async def get_user_balance(self, user_id: str) -> float:
-        """Get current user balance"""
+        """Get current user balance using UUID"""
         try:
             if not self.supabase:
                 return 0.0
             
-            result = self.supabase.table("users").select("wallet_balance").eq("telegram_chat_id", user_id).execute()
+            result = self.supabase.table("users").select("wallet_balance").eq("id", user_id).execute()
             
             if result.data:
                 return float(result.data[0].get("wallet_balance", 0))
@@ -598,23 +607,38 @@ class PaystackWebhookHandler:
             return 0.0
     
     async def send_credit_notification(self, user_id: str, amount: float, new_balance: float, sender_name: str = "Unknown", sender_bank: str = "Unknown Bank", narration: str = "Transfer"):
-        """Send beautiful, friendly credit notification to user via Telegram"""
+        """Send beautiful, friendly credit notification to user via WhatsApp"""
         try:
-            from utils.telegram_notifications import send_telegram_notification
-            from functions.transfer_functions import BANK_CODE_TO_NAME  # Import bank mapping
-            
-            # Get user's first name for personalization
+            # Get user's WhatsApp number and first name for personalization
             user_name = "there"  # Default greeting
+            whatsapp_number = None
+            
             try:
                 if self.supabase:
-                    user_query = self.supabase.table("users").select("full_name").eq("telegram_chat_id", user_id).execute()
+                    # Query by user ID to get WhatsApp number and name
+                    user_query = self.supabase.table("users").select("full_name, whatsapp_number").eq("id", user_id).execute()
                     if user_query.data:
-                        full_name = user_query.data[0].get("full_name", "")
+                        user_data = user_query.data[0]
+                        full_name = user_data.get("full_name", "")
                         user_name = full_name.split()[0] if full_name else "there"
+                        whatsapp_number = user_data.get("whatsapp_number")
+                        
+                        # If no whatsapp_number, try to find by other fields
+                        if not whatsapp_number:
+                            # Try to find by telegram_chat_id (legacy support)
+                            legacy_query = self.supabase.table("users").select("whatsapp_number").eq("telegram_chat_id", user_id).execute()
+                            if legacy_query.data:
+                                whatsapp_number = legacy_query.data[0].get("whatsapp_number")
+                                
             except Exception as e:
-                logger.warning(f"Could not get user name: {e}")
+                logger.warning(f"Could not get user data: {e}")
+            
+            if not whatsapp_number:
+                logger.error(f"❌ No WhatsApp number found for user {user_id}")
+                return
             
             # Convert bank code to user-friendly name for better UX
+            from functions.transfer_functions import BANK_CODE_TO_NAME  # Import bank mapping
             display_bank = BANK_CODE_TO_NAME.get(sender_bank, sender_bank)
             
             # Enhanced message with better sender info and clearer fallbacks
@@ -640,16 +664,54 @@ Hi {user_name}! You just received ₦{amount:,.0f}
 
 Say "balance" to check your wallet or "transfer" to send money! 🚀"""
             
-            # Use dedicated notification service instead of importing main.py
-            success = send_telegram_notification(user_id, message)
+            # Send WhatsApp notification
+            success = await self.send_whatsapp_notification(whatsapp_number, message)
             
             if success:
-                logger.info(f"📱 Enhanced credit notification sent to {user_id}: {sender_name} via {sender_bank}")
+                logger.info(f"📱 Enhanced credit notification sent via WhatsApp to {whatsapp_number}: {sender_name} via {sender_bank}")
             else:
-                logger.error(f"📱 Failed to send credit notification to {user_id}")
+                logger.error(f"📱 Failed to send credit notification to WhatsApp {whatsapp_number}")
         
         except Exception as e:
             logger.error(f"Error sending notification: {str(e)}")
+    
+    async def send_whatsapp_notification(self, phone_number: str, message: str) -> bool:
+        """Send WhatsApp notification using the main WhatsApp function"""
+        try:
+            import requests
+            
+            # Get WhatsApp credentials
+            WHATSAPP_ACCESS_TOKEN = os.getenv("WHATSAPP_ACCESS_TOKEN")
+            WHATSAPP_PHONE_NUMBER_ID = os.getenv("WHATSAPP_PHONE_NUMBER_ID")
+            
+            if not WHATSAPP_ACCESS_TOKEN or not WHATSAPP_PHONE_NUMBER_ID:
+                logger.error("❌ WhatsApp credentials not configured for notifications")
+                return False
+            
+            url = f"https://graph.facebook.com/v18.0/{WHATSAPP_PHONE_NUMBER_ID}/messages"
+            headers = {
+                "Authorization": f"Bearer {WHATSAPP_ACCESS_TOKEN}",
+                "Content-Type": "application/json"
+            }
+            payload = {
+                "messaging_product": "whatsapp",
+                "to": phone_number,
+                "type": "text",
+                "text": {"body": message}
+            }
+            
+            response = requests.post(url, json=payload, headers=headers)
+            
+            if response.status_code == 200:
+                logger.info(f"✅ WhatsApp notification sent to {phone_number}")
+                return True
+            else:
+                logger.error(f"❌ WhatsApp API error {response.status_code}: {response.text}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"❌ Error sending WhatsApp notification: {e}")
+            return False
 
 # Global instance
 paystack_webhook_handler = PaystackWebhookHandler()
