@@ -3774,9 +3774,96 @@ def sofi_main_health():
         "endpoints": {
             "whatsapp_webhook": "/whatsapp-webhook",
             "flow_webhook": "/whatsapp-flow-webhook",
+            "flow_meta_endpoint": "/whatsapp/flow",
             "health_detailed": "/health/flow"
         }
     }), 200
+
+# ===============================================
+# 📱 META WHATSAPP FLOW ENDPOINT (Expected by Meta)
+# ===============================================
+
+@app.route("/whatsapp/flow", methods=["GET", "POST"])
+def sofi_meta_flow_endpoint():
+    """
+    Meta WhatsApp Flow endpoint - exactly what Meta expects
+    This is the endpoint URL we configured in Meta Business Manager
+    """
+    
+    if request.method == 'GET':
+        # Meta verification for Flow endpoint
+        mode = request.args.get('hub.mode')
+        token = request.args.get('hub.verify_token')
+        challenge = request.args.get('hub.challenge')
+        
+        verify_token = os.getenv('WHATSAPP_VERIFY_TOKEN', 'sofi_ai_webhook_verify_2024')
+        
+        logger.info(f"🔍 Meta Flow GET verification: mode={mode}, token_match={token == verify_token}")
+        
+        if mode == 'subscribe' and token == verify_token:
+            logger.info("✅ Meta Flow webhook verification successful")
+            return challenge
+        else:
+            logger.warning("❌ Meta Flow webhook verification failed")
+            return 'Forbidden', 403
+    
+    elif request.method == 'POST':
+        # Detect Meta IP range (173.252.x.x, 31.13.x.x, 66.220.x.x)
+        client_ip = request.headers.get('X-Forwarded-For', request.remote_addr)
+        if client_ip:
+            client_ip = client_ip.split(',')[0].strip()
+        
+        is_meta_ip = any(client_ip.startswith(prefix) for prefix in [
+            '173.252.', '31.13.', '66.220.', '69.63.', '69.171.', '74.119.', '103.4.'
+        ])
+        
+        logger.info(f"🌐 Meta Flow POST from IP: {client_ip} (Meta IP: {is_meta_ip})")
+        
+        try:
+            # Get payload (could be JSON or empty for health checks)
+            payload = request.get_json(silent=True)
+            
+            # Check User-Agent to identify Meta/Facebook requests
+            user_agent = request.headers.get('User-Agent', '')
+            is_meta_request = any(agent in user_agent.lower() for agent in [
+                'facebookexternalua', 'facebook', 'meta', 'whatsapp'
+            ]) or is_meta_ip
+            
+            logger.info(f"🔍 User-Agent: {user_agent}")
+            logger.info(f"🔍 Meta request: {is_meta_request}")
+            
+            # Handle Meta health checks and test requests
+            if is_meta_request and (not payload or len(payload) == 0):
+                logger.info("💊 Meta health check or test request on /whatsapp/flow")
+                return jsonify({
+                    "status": "ok", 
+                    "service": "WhatsApp Flow Endpoint",
+                    "ready": True,
+                    "encryption": "available"
+                }), 200
+            
+            if not payload:
+                logger.error("❌ No payload received on /whatsapp/flow")
+                return 'Bad Request', 400
+            
+            logger.info("🔐 Received encrypted Flow data on Meta endpoint")
+            logger.info(f"📋 Payload keys: {list(payload.keys())}")
+            logger.info(f"📄 Full payload: {json.dumps(payload, indent=2)}")
+            
+            # Check if this is encrypted flow data
+            if 'encrypted_flow_data' in payload:
+                return handle_encrypted_flow_data(payload)
+            
+            # Handle unencrypted legacy format or test data
+            else:
+                logger.info("📱 Handling legacy flow data format on Meta endpoint")
+                return handle_legacy_flow_data(payload)
+                
+        except Exception as e:
+            logger.error(f"❌ Meta Flow endpoint error: {e}")
+            import traceback
+            traceback.print_exc()
+            return 'Internal Server Error', 500
 
 @app.route("/health/flow", methods=["GET"])
 def sofi_flow_health():
