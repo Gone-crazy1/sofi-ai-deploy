@@ -1500,7 +1500,7 @@ async def create_whatsapp_user(phone_number: str) -> dict:
         return {}
 
 @app.route("/webhook", methods=["GET", "POST"])
-async def whatsapp_webhook_handler():
+def whatsapp_webhook_handler():
     """Handle incoming WhatsApp messages with INSTANT response"""
     try:
         # 🔒 Security monitoring for webhook
@@ -1561,46 +1561,49 @@ async def whatsapp_webhook_handler():
                                 # ⚡ INSTANT TYPING INDICATOR - Show typing IMMEDIATELY
                                 send_whatsapp_typing_action(phone_number)
                                 
-                                # Get or create user data for this WhatsApp number
-                                user_data = None
-                                try:
-                                    user_resp = supabase.table("users").select("*").eq("whatsapp_number", phone_number).execute()
-                                    if user_resp.data:
-                                        user_data = user_resp.data[0]
-                                    else:
-                                        # Auto-create new WhatsApp user
-                                        logger.info(f"🆕 Creating new WhatsApp user: {phone_number}")
-                                        user_data = await create_whatsapp_user(phone_number)
+                                # Process message in background thread
+                                def process_message_background():
+                                    import asyncio
+                                    
+                                    # Get or create user data for this WhatsApp number
+                                    user_data = None
+                                    try:
+                                        user_resp = supabase.table("users").select("*").eq("whatsapp_number", phone_number).execute()
+                                        if user_resp.data:
+                                            user_data = user_resp.data[0]
+                                        else:
+                                            # Auto-create new WhatsApp user
+                                            logger.info(f"🆕 Creating new WhatsApp user: {phone_number}")
+                                            user_data = asyncio.run(create_whatsapp_user(phone_number))
+                                            
+                                    except Exception as e:
+                                        logger.error(f"Error getting/creating user data: {e}")
+                                    
+                                    # Process message with AI assistant
+                                    try:
+                                        from assistant import get_assistant
+                                        assistant = get_assistant()
                                         
-                                except Exception as e:
-                                    logger.error(f"Error getting/creating user data: {e}")
-                                
-                                # Process message with AI assistant
-                                try:
-                                    from assistant import get_assistant
-                                    assistant = get_assistant()
-                                    
-                                    # Process message and get response
-                                    response, function_data = await assistant.process_message(
-                                        phone_number=phone_number,
-                                        message=message_text,
-                                        user_data=user_data
-                                    )
-                                    
-                                    # Send response immediately
-                                    send_whatsapp_message(phone_number, response)
-                                    
-                                    # Handle any function data in background
-                                    if function_data:
-                                        def handle_function_data_background():
-                                            # Process any additional function results
+                                        # Process message and get response using asyncio
+                                        response, function_data = asyncio.run(assistant.process_message(
+                                            phone_number=phone_number,
+                                            message=message_text,
+                                            user_data=user_data
+                                        ))
+                                        
+                                        # Send response immediately
+                                        send_whatsapp_message(phone_number, response)
+                                        
+                                        # Handle any function data
+                                        if function_data:
                                             logger.info(f"Processing function data for {phone_number}: {function_data}")
-                                        
-                                        background_task(handle_function_data_background)
+                                    
+                                    except Exception as e:
+                                        logger.error(f"Error processing WhatsApp message: {e}")
+                                        send_whatsapp_message(phone_number, "Sorry, I encountered an error. Please try again.")
                                 
-                                except Exception as e:
-                                    logger.error(f"Error processing WhatsApp message: {e}")
-                                    send_whatsapp_message(phone_number, "Sorry, I encountered an error. Please try again.")
+                                # Execute in background
+                                background_task(process_message_background)
         
         return jsonify({"status": "success"}), 200
         
@@ -3042,7 +3045,7 @@ def test_ninepsb_webhook():
         return {"status": "error", "message": str(e)}, 500
 
 @app.route("/api/register", methods=["POST"])
-async def register_user():
+def register_user():
     """Handle user registration from onboarding form"""
     try:
         data = request.get_json()
