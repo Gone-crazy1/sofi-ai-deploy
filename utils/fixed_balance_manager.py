@@ -232,15 +232,26 @@ class AutoOnboardingManager:
             else:
                 logger.info(f"New WhatsApp user detected: {phone_number}")
                 
-                # Send onboarding link
-                await self._send_whatsapp_onboarding(phone_number)
+                # 🎯 CREATE ACCOUNT IMMEDIATELY (like Telegram) instead of just sending onboarding
+                account_created = await self._create_whatsapp_account_immediately(phone_number)
                 
-                return {
-                    "is_new_user": True,
-                    "user_exists": False,
-                    "action": "onboarding_sent",
-                    "message": "Welcome to Sofi! I've sent you an onboarding link to get started."
-                }
+                if account_created["success"]:
+                    logger.info(f"✅ Account created immediately for WhatsApp user: {phone_number}")
+                    return {
+                        "is_new_user": True,
+                        "user_exists": False,
+                        "action": "account_created_immediately",
+                        "message": account_created["message"]
+                    }
+                else:
+                    # Fallback to onboarding if account creation fails
+                    await self._send_whatsapp_onboarding(phone_number)
+                    return {
+                        "is_new_user": True,
+                        "user_exists": False,
+                        "action": "onboarding_sent",
+                        "message": "Welcome to Sofi! I've sent you an onboarding message to get started."
+                    }
                 
         except Exception as e:
             logger.error(f"Error handling new WhatsApp user {phone_number}: {e}")
@@ -252,31 +263,121 @@ class AutoOnboardingManager:
             }
     
     async def _send_whatsapp_onboarding(self, phone_number: str):
-        """Send WhatsApp onboarding link to new user"""
+        """Send WhatsApp onboarding exactly like Telegram (smooth inline experience)"""
         try:
             from utils.whatsapp_api_fixed import whatsapp_api
             
-            onboarding_message = """🎉 *Welcome to Sofi Digital Bank!*
-
-I'm Sofi, your AI banking assistant. To get started, I need to set up your account.
-
-Please click the link below to complete your registration:
-👉 https://sofi-ai-deploy.onrender.com/whatsapp-onboard
-
-*What you'll get:*
-✅ Virtual account number for receiving money
-✅ Send money to any Nigerian bank
-✅ Check your balance anytime
-✅ Transaction history and alerts
-✅ 24/7 AI banking assistant
-
-The setup takes just 2 minutes. Let's get you banking! 🚀"""
+            logger.info(f"🚀 Sending smooth WhatsApp onboarding to {phone_number} (like Telegram)")
             
-            await whatsapp_api.send_text_message(phone_number, onboarding_message)
-            logger.info(f"Onboarding link sent to {phone_number}")
+            # 🎯 STEP 1: Welcome message (like Telegram)
+            welcome_message = """👋 *Welcome to Sofi AI!* I'm your intelligent financial assistant powered by Pip install AI Technologies.
+
+🔐 To get started, I need to create your secure virtual account:
+
+📋 *You'll need:*
+• Your BVN (Bank Verification Number)
+• Phone number
+• Basic personal details
+
+✅ *Once done, you can:*
+• Send money to any bank instantly
+• Buy airtime & data at best rates  
+• Receive money from anywhere
+• Chat with me for intelligent financial advice
+
+🚀 *Click the button below to start your registration!*"""
+
+            # WhatsApp Flow message (like Telegram Web App)
+            interactive_data = {
+                "type": "flow",
+                "header": {
+                    "type": "text",
+                    "text": "🏦 Sofi Digital Banking"
+                },
+                "body": {
+                    "text": welcome_message
+                },
+                "action": {
+                    "name": "flow",
+                    "parameters": {
+                        "flow_message_version": "3",
+                        "flow_token": f"registration_{phone_number}",
+                        "flow_id": "1912417042942213",
+                        "flow_cta": "🚀 Complete Registration",
+                        "flow_action": "navigate",
+                        "flow_action_payload": {
+                            "screen": "REGISTRATION",
+                            "data": {
+                                "phone_number": phone_number
+                            }
+                        }
+                    }
+                }
+            }
+            
+            success = await whatsapp_api.send_flow_message(phone_number, interactive_data)
+            
+            if success:
+                logger.info(f"✅ Smooth onboarding sent to {phone_number}")
+            else:
+                logger.error(f"❌ Failed to send onboarding to {phone_number}")
+                
+        except Exception as e:
+            logger.error(f"Error sending smooth onboarding to {phone_number}: {e}")
+    
+    async def _send_fallback_onboarding(self, phone_number: str):
+        """Fallback onboarding with interactive button"""
+        try:
+            from utils.whatsapp_api_fixed import whatsapp_api
+            
+            # Interactive message with button (better than raw links)
+            welcome_message = """👋 *Welcome to Sofi AI!* 
+
+I'm your intelligent financial assistant powered by Pip install AI Technologies.
+
+� To get started, I need to create your secure virtual account:
+
+📋 *You'll need:*
+• Your BVN (Bank Verification Number)
+• Phone number  
+• Basic personal details
+
+✅ *Once done, you can:*
+• Send money to any bank instantly
+• Buy airtime & data at best rates
+• Receive money from anywhere
+• Chat with me for intelligent financial advice
+
+🚀 *Click the button below to start your registration!*"""
+            
+            # Send with interactive button
+            interactive_data = {
+                "type": "button",
+                "header": {
+                    "type": "text",
+                    "text": "🏦 Sofi Digital Banking"
+                },
+                "body": {
+                    "text": welcome_message
+                },
+                "action": {
+                    "buttons": [
+                        {
+                            "type": "reply",
+                            "reply": {
+                                "id": "complete_registration",
+                                "title": "🚀 Complete Registration"
+                            }
+                        }
+                    ]
+                }
+            }
+            
+            await whatsapp_api.send_interactive_message(phone_number, interactive_data)
+            logger.info(f"Interactive onboarding sent to {phone_number}")
             
         except Exception as e:
-            logger.error(f"Error sending onboarding to {phone_number}: {e}")
+            logger.error(f"Error sending fallback onboarding to {phone_number}: {e}")
 
 # Global instances
 balance_manager = FixedBalanceManager()

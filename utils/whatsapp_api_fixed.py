@@ -139,6 +139,45 @@ class WhatsAppAPI:
         except Exception as e:
             logger.error(f"❌ Error sending message: {e}")
             return False
+    
+    async def send_flow_message(self, phone_number: str, flow_data: dict) -> bool:
+        """
+        Send WhatsApp Flow message (like Telegram Web App)
+        
+        Args:
+            phone_number (str): WhatsApp number to send to
+            flow_data (dict): Flow message data
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            logger.info(f"🌊 Sending WhatsApp Flow to {phone_number}")
+            
+            payload = {
+                "messaging_product": "whatsapp",
+                "to": phone_number,
+                "type": "interactive",
+                "interactive": flow_data
+            }
+            
+            response = requests.post(
+                f"{self.base_url}/messages",
+                headers=self._get_headers(),
+                json=payload,
+                timeout=10
+            )
+            
+            if response.status_code == 200:
+                logger.info(f"✅ WhatsApp Flow sent successfully to {phone_number}")
+                return True
+            else:
+                logger.error(f"❌ Failed to send Flow: {response.status_code} - {response.text}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"❌ Error sending Flow: {e}")
+            return False
 
 # Global instance
 whatsapp_api = WhatsAppAPI()
