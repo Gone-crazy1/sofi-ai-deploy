@@ -15,7 +15,7 @@ from datetime import datetime
 from dotenv import load_dotenv
 from openai import OpenAI
 from sofi_money_functions import SofiMoneyTransferService
-from sofi_assistant_functions import SOFI_MONEY_FUNCTIONS, SOFI_MONEY_INSTRUCTIONS
+from sofi_whatsapp_functions import SOFI_MONEY_FUNCTIONS, SOFI_WHATSAPP_INSTRUCTIONS
 from supabase import create_client
 from concurrent.futures import ThreadPoolExecutor
 
@@ -414,7 +414,7 @@ class SofiAssistant:
                     # Update the assistant with latest instructions and functions
                     self.client.beta.assistants.update(
                         assistant_id=self.assistant_id,
-                        instructions=SOFI_MONEY_INSTRUCTIONS,
+                        instructions=SOFI_WHATSAPP_INSTRUCTIONS,
                         tools=SOFI_MONEY_FUNCTIONS
                     )
                     logger.info(f"🔄 Updated assistant instructions and functions")
@@ -423,9 +423,9 @@ class SofiAssistant:
             # Create new assistant if not found
             assistant = self.client.beta.assistants.create(
                 name="Sofi AI WhatsApp Banking Assistant",
-                instructions=SOFI_MONEY_INSTRUCTIONS,
+                instructions=SOFI_WHATSAPP_INSTRUCTIONS,
                 tools=SOFI_MONEY_FUNCTIONS,
-                model="gpt-3.5-turbo"  # Use GPT-3.5-turbo for cost optimization
+                model="gpt-4o"  # Use GPT-4o for better intent detection like Telegram version
             )
             
             self.assistant_id = assistant.id
@@ -472,8 +472,8 @@ class SofiAssistant:
         """Execute simple commands instantly with real data"""
         message_lower = message.lower().strip()
         
-        # Balance check patterns - execute immediately
-        balance_patterns = ['balance', 'my balance', 'check balance', 'wallet', 'how much', 'account balance']
+        # Enhanced balance check patterns - execute immediately
+        balance_patterns = ['balance', 'my balance', 'check balance', 'wallet', 'how much', 'account balance', 'bal', 'money left']
         if any(pattern in message_lower for pattern in balance_patterns):
             try:
                 # Get real balance instantly
@@ -492,6 +492,14 @@ class SofiAssistant:
                 logger.error(f"❌ Instant balance check error: {e}")
                 return "❌ Unable to check balance right now. Please try again."
         
+        # Enhanced transfer patterns - trigger immediate processing
+        transfer_patterns = ['send', 'transfer', 'pay', 'give']
+        amount_patterns = ['₦', 'naira', '100', '200', '500', '1000', '2000', '5000', '10000']
+        if (any(pattern in message_lower for pattern in transfer_patterns) and 
+            any(pattern in message_lower for pattern in amount_patterns)):
+            # Don't process instantly - let GPT-4o handle complex transfer parsing
+            return None
+        
         # PIN status check patterns - execute immediately  
         pin_check_patterns = ['pin status', 'do i have pin', 'pin set', 'my pin']
         if any(pattern in message_lower for pattern in pin_check_patterns):
@@ -508,8 +516,8 @@ class SofiAssistant:
                 logger.error(f"❌ Instant PIN check error: {e}")
                 return "❌ Unable to check PIN status right now."
         
-        # Virtual account info - execute immediately
-        account_patterns = ['my account', 'account details', 'account number', 'virtual account']
+        # Enhanced virtual account info - execute immediately
+        account_patterns = ['my account', 'account details', 'account number', 'virtual account', 'account info']
         if any(pattern in message_lower for pattern in account_patterns):
             try:
                 from functions.account_functions import get_virtual_account
@@ -518,6 +526,16 @@ class SofiAssistant:
                 if result and result.get("success"):
                     account_number = result.get("account_number")
                     bank_name = result.get("bank_name", "Providus Bank")
+                    return f"🏦 Your virtual account:\n📞 {account_number}\n🏛️ {bank_name}"
+                else:
+                    return "❌ Unable to fetch account details. Please complete onboarding first."
+                    
+            except Exception as e:
+                logger.error(f"❌ Instant account check error: {e}")
+                return "❌ Unable to fetch account details right now."
+        
+        # No instant execution available
+        return None
                     return f"🏦 Your virtual account:\n📞 {account_number}\n🏛️ {bank_name}"
                 else:
                     return "❌ Unable to fetch account details. Please complete onboarding first."

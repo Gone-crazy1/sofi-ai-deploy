@@ -1,0 +1,59 @@
+# 🚨 URGENT: Fix Sofi Function Calls - Update Render Environment Variables
+
+## ❌ Current Problem:
+- Sofi redirects to bank app instead of executing functions in WhatsApp
+- WhatsApp Flow endpoint returns 403 errors
+- Old corrupted RSA keys causing encryption failures
+
+## ✅ Solution: Update Render Environment Variables
+
+### Step 1: Access Render Dashboard
+1. Go to: https://dashboard.render.com
+2. Log into your account
+3. Find your `sofi-ai-deploy` service
+4. Click on the service name
+
+### Step 2: Update Environment Variables
+1. Click on **"Environment"** tab in the left sidebar
+2. Look for these variables and update them:
+
+**WHATSAPP_FLOW_PRIVATE_KEY**
+```
+LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0tCk1JSUV1Z0lCQURBTkJna3Foa2lHOXcwQkFRRUZBQVNDQktRd2dnU2dBZ0VBQW9JQkFRQ2FkZzVEODRsUFRrUTQKdWtYcUh2ZmlCVkdlSlNnbEQ5MnBsZmdMTU1CTDE5SUpEaG9YV2tiL0twTVJxOHhDcGQxM3RmT3JYWXpLVGx1awpDU3VINjlkTnlSL01PZHhMaEdBTWpHTWFLKzVmS2Nvck1UNi9heWMvb01kcGlPUkk4Ylkzd1VKTDFtaFFmZlpCCldscENWbEtrMHR2WUlLQzFqdEp5Mk81NGhFaFBMdmx1VFpuQVk3MmQxNHNIdHkrbnMyMXRVbGtsWnNGZ3lpcC8KTE04anhJbWhOUXlNL09HYUtUcVZDWnJOK296eDhqMzNLTFIzTHpaRURrTE5FWXdxYkFFRk9Pa3dmTUpHQlc1KwpoK1BWN25KQ1IyQWNDd0Q0VVBHZDZOQ2dvOWtNRUhmVmoxdGQ4MnZmU0FsVGptdWxaZFZuM05YSkhhemFkTG5zCnlEekRJamJYQWdNQkFBRUNnZjhSUzlHaWRQaEFrOWhsTEhhbndOQUJLZXlrYzRTMTl4RGJRZS9aKzV1TTRwMzMKdXZIYnE1V2MvU2Q2MHhkaHRJWnRpL0puNkx5RjZ1c0N5SzdCM3Z3OUR2TXJRS1MvMEJMeFZNY1pmSHlLSzNraQpzbUQvRGxZQmRLbzFKeDhUdHFnR1FQTXJpdGJPTEtJUldnekJZT2sxaTd4bnpKVGRGU0VtWmM3NUJTeHBCcTBGCmZQbWlsd3J4Ry9wSEc1TFhONzBmSnNFU0JHRklDR2FOaVlWaytDMUh0Ukl6YjU4d1U4QmxXRVkzYXc3V3AxVkkKcm9ibFFZWGZJU3lpY2Z1K1QwakcxaHpYU1REWjMraFpaenhza0s0eUIyTDVPT05ac3Q4UmJWRld1NnVTc044Zwo5ZFJhdk03RUF6dkFmT2FURHhpdnU4enc2TkZUOC92SHQ1MFR2OEVDZ1lFQXpETXJnU0JzMmJxMFBwM1ZFRTltCjU0aW4wZm1qeEUxVmw4bTdCdENNblh6MU11VzJLVGQ5NkVCNVBIMXFMbXd1TERJTkg5a29TdlkzWGV5a0tBbjkKd0lOMDBmT1BSa1k4dXZKOWQyY1JMSnJXREhGQy9TOWZMYkdublI1ZUhwbndISjVYVmNLRThidVdTY3ZRSUdxWgpxU1Mxb1NNZ3FlZktQbnJ2Tkt2eUZ5Y0NnWUVBd2FUVXV6NmpjUCtNTkI2ejBta0wwRUh0SC9zekR6OWxqWHAzCkUxcSt1a2tCTGRKZ0hmZjJSZXVFYmlPdXFhQW52dnFPWXMrWUJQU3AxUjliOTBkODQzVElEalprUlRITjFVVE0KbzQ1b1B0eWtyK3pKUUNqcDFPT2k5eGFuNFdMK25sQ0l4RWo0NzdFMHU2MzBBRUVjZ2VKd1FIdnRUamt0cDRCdApWRmhxTU5FQ2dZQTZVWDdpUVAxMWJYSWUwL3JPenE2SC82cFdPS0xCNUloR2NuRzhyNEVKVlcrOTJvY2MzR0ZVCkhGM0RuZG5lYWowQm1FWFJTN2JMT2VoMEphcDRXT29rdWlaNTg4SitnbjdEc1krTnMxemZUVlZHZG01NFdyZ24KRjY3VUc2RXJ3akVtS3o2c0dvTFhld2lnQ05wbTk2cnMrTFA2MGtwNDI5OFIyeEJJRGJkMVR3S0JnRmJiYkdBZwpsSWNXMlBoMzNRaS8vWUNJVWFoS3NIaGlZMWEyVzdyZXRUWXhrTW5RMXpRYUNPa0wzdmJZSW53TFRraW5jajU0CkJ5UVI2aXVpU1VuOVV0TmppbWgxbFR4RVBxTXVuT3V2OEtwaHBhMFRkS0hHdUR1NWIxdU5XZmdLdzFLWHBRRUcKQ2tMWkpXSVpnSnlzbC9EYWRLYzM3eFZyS0VNOW84eDFiQXhCQW9HQUc1Y1J2UTNDeGxyN215U1NaVUFnRnlYLwpkMWJyOFA4TmgvUDRkT2tNTVlBVzZrNGtmVFVwaHMvK3Q0TUVZV0RKNnlsN0ZIb0JtUXFWRjF1RFRHUmVBNzlSCnl5M011WHhKVWtsVVJYcGVKb3V0SGp3dmJkL1AyVi9MT0lRR0p3Y1RIVnlwSzNlNmFPa2ZQRjVabnBzZG15OWEKYUlDbGFuR3BrMUowbTNqL2E4ST0KLS0tLS1FTkQgUFJJVkFURSBLRVktLS0tLQo=
+```
+
+**WHATSAPP_FLOW_PUBLIC_KEY**
+```
+LS0tLS1CRUdJTiBQVUJMSUMgS0VZLS0tLS0KTUlJQklqQU5CZ2txaGtpRzl3MEJBUUVGQUFPQ0FROEFNSUlCQ2dLQ0FRRUFtbllPUS9PSlQwNUVPTHBGNmg3Mwo0Z1ZSbmlVb0pRL2RxWlg0Q3pEQVM5ZlNDUTRhRjFwRy95cVRFYXZNUXFYZGQ3WHpxMTJNeWs1YnBBa3JoK3ZYClRja2Z6RG5jUzRSZ0RJeGpHaXZ1WHluS0t6RSt2MnNuUDZESGFZamtTUEcyTjhGQ1M5Wm9VSDMyUVZwYVFsWlMKcE5MYjJDQ2d0WTdTY3RqdWVJUklUeTc1YmsyWndHTzluZGVMQjdjdnA3TnRiVkpaSldiQllNb3FmeXpQSThTSgpvVFVNalB6aG1pazZsUW1hemZxTThmSTk5eWkwZHk4MlJBNUN6UkdNS213QkJUanBNSHpDUmdWdWZvZmoxZTV5ClFrZGdIQXNBK0ZEeG5lalFvS1BaREJCMzFZOWJYZk5yMzBnSlU0NXJwV1hWWjl6VnlSMnMyblM1N01nOHd5STIKMXdJREFRQUIKLS0tLS1FTkQgUFVCTElDIEtFWS0tLS0tCg==
+```
+
+**WHATSAPP_VERIFY_TOKEN**
+```
+sofi_ai_webhook_verify_2024
+```
+
+### Step 3: Save and Deploy
+1. Click **"Save Changes"** 
+2. Wait for automatic deployment (usually 2-3 minutes)
+3. Watch for deployment completion notification
+
+### Step 4: Verify Success
+After deployment completes, check your Render logs for:
+- ✅ `Private key loaded successfully`
+- ✅ No more `InvalidByte(1623, 61)` errors
+- ✅ No more `500 Encryption not available` errors
+
+## 🎯 Expected Results After Update:
+- ✅ Sofi will execute functions directly in WhatsApp
+- ✅ No more redirects to bank app for simple actions
+- ✅ WhatsApp Flow encryption will work properly
+- ✅ Users can check balance, send money, etc. within WhatsApp
+
+## ⚠️ Critical Notes:
+- Copy the keys EXACTLY as shown (including all characters)
+- Don't add any extra spaces or line breaks
+- The keys are Base64 encoded and case-sensitive
+- Make sure to update ALL THREE variables
+
+---
+*These are the fresh, tested keys that resolve the encryption issues.*

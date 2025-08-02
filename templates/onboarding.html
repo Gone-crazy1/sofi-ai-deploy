@@ -1,10 +1,11 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Sofi AI - Onboarding</title>
-    
+
     <!-- Favicon and app icons -->
     <link rel="icon" type="image/x-icon" href="/static/images/favicon.ico">
     <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
@@ -12,14 +13,14 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/static/images/favicon-32x32.png">
     <link rel="icon" type="image/png" sizes="16x16" href="/static/images/favicon-16x16.png">
     <link rel="manifest" href="/static/images/site.webmanifest">
-    
+
     <style>
         * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
         }
-        
+
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
             line-height: 1.6;
@@ -31,17 +32,17 @@
             align-items: center;
             justify-content: center;
         }
-        
+
         .container {
             background: white;
             border-radius: 20px;
             padding: 40px 30px;
-            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
             width: 100%;
             max-width: 500px;
             text-align: center;
         }
-        
+
         .logo {
             width: 80px;
             height: 80px;
@@ -55,25 +56,25 @@
             color: white;
             font-weight: bold;
         }
-        
+
         h1 {
             color: #333;
             margin-bottom: 10px;
             font-size: 28px;
             font-weight: 600;
         }
-        
+
         .subtitle {
             color: #666;
             margin-bottom: 30px;
             font-size: 16px;
         }
-        
+
         .form-group {
             margin-bottom: 20px;
             text-align: left;
         }
-        
+
         label {
             display: block;
             margin-bottom: 8px;
@@ -81,8 +82,9 @@
             font-weight: 500;
             font-size: 14px;
         }
-        
-        input, select {
+
+        input,
+        select {
             width: 100%;
             padding: 12px 16px;
             border: 2px solid #e1e5e9;
@@ -91,20 +93,21 @@
             transition: border-color 0.3s ease;
             background: #fff;
         }
-        
-        input:focus, select:focus {
+
+        input:focus,
+        select:focus {
             outline: none;
             border-color: #667eea;
             box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
         }
-        
+
         .error-message {
             color: #e74c3c;
             font-size: 12px;
             margin-top: 5px;
             display: none;
         }
-        
+
         .submit-btn {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
@@ -118,17 +121,17 @@
             margin-top: 20px;
             transition: transform 0.2s ease;
         }
-        
+
         .submit-btn:hover {
             transform: translateY(-2px);
         }
-        
+
         .submit-btn:disabled {
             opacity: 0.6;
             cursor: not-allowed;
             transform: none;
         }
-        
+
         .progress-bar {
             width: 100%;
             height: 4px;
@@ -137,25 +140,25 @@
             margin-bottom: 30px;
             overflow: hidden;
         }
-        
+
         .progress-fill {
             height: 100%;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             width: 0%;
             transition: width 0.3s ease;
         }
-        
+
         .step-indicator {
             color: #666;
             font-size: 14px;
             margin-bottom: 20px;
         }
-        
+
         .loading {
             display: none;
             margin-top: 20px;
         }
-        
+
         .loading-spinner {
             width: 40px;
             height: 40px;
@@ -165,12 +168,17 @@
             animation: spin 1s linear infinite;
             margin: 0 auto;
         }
-        
+
         @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
         }
-        
+
         .success-message {
             background: #d4edda;
             border: 1px solid #c3e6cb;
@@ -180,45 +188,46 @@
             margin-top: 20px;
             display: none;
         }
-        
+
         .required {
             color: #e74c3c;
         }
-        
+
         .optional {
             color: #666;
             font-size: 12px;
             font-weight: normal;
         }
-        
+
         @media (max-width: 600px) {
             .container {
                 padding: 30px 20px;
                 margin: 10px;
             }
-            
+
             h1 {
                 font-size: 24px;
             }
-            
+
             .subtitle {
                 font-size: 14px;
             }
         }
     </style>
 </head>
+
 <body>
     <div class="container">
         <div class="logo">₦</div>
         <h1>Welcome to Sofi AI</h1>
         <p class="subtitle">Let's set up your account in a few simple steps</p>
-        
+
         <div class="progress-bar">
             <div class="progress-fill" id="progressFill"></div>
         </div>
-        
+
         <div class="step-indicator" id="stepIndicator">Step 1 of 3</div>
-        
+
         <form id="onboardingForm">
             <!-- Step 1: Personal Information -->
             <div class="step" id="step1">
@@ -227,22 +236,22 @@
                     <input type="text" id="fullName" name="fullName" required>
                     <div class="error-message" id="fullNameError"></div>
                 </div>
-                
+
                 <div class="form-group">
                     <label for="email">Email Address <span class="required">*</span></label>
                     <input type="email" id="email" name="email" required>
                     <div class="error-message" id="emailError"></div>
                 </div>
-                
+
                 <div class="form-group">
                     <label for="phone">Phone Number <span class="required">*</span></label>
                     <input type="tel" id="phone" name="phone" placeholder="+234 80X XXX XXXX" required>
                     <div class="error-message" id="phoneError"></div>
                 </div>
-                
+
                 <button type="button" class="submit-btn" onclick="nextStep(1)">Continue</button>
             </div>
-            
+
             <!-- Step 2: Account Setup -->
             <div class="step" id="step2" style="display: none;">
                 <div class="form-group">
@@ -250,22 +259,23 @@
                     <input type="password" id="pin" name="pin" maxlength="4" placeholder="Enter 4-digit PIN">
                     <div class="error-message" id="pinError"></div>
                 </div>
-                
+
                 <div class="form-group">
                     <label for="confirmPin">Confirm PIN <span class="required">*</span></label>
-                    <input type="password" id="confirmPin" name="confirmPin" maxlength="4" placeholder="Confirm your PIN">
+                    <input type="password" id="confirmPin" name="confirmPin" maxlength="4"
+                        placeholder="Confirm your PIN">
                     <div class="error-message" id="confirmPinError"></div>
                 </div>
-                
+
                 <div class="form-group">
                     <label for="bvn">BVN <span class="optional">(Optional)</span></label>
                     <input type="text" id="bvn" name="bvn" maxlength="11" placeholder="Bank Verification Number">
                     <div class="error-message" id="bvnError"></div>
                 </div>
-                
+
                 <button type="button" class="submit-btn" onclick="nextStep(2)">Continue</button>
             </div>
-            
+
             <!-- Step 3: Verification -->
             <div class="step" id="step3" style="display: none;">
                 <div class="form-group">
@@ -273,13 +283,13 @@
                     <input type="date" id="dateOfBirth" name="dateOfBirth" required>
                     <div class="error-message" id="dateOfBirthError"></div>
                 </div>
-                
+
                 <div class="form-group">
                     <label for="address">Address <span class="required">*</span></label>
                     <input type="text" id="address" name="address" placeholder="Your residential address" required>
                     <div class="error-message" id="addressError"></div>
                 </div>
-                
+
                 <div class="form-group">
                     <label for="state">State <span class="required">*</span></label>
                     <select id="state" name="state" required>
@@ -298,65 +308,65 @@
                     </select>
                     <div class="error-message" id="stateError"></div>
                 </div>
-                
+
                 <button type="submit" class="submit-btn" id="submitBtn">Complete Registration</button>
             </div>
         </form>
-        
+
         <div class="loading" id="loadingDiv">
             <div class="loading-spinner"></div>
             <p>Creating your account...</p>
         </div>
-        
+
         <div class="success-message" id="successMessage">
             ✅ Account created successfully! You'll be redirected to your dashboard shortly.
         </div>
     </div>
-    
+
     <script>
         let currentStep = 1;
         const totalSteps = 3;
-        
+
         function updateProgress() {
             const progress = (currentStep / totalSteps) * 100;
             document.getElementById('progressFill').style.width = progress + '%';
             document.getElementById('stepIndicator').textContent = `Step ${currentStep} of ${totalSteps}`;
         }
-        
+
         function showError(elementId, message) {
             const errorElement = document.getElementById(elementId);
             errorElement.textContent = message;
             errorElement.style.display = 'block';
         }
-        
+
         function hideError(elementId) {
             document.getElementById(elementId).style.display = 'none';
         }
-        
+
         function validateStep(step) {
             let isValid = true;
-            
+
             // Hide all errors first
             document.querySelectorAll('.error-message').forEach(error => {
                 error.style.display = 'none';
             });
-            
+
             if (step === 1) {
                 // Validate personal information
                 const fullName = document.getElementById('fullName').value.trim();
                 const email = document.getElementById('email').value.trim();
                 const phone = document.getElementById('phone').value.trim();
-                
+
                 if (!fullName) {
                     showError('fullNameError', 'Full name is required');
                     isValid = false;
                 }
-                
+
                 if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
                     showError('emailError', 'Please enter a valid email address');
                     isValid = false;
                 }
-                
+
                 if (!phone || !/^(\+234|0)[789]\d{9}$/.test(phone.replace(/\s+/g, ''))) {
                     showError('phoneError', 'Please enter a valid Nigerian phone number');
                     isValid = false;
@@ -366,17 +376,17 @@
                 const pin = document.getElementById('pin').value;
                 const confirmPin = document.getElementById('confirmPin').value;
                 const bvn = document.getElementById('bvn').value.trim();
-                
+
                 if (!pin || pin.length !== 4 || !/^\d{4}$/.test(pin)) {
                     showError('pinError', 'PIN must be exactly 4 digits');
                     isValid = false;
                 }
-                
+
                 if (pin !== confirmPin) {
                     showError('confirmPinError', 'PINs do not match');
                     isValid = false;
                 }
-                
+
                 // BVN is optional, but if provided, must be valid
                 if (bvn && (bvn.length !== 11 || !/^\d{11}$/.test(bvn))) {
                     showError('bvnError', 'BVN must be exactly 11 digits');
@@ -387,7 +397,7 @@
                 const dateOfBirth = document.getElementById('dateOfBirth').value;
                 const address = document.getElementById('address').value.trim();
                 const state = document.getElementById('state').value;
-                
+
                 if (!dateOfBirth) {
                     showError('dateOfBirthError', 'Date of birth is required');
                     isValid = false;
@@ -396,52 +406,52 @@
                     const today = new Date();
                     const birthDate = new Date(dateOfBirth);
                     const age = today.getFullYear() - birthDate.getFullYear();
-                    
+
                     if (age < 18) {
                         showError('dateOfBirthError', 'You must be at least 18 years old');
                         isValid = false;
                     }
                 }
-                
+
                 if (!address) {
                     showError('addressError', 'Address is required');
                     isValid = false;
                 }
-                
+
                 if (!state) {
                     showError('stateError', 'Please select your state');
                     isValid = false;
                 }
             }
-            
+
             return isValid;
         }
-        
+
         function nextStep(step) {
             if (validateStep(step)) {
                 // Hide current step
                 document.getElementById(`step${step}`).style.display = 'none';
-                
+
                 // Show next step
                 currentStep++;
                 document.getElementById(`step${currentStep}`).style.display = 'block';
-                
+
                 // Update progress
                 updateProgress();
             }
         }
-        
-        document.getElementById('onboardingForm').addEventListener('submit', async function(e) {
+
+        document.getElementById('onboardingForm').addEventListener('submit', async function (e) {
             e.preventDefault();
-            
+
             if (!validateStep(3)) {
                 return;
             }
-            
+
             // Show loading
             document.getElementById('submitBtn').disabled = true;
             document.getElementById('loadingDiv').style.display = 'block';
-            
+
             // Collect form data
             const formData = {
                 fullName: document.getElementById('fullName').value.trim(),
@@ -453,7 +463,7 @@
                 address: document.getElementById('address').value.trim(),
                 state: document.getElementById('state').value
             };
-            
+
             try {
                 const response = await fetch('/api/register', {
                     method: 'POST',
@@ -462,14 +472,14 @@
                     },
                     body: JSON.stringify(formData)
                 });
-                
+
                 const result = await response.json();
-                
+
                 if (response.ok) {
                     // Show success message
                     document.getElementById('loadingDiv').style.display = 'none';
                     document.getElementById('successMessage').style.display = 'block';
-                    
+
                     // Send completion webhook to WhatsApp (like Xara does)
                     try {
                         await fetch('/webhook/onboarding-complete', {
@@ -488,7 +498,7 @@
                         console.error('Webhook error:', webhookError);
                         // Don't fail the whole process if webhook fails
                     }
-                    
+
                     // Redirect after 3 seconds
                     setTimeout(() => {
                         window.location.href = '/dashboard';
@@ -503,12 +513,12 @@
                 document.getElementById('loadingDiv').style.display = 'none';
             }
         });
-        
+
         // Initialize progress on load
         updateProgress();
-        
+
         // Auto-format phone number
-        document.getElementById('phone').addEventListener('input', function(e) {
+        document.getElementById('phone').addEventListener('input', function (e) {
             let value = e.target.value.replace(/\D/g, '');
             if (value.startsWith('234')) {
                 value = '+' + value;
@@ -517,20 +527,21 @@
             }
             e.target.value = value;
         });
-        
+
         // Only allow digits for PIN inputs
-        document.getElementById('pin').addEventListener('input', function(e) {
+        document.getElementById('pin').addEventListener('input', function (e) {
             e.target.value = e.target.value.replace(/\D/g, '');
         });
-        
-        document.getElementById('confirmPin').addEventListener('input', function(e) {
+
+        document.getElementById('confirmPin').addEventListener('input', function (e) {
             e.target.value = e.target.value.replace(/\D/g, '');
         });
-        
+
         // Only allow digits for BVN
-        document.getElementById('bvn').addEventListener('input', function(e) {
+        document.getElementById('bvn').addEventListener('input', function (e) {
             e.target.value = e.target.value.replace(/\D/g, '');
         });
     </script>
 </body>
+
 </html>
