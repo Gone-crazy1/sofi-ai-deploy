@@ -1,32 +1,4 @@
 import os
-# --- 9PSB Virtual Account Creation Test ---
-from utils.ninepsb_api import NINEPSBApi
-
-
-def test_create_virtual_account():
-    from utils.waas_auth import get_access_token
-    api_key = os.getenv("NINEPSB_API_KEY")
-    secret_key = os.getenv("NINEPSB_SECRET_KEY")
-    base_url = os.getenv("NINEPSB_BASE_URL")
-    token = get_access_token()
-    print("Access Token:", token)
-    psb = NINEPSBApi(api_key, secret_key, base_url)
-    response = psb.create_virtual_account("user123", {
-        "first_name": "Janet",
-        "last_name": "Chinedu",
-        "email": "janet@email.com",
-        "phone": "08012345678"
-    })
-    print("\U0001F680 API Response:", response)
-
-if __name__ == "__main__":
-    test_create_virtual_account()
-from utils.waas_auth import get_access_token
-
-# Test: Fetch and print 9PSB access token
-if __name__ == "__main__":
-    token = get_access_token()
-    print("Access Token:", token)
 from flask import Flask, request, jsonify, url_for, render_template, abort, make_response
 from flask_cors import CORS
 import os, requests, logging, json, asyncio, tempfile, re, threading, uuid, time
@@ -172,13 +144,32 @@ WHATSAPP_PHONE_NUMBER_ID = os.getenv("WHATSAPP_PHONE_NUMBER_ID")
 NELLOBYTES_USERID = os.getenv("NELLOBYTES_USERID")
 NELLOBYTES_APIKEY = os.getenv("NELLOBYTES_APIKEY")
 
-# Debug: Check if WhatsApp credentials are loaded
-logger.info(f"🔧 DEBUG: WHATSAPP_ACCESS_TOKEN loaded: {bool(WHATSAPP_ACCESS_TOKEN)}")
-logger.info(f"🔧 DEBUG: WHATSAPP_PHONE_NUMBER_ID loaded: {bool(WHATSAPP_PHONE_NUMBER_ID)}")
-if WHATSAPP_ACCESS_TOKEN:
-    logger.info(f"🔧 DEBUG: Token starts with: {WHATSAPP_ACCESS_TOKEN[:10]}...")
+# 🚨 CRITICAL: Validate WhatsApp credentials before starting
+if not WHATSAPP_ACCESS_TOKEN:
+    logger.error("❌ CRITICAL: WHATSAPP_ACCESS_TOKEN not found!")
+    logger.error("🔧 Set WHATSAPP_ACCESS_TOKEN in your environment variables")
+    
+if not WHATSAPP_PHONE_NUMBER_ID:
+    logger.error("❌ CRITICAL: WHATSAPP_PHONE_NUMBER_ID not found!")
+    logger.error("🔧 Set WHATSAPP_PHONE_NUMBER_ID in your environment variables")
+    
+# Log credential status with more detail
+logger.info(f"🔧 WhatsApp Access Token: {'✅ LOADED' if WHATSAPP_ACCESS_TOKEN else '❌ MISSING'}")
+logger.info(f"🔧 WhatsApp Phone Number ID: {'✅ LOADED' if WHATSAPP_PHONE_NUMBER_ID else '❌ MISSING'}")
+
+if WHATSAPP_ACCESS_TOKEN and len(WHATSAPP_ACCESS_TOKEN) > 10:
+    logger.info(f"🔧 Token preview: {WHATSAPP_ACCESS_TOKEN[:15]}...{WHATSAPP_ACCESS_TOKEN[-5:]}")
 if WHATSAPP_PHONE_NUMBER_ID:
-    logger.info(f"🔧 DEBUG: Phone ID: {WHATSAPP_PHONE_NUMBER_ID}")
+    logger.info(f"🔧 Phone Number ID: {WHATSAPP_PHONE_NUMBER_ID}")
+
+# Raise error if critical credentials are missing
+if not WHATSAPP_ACCESS_TOKEN or not WHATSAPP_PHONE_NUMBER_ID:
+    error_msg = "❌ CRITICAL: WhatsApp credentials not configured properly!"
+    logger.error(error_msg)
+    logger.error("🔧 SOLUTION: Set these environment variables in your deployment:")
+    logger.error("   - WHATSAPP_ACCESS_TOKEN=your_access_token")
+    logger.error("   - WHATSAPP_PHONE_NUMBER_ID=your_phone_number_id")
+    # Don't exit in production, but log the error clearly
 
 # Initialize Supabase client
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -208,6 +199,13 @@ def background_task(func, *args, **kwargs):
 
 def send_whatsapp_message(phone_number: str, message: str):
     """Send message to WhatsApp using Cloud API"""
+    # Check if credentials are available
+    if not WHATSAPP_ACCESS_TOKEN or not WHATSAPP_PHONE_NUMBER_ID:
+        logger.error("❌ Cannot send WhatsApp message: Missing credentials")
+        logger.error(f"   ACCESS_TOKEN present: {bool(WHATSAPP_ACCESS_TOKEN)}")
+        logger.error(f"   PHONE_NUMBER_ID present: {bool(WHATSAPP_PHONE_NUMBER_ID)}")
+        return False
+    
     try:
         url = f"https://graph.facebook.com/v18.0/{WHATSAPP_PHONE_NUMBER_ID}/messages"
         headers = {
@@ -221,13 +219,16 @@ def send_whatsapp_message(phone_number: str, message: str):
             "text": {"body": message}
         }
         
+        logger.info(f"📤 Sending WhatsApp message to {phone_number}")
+        logger.info(f"🔗 URL: {url}")
+        
         response = requests.post(url, json=payload, headers=headers)
         
         if response.status_code == 200:
-            logger.info(f"✅ WhatsApp message sent to {phone_number}")
+            logger.info(f"✅ WhatsApp message sent successfully to {phone_number}")
             return True
         else:
-            logger.error(f"❌ WhatsApp API error: {response.text}")
+            logger.error(f"❌ WhatsApp API error {response.status_code}: {response.text}")
             return False
     except Exception as e:
         logger.error(f"❌ Error sending WhatsApp message: {e}")
