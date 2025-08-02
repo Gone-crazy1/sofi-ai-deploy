@@ -32,6 +32,6 @@ FROM users
 WHERE whatsapp_number IS NOT NULL;
 
 SELECT 'Virtual accounts with WhatsApp numbers:' as info;
-SELECT account_number, whatsapp_number, account_name 
+SELECT account_number, whatsapp_number, bank_name, balance 
 FROM virtual_accounts 
 WHERE whatsapp_number IS NOT NULL;
