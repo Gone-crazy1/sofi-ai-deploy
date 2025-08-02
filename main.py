@@ -3672,7 +3672,7 @@ def generate_account_number() -> str:
             return account_number
 
 # ===============================================
-# 🏥 HEALTH CHECK ENDPOINTS
+# 🏥 HEALTH CHECK ENDPOINTS  
 # ===============================================
 
 @app.route("/health")
