@@ -29,7 +29,8 @@ if __name__ == "__main__":
     print("Access Token:", token)
 from flask import Flask, request, jsonify, url_for, render_template, abort, make_response
 from flask_cors import CORS
-import os, requests, hashlib, logging, json, asyncio, tempfile, re, threading
+import os, requests, logging, json, asyncio, tempfile, re, threading, uuid, time
+import hashlib  # Built-in module - import separately
 from datetime import datetime
 
 from dotenv import load_dotenv
