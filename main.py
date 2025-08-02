@@ -3256,12 +3256,20 @@ def handle_encrypted_flow_data(payload):
         
         # Check if this might be a Meta test/health request
         user_agent = request.headers.get('User-Agent', '')
+        client_ip = request.environ.get('HTTP_X_FORWARDED_FOR', request.remote_addr)
+        
+        # Check for Meta/Facebook IP ranges (173.252.x.x is Facebook)
+        is_meta_ip = client_ip.startswith('173.252.') or client_ip.startswith('31.13.')
         is_meta_test = any(agent in user_agent.lower() for agent in [
             'facebookexternalua', 'facebook', 'meta'
         ])
         
+        logger.info(f"🔍 Client IP: {client_ip}")
+        logger.info(f"🔍 Meta IP range: {is_meta_ip}")
+        logger.info(f"🔍 Meta test request: {is_meta_test}")
+        
         if not all([encrypted_flow_data, encrypted_aes_key, initial_vector]):
-            if is_meta_test:
+            if is_meta_ip or is_meta_test:
                 logger.info("💊 Meta test request with incomplete encryption data - returning OK")
                 return jsonify({
                     "status": "ok",
@@ -3289,7 +3297,17 @@ def handle_encrypted_flow_data(payload):
         
         if not decrypted_data:
             logger.error("❌ Decryption failed")
-            return 'Decryption failed', 421
+            
+            # If this is from Meta's IP range, it might be a configuration test
+            if is_meta_ip:
+                logger.info("💊 Meta IP detected - might be configuration test")
+                return jsonify({
+                    "status": "encryption_test", 
+                    "message": "Encryption endpoint available but decryption failed",
+                    "note": "Please verify key configuration in Meta Business Manager"
+                }), 200
+            else:
+                return 'Decryption failed', 421
         
         # Process the flow request
         response_data = process_flow_request(decrypted_data)

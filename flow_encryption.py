@@ -81,6 +81,22 @@ class FlowEncryption:
             if len(aes_key) != 16:
                 raise ValueError(f"Unexpected AES key length: {len(aes_key)}, expected 16")
             
+            # Debug: Check if data length is valid for AES block cipher
+            if len(encrypted_data) % 16 != 0:
+                print(f"⚠️  CRITICAL: Data length {len(encrypted_data)} is not multiple of 16!")
+                print(f"🔍 This suggests encryption/decryption key mismatch")
+                print(f"🔍 Raw encrypted data (hex): {encrypted_data.hex()}")
+                
+                # Log the issue but try to understand the problem
+                print(f"❌ Cannot proceed with AES decryption - invalid block length")
+                print(f"💡 Possible causes:")
+                print(f"   1. Public/private key mismatch")
+                print(f"   2. Different encryption algorithm used by Meta")
+                print(f"   3. Data corruption during transmission")
+                
+                # Don't try to "fix" the data - this indicates a fundamental issue
+                raise ValueError(f"Invalid block length: {len(encrypted_data)} (not multiple of 16)")
+            
             # Step 2: Decrypt data using AES-128-CBC
             cipher = Cipher(
                 algorithms.AES(aes_key),
