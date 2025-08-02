@@ -198,7 +198,7 @@ def background_task(func, *args, **kwargs):
     thread.start()
 
 def send_whatsapp_message(phone_number: str, message: str):
-    """Send message to WhatsApp using Cloud API"""
+    """Send regular WhatsApp text message"""
     # Check if credentials are available
     if not WHATSAPP_ACCESS_TOKEN or not WHATSAPP_PHONE_NUMBER_ID:
         logger.error("❌ Cannot send WhatsApp message: Missing credentials")
@@ -212,6 +212,7 @@ def send_whatsapp_message(phone_number: str, message: str):
             "Authorization": f"Bearer {WHATSAPP_ACCESS_TOKEN}",
             "Content-Type": "application/json"
         }
+        
         payload = {
             "messaging_product": "whatsapp",
             "to": phone_number,
@@ -220,12 +221,49 @@ def send_whatsapp_message(phone_number: str, message: str):
         }
         
         logger.info(f"📤 Sending WhatsApp message to {phone_number}")
-        logger.info(f"🔗 URL: {url}")
         
         response = requests.post(url, json=payload, headers=headers)
         
         if response.status_code == 200:
             logger.info(f"✅ WhatsApp message sent successfully to {phone_number}")
+            return True
+        else:
+            logger.error(f"❌ WhatsApp API error {response.status_code}: {response.text}")
+            return False
+    except Exception as e:
+        logger.error(f"❌ Error sending WhatsApp message: {e}")
+        return False
+
+def send_whatsapp_message_with_button(phone_number: str, message: str, button_text: str, button_url: str):
+    """Send WhatsApp message with link preview for better user experience"""
+    # Check if credentials are available
+    if not WHATSAPP_ACCESS_TOKEN or not WHATSAPP_PHONE_NUMBER_ID:
+        logger.error("❌ Cannot send WhatsApp message: Missing credentials")
+        return False
+    
+    try:
+        url = f"https://graph.facebook.com/v18.0/{WHATSAPP_PHONE_NUMBER_ID}/messages"
+        headers = {
+            "Authorization": f"Bearer {WHATSAPP_ACCESS_TOKEN}",
+            "Content-Type": "application/json"
+        }
+        
+        # Create message with link preview and call-to-action button
+        message_with_link = f"{message}\n\n🔗 {button_url}"
+        
+        payload = {
+            "messaging_product": "whatsapp",
+            "to": phone_number,
+            "type": "text",
+            "text": {"body": message_with_link, "preview_url": True}
+        }
+        
+        logger.info(f"📤 Sending WhatsApp message with link preview to {phone_number}")
+        
+        response = requests.post(url, json=payload, headers=headers)
+        
+        if response.status_code == 200:
+            logger.info(f"✅ WhatsApp message with link preview sent successfully")
             return True
         else:
             logger.error(f"❌ WhatsApp API error {response.status_code}: {response.text}")
@@ -436,30 +474,23 @@ Proudly powered by Pip install AI Technologies - the future of AI banking."""
                         "Let me verify your account status..."
                     )
             else:
-                # New user - send web app button instead of naked link
+                # New user - send message with rich link preview
                 reply = (
                     "🚀 *Create Your Sofi Account*\n\n"
                     "Get instant virtual account for:\n"
                     "💸 Money transfers\n"
                     "📱 Airtime purchases\n"
                     "💰 Balance management\n\n"
-                    "Tap the button below to get started!"
+                    "👆 Tap the link below to get started!"
                 )
                 
-                # Create web app button
-                keyboard = {
-                    "inline_keyboard": [
-                        [
-                            {
-                                "text": "🚀 Create Account",
-                                "web_app": {"url": "https://pipinstallsofi.com/onboard"}
-                            }
-                        ]
-                    ]
-                }
-                
                 save_chat_message(phone_number, "assistant", reply)
-                return send_whatsapp_message(phone_number, reply, keyboard)
+                return send_whatsapp_message_with_button(
+                    phone_number, 
+                    reply, 
+                    "🚀 Create Account",
+                    "https://pipinstallsofi.com/onboard"
+                )
 
         # Get conversation history
         messages = get_chat_history(phone_number)
@@ -2815,4 +2846,41 @@ def test_ninepsb_webhook():
     except Exception as e:
         logger.error(f"❌ Test webhook error: {e}")
         return {"status": "error", "message": str(e)}, 500
+
+@app.route("/webhook/onboarding-complete", methods=["POST"])
+def handle_onboarding_completion():
+    """Handle completion of user onboarding from web app"""
+    try:
+        data = request.get_json()
+        phone_number = data.get('phone_number')
+        user_name = data.get('name', 'there')
+        account_number = data.get('account_number')
+        
+        if phone_number:
+            # Send confirmation message back to WhatsApp like Xara does
+            completion_message = (
+                f"🎉 *Welcome to Sofi, {user_name}!*\n\n"
+                f"✅ Your account has been created successfully!\n"
+                f"🏦 Account Number: {account_number}\n\n"
+                f"You can now:\n"
+                f"💸 Send and receive money\n"
+                f"📱 Buy airtime and data\n"
+                f"💰 Check your balance\n\n"
+                f"Type 'help' to see all available commands!"
+            )
+            
+            # Send the completion message
+            send_whatsapp_message(phone_number, completion_message)
+            logger.info(f"✅ Onboarding completion message sent to {phone_number}")
+            
+            return {"status": "success", "message": "Completion message sent"}, 200
+        else:
+            return {"status": "error", "message": "Phone number required"}, 400
+            
+    except Exception as e:
+        logger.error(f"❌ Onboarding completion webhook error: {e}")
+        return {"status": "error", "message": str(e)}, 500
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000, debug=False)
 

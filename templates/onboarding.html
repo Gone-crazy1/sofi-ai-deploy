@@ -470,6 +470,25 @@
                     document.getElementById('loadingDiv').style.display = 'none';
                     document.getElementById('successMessage').style.display = 'block';
                     
+                    // Send completion webhook to WhatsApp (like Xara does)
+                    try {
+                        await fetch('/webhook/onboarding-complete', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({
+                                phone_number: formData.phone,
+                                name: formData.fullName.split(' ')[0], // First name only
+                                account_number: result.account_number || 'Processing...'
+                            })
+                        });
+                        console.log('✅ Completion message sent to WhatsApp');
+                    } catch (webhookError) {
+                        console.error('Webhook error:', webhookError);
+                        // Don't fail the whole process if webhook fails
+                    }
+                    
                     // Redirect after 3 seconds
                     setTimeout(() => {
                         window.location.href = '/dashboard';
