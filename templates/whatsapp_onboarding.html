@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sofi - Create Account</title>
+
+    <!-- WhatsApp Web App Meta Tags -->
+    <meta name="theme-color" content="#25D366">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="Sofi">
+
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+            background-color: #ffffff;
+            color: #1f2937;
+            line-height: 1.5;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .header {
+            background-color: #25D366;
+            color: white;
+            padding: 16px 20px;
+            display: flex;
+            align-items: center;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .header h1 {
+            font-size: 19px;
+            font-weight: 500;
+            margin-left: 12px;
+        }
+
+        .bot-icon {
+            width: 24px;
+            height: 24px;
+            background-color: rgba(255, 255, 255, 0.2);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+        }
+
+        .main-content {
+            flex: 1;
+            padding: 24px 20px;
+            max-width: 480px;
+            margin: 0 auto;
+            width: 100%;
+        }
+
+        .welcome-text {
+            text-align: center;
+            margin-bottom: 32px;
+        }
+
+        .welcome-text h2 {
+            font-size: 24px;
+            font-weight: 600;
+            color: #1f2937;
+            margin-bottom: 8px;
+        }
+
+        .welcome-text p {
+            font-size: 16px;
+            color: #6b7280;
+            line-height: 1.5;
+        }
+
+        .form-container {
+            background-color: #ffffff;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            font-size: 14px;
+            font-weight: 500;
+            color: #374151;
+            margin-bottom: 6px;
+        }
+
+        .form-group input {
+            width: 100%;
+            padding: 12px 16px;
+            font-size: 16px;
+            border: 1.5px solid #e5e7eb;
+            border-radius: 8px;
+            background-color: #ffffff;
+            transition: border-color 0.2s ease;
+        }
+
+        .form-group input:focus {
+            outline: none;
+            border-color: #25D366;
+            box-shadow: 0 0 0 3px rgba(37, 211, 102, 0.1);
+        }
+
+        .form-group input::placeholder {
+            color: #9ca3af;
+        }
+
+        .required {
+            color: #ef4444;
+            margin-left: 2px;
+        }
+
+        .submit-button {
+            width: 100%;
+            background-color: #25D366;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            padding: 14px 20px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background-color 0.2s ease;
+            margin-top: 8px;
+        }
+
+        .submit-button:hover {
+            background-color: #22c55e;
+        }
+
+        .submit-button:active {
+            background-color: #16a34a;
+        }
+
+        .submit-button:disabled {
+            background-color: #9ca3af;
+            cursor: not-allowed;
+        }
+
+        .loading {
+            display: none;
+            align-items: center;
+            justify-content: center;
+            margin-top: 16px;
+        }
+
+        .loading-spinner {
+            width: 20px;
+            height: 20px;
+            border: 2px solid #e5e7eb;
+            border-top: 2px solid #25D366;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: 8px;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+
+        .error-message {
+            background-color: #fef2f2;
+            border: 1px solid #fecaca;
+            color: #dc2626;
+            padding: 12px 16px;
+            border-radius: 8px;
+            margin-bottom: 16px;
+            font-size: 14px;
+            display: none;
+        }
+
+        .success-message {
+            background-color: #f0fdf4;
+            border: 1px solid #bbf7d0;
+            color: #16a34a;
+            padding: 12px 16px;
+            border-radius: 8px;
+            margin-bottom: 16px;
+            font-size: 14px;
+            display: none;
+        }
+
+        .footer-text {
+            text-align: center;
+            font-size: 12px;
+            color: #9ca3af;
+            margin-top: 24px;
+            padding: 16px;
+        }
+
+        /* Mobile responsiveness */
+        @media (max-width: 480px) {
+            .main-content {
+                padding: 20px 16px;
+            }
+
+            .header {
+                padding: 12px 16px;
+            }
+
+            .header h1 {
+                font-size: 18px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="header">
+        <div class="bot-icon">🤖</div>
+        <h1>Sofi AI</h1>
+    </div>
+
+    <div class="main-content">
+        <div class="welcome-text">
+            <h2>Create Your Account</h2>
+            <p>Fill in your details to get started with Sofi AI banking</p>
+        </div>
+
+        <div class="form-container">
+            <div class="error-message" id="errorMessage"></div>
+            <div class="success-message" id="successMessage"></div>
+
+            <form id="onboardingForm">
+                <div class="form-group">
+                    <label for="fullName">Full Name <span class="required">*</span></label>
+                    <input type="text" id="fullName" name="fullName" placeholder="Enter your full name" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="phone">Phone Number <span class="required">*</span></label>
+                    <input type="tel" id="phone" name="phone" placeholder="08012345678" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="email">Email Address</label>
+                    <input type="email" id="email" name="email" placeholder="your@email.com">
+                </div>
+
+                <div class="form-group">
+                    <label for="city">City</label>
+                    <input type="text" id="city" name="city" placeholder="Lagos">
+                </div>
+
+                <div class="form-group">
+                    <label for="state">State</label>
+                    <input type="text" id="state" name="state" placeholder="Lagos State">
+                </div>
+
+                <div class="form-group">
+                    <label for="address">Address</label>
+                    <input type="text" id="address" name="address" placeholder="Your full address">
+                </div>
+
+                <div class="form-group">
+                    <label for="bvn">BVN (Bank Verification Number)</label>
+                    <input type="text" id="bvn" name="bvn" placeholder="12345678901" maxlength="11">
+                </div>
+
+                <button type="submit" class="submit-button" id="submitButton">
+                    Create Account
+                </button>
+            </form>
+
+            <div class="loading" id="loadingIndicator">
+                <div class="loading-spinner"></div>
+                <span>Creating your account...</span>
+            </div>
+        </div>
+
+        <div class="footer-text">
+            By creating an account, you agree to Sofi AI's terms of service
+        </div>
+    </div>
+
+    <script>
+        // Get WhatsApp user data from URL parameters
+        const urlParams = new URLSearchParams(window.location.search);
+        const whatsappNumber = urlParams.get('whatsapp') || '';
+
+        // Auto-fill phone number if available
+        if (whatsappNumber) {
+            const phoneInput = document.getElementById('phone');
+            // Convert +234 to 0 format
+            const localNumber = whatsappNumber.startsWith('+234')
+                ? '0' + whatsappNumber.substring(4)
+                : whatsappNumber;
+            phoneInput.value = localNumber;
+        }
+
+        document.getElementById('onboardingForm').addEventListener('submit', async function (e) {
+            e.preventDefault();
+
+            const submitButton = document.getElementById('submitButton');
+            const loadingIndicator = document.getElementById('loadingIndicator');
+            const errorMessage = document.getElementById('errorMessage');
+            const successMessage = document.getElementById('successMessage');
+
+            // Clear previous messages
+            errorMessage.style.display = 'none';
+            successMessage.style.display = 'none';
+
+            // Show loading state
+            submitButton.style.display = 'none';
+            loadingIndicator.style.display = 'flex';
+
+            // Collect form data
+            const formData = {
+                whatsapp_number: whatsappNumber,
+                full_name: document.getElementById('fullName').value.trim(),
+                phone: document.getElementById('phone').value.trim(),
+                email: document.getElementById('email').value.trim(),
+                city: document.getElementById('city').value.trim(),
+                state: document.getElementById('state').value.trim(),
+                address: document.getElementById('address').value.trim(),
+                bvn: document.getElementById('bvn').value.trim(),
+                platform: 'whatsapp_web'
+            };
+
+            // Build address from city and state if address field is empty
+            if (!formData.address && (formData.city || formData.state)) {
+                formData.address = [formData.city, formData.state].filter(Boolean).join(', ');
+            }
+
+            try {
+                const response = await fetch('/api/whatsapp_create_account', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(formData)
+                });
+
+                // Check if response is JSON
+                const contentType = response.headers.get('content-type');
+                if (!contentType || !contentType.includes('application/json')) {
+                    throw new Error('Server is being updated. Please try again in a few minutes.');
+                }
+
+                const result = await response.json();
+
+                if (result.success) {
+                    // Show success message
+                    successMessage.textContent = '✅ Account created successfully! Check WhatsApp for your account details.';
+                    successMessage.style.display = 'block';
+
+                    // Hide the form
+                    document.getElementById('onboardingForm').style.display = 'none';
+
+                    // Close the web app after 3 seconds
+                    setTimeout(() => {
+                        if (window.WhatsApp && window.WhatsApp.close) {
+                            window.WhatsApp.close();
+                        } else {
+                            window.close();
+                        }
+                    }, 3000);
+
+                } else {
+                    throw new Error(result.error || 'Account creation failed');
+                }
+
+            } catch (error) {
+                console.error('Account creation error:', error);
+
+                // Provide helpful error messages
+                let errorText = '❌ ';
+                if (error.message.includes('Server is being updated')) {
+                    errorText += 'Server is being updated. Please try again in a few minutes. 🔄';
+                } else if (error.message.includes('JSON')) {
+                    errorText += 'Service temporarily unavailable. Please try again shortly. ⏰';
+                } else {
+                    errorText += error.message;
+                }
+
+                errorMessage.textContent = errorText;
+                errorMessage.style.display = 'block';
+
+                // Restore form
+                submitButton.style.display = 'block';
+                loadingIndicator.style.display = 'none';
+            }
+        });
+
+        // Phone number formatting
+        document.getElementById('phone').addEventListener('input', function (e) {
+            let value = e.target.value.replace(/\D/g, '');
+            if (value.length > 11) value = value.slice(0, 11);
+            e.target.value = value;
+        });
+
+        // BVN formatting
+        document.getElementById('bvn').addEventListener('input', function (e) {
+            let value = e.target.value.replace(/\D/g, '');
+            if (value.length > 11) value = value.slice(0, 11);
+            e.target.value = value;
+        });
+    </script>
+</body>
+
+</html>

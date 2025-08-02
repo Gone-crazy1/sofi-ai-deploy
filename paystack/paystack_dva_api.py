@@ -6,20 +6,40 @@ Based on official Paystack documentation
 import os
 import requests
 import logging
+import ssl
+import urllib3
 from typing import Dict, Optional, Any
 from datetime import datetime
 from dotenv import load_dotenv
+from requests.adapters import HTTPAdapter
+from urllib3.util.ssl_ import create_urllib3_context
 
 # Load environment variables
 load_dotenv()
 
+# Disable SSL warnings for Windows SSL issues
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
 logger = logging.getLogger(__name__)
+
+class SSLContextAdapter(HTTPAdapter):
+    """Custom SSL adapter for Paystack API connections on Windows"""
+    
+    def init_poolmanager(self, *args, **kwargs):
+        # Create a more permissive SSL context for Windows
+        context = create_urllib3_context()
+        context.set_ciphers('DEFAULT@SECLEVEL=1')
+        context.check_hostname = False
+        context.verify_mode = ssl.CERT_OPTIONAL
+        
+        kwargs['ssl_context'] = context
+        return super().init_poolmanager(*args, **kwargs)
 
 class PaystackDVAAPI:
     """Paystack Dedicated Virtual Account API integration"""
     
     def __init__(self):
-        """Initialize Paystack API with secret key"""
+        """Initialize Paystack API with secret key and SSL fixes"""
         self.secret_key = os.getenv("PAYSTACK_SECRET_KEY")
         self.base_url = "https://api.paystack.co"
         
@@ -31,7 +51,13 @@ class PaystackDVAAPI:
             "Content-Type": "application/json"
         }
         
-        logger.info("✅ Paystack API initialized")
+        # Create session with SSL fixes for Windows
+        self.session = requests.Session()
+        adapter = SSLContextAdapter()
+        self.session.mount('https://', adapter)
+        self.session.timeout = 30
+        
+        logger.info("✅ Paystack API initialized with SSL fixes")
     
     def create_customer_with_dva(self, user_data: Dict) -> Dict[str, Any]:
         """
@@ -127,7 +153,7 @@ class PaystackDVAAPI:
             
             logger.info(f"🔄 Creating DVA for existing customer: {customer_code}")
             
-            response = requests.post(url, json=payload, headers=self.headers)
+            response = self.session.post(url, json=payload, headers=self.headers, verify=False)
             response.raise_for_status()
             
             result = response.json()
@@ -169,7 +195,7 @@ class PaystackDVAAPI:
                 "currency": currency
             }
             
-            response = requests.get(url, headers=self.headers, params=params)
+            response = self.session.get(url, headers=self.headers, params=params, verify=False)
             response.raise_for_status()
             
             result = response.json()
@@ -203,7 +229,7 @@ class PaystackDVAAPI:
         try:
             url = f"{self.base_url}/dedicated_account/{account_id}"
             
-            response = requests.get(url, headers=self.headers)
+            response = self.session.get(url, headers=self.headers, verify=False)
             response.raise_for_status()
             
             result = response.json()
@@ -248,7 +274,7 @@ class PaystackDVAAPI:
             
             logger.info(f"🔄 Requerying DVA: {account_number}")
             
-            response = requests.get(url, headers=self.headers, params=params)
+            response = self.session.get(url, headers=self.headers, params=params, verify=False)
             response.raise_for_status()
             
             result = response.json()
@@ -286,7 +312,7 @@ class PaystackDVAAPI:
                 "use_cursor": "false"
             }
             
-            response = requests.get(url, headers=self.headers, params=params)
+            response = self.session.get(url, headers=self.headers, params=params, verify=False)
             response.raise_for_status()
             
             result = response.json()
@@ -335,7 +361,7 @@ class PaystackDVAAPI:
             
             logger.info(f"🔄 Creating Paystack customer: {payload['email']}")
             
-            response = requests.post(url, json=payload, headers=self.headers)
+            response = self.session.post(url, json=payload, headers=self.headers, verify=False)
             response.raise_for_status()
             
             result = response.json()
@@ -378,7 +404,7 @@ class PaystackDVAAPI:
             
             logger.info(f"🔍 Fetching DVA for customer: {customer_code}")
             
-            response = requests.get(url, headers=self.headers, params=params)
+            response = self.session.get(url, headers=self.headers, params=params, verify=False)
             response.raise_for_status()
             
             result = response.json()

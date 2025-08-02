@@ -68,6 +68,7 @@ from utils.memory import save_memory, list_memories, save_chat_message, get_chat
 from utils.conversation_state import conversation_state
 from utils.nigerian_expressions import enhance_nigerian_message, get_response_guidance
 from utils.prompt_schemas import get_image_prompt, validate_image_result
+from utils.whatsapp_gpt_integration import sofi_whatsapp_gpt
 from unittest.mock import MagicMock
 
 # ⚡ INSTANT RESPONSE CACHE for ultra-fast replies
@@ -78,18 +79,18 @@ from functools import lru_cache
 balance_cache = {}
 CACHE_DURATION = 20  # seconds
 
-def get_cached_balance(chat_id):
+def get_cached_balance(phone_number):
     """Get cached balance for instant response"""
     now = time.time()
-    if chat_id in balance_cache:
-        balance, timestamp = balance_cache[chat_id]
+    if phone_number in balance_cache:
+        balance, timestamp = balance_cache[phone_number]
         if now - timestamp < CACHE_DURATION:
             return balance
     return None
 
-def cache_balance(chat_id, balance):
+def cache_balance(phone_number, balance):
     """Cache balance for instant future responses"""
-    balance_cache[chat_id] = (balance, time.time())
+    balance_cache[phone_number] = (balance, time.time())
 
 # 🔒 SECURITY SYSTEM IMPORTS
 from utils.security import init_security
@@ -97,7 +98,7 @@ from utils.security_monitor import (
     log_security_event, AlertLevel, get_enhanced_security_stats,
     enable_fast_mode, disable_fast_mode, get_fast_mode_status
 )
-from utils.security_config import get_security_config, TELEGRAM_SECURITY
+from utils.security_config import get_security_config
 
 # ⚡ ENABLE FAST MODE FOR ULTRA-FAST RESPONSES
 enable_fast_mode()  # This disables non-critical security alerts
@@ -165,7 +166,8 @@ Balance: ₦{balance:,.2f}
 # Initialize required variables
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_KEY")
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+WHATSAPP_ACCESS_TOKEN = os.getenv("WHATSAPP_ACCESS_TOKEN")
+WHATSAPP_PHONE_NUMBER_ID = os.getenv("WHATSAPP_PHONE_NUMBER_ID")
 NELLOBYTES_USERID = os.getenv("NELLOBYTES_USERID")
 NELLOBYTES_APIKEY = os.getenv("NELLOBYTES_APIKEY")
 
@@ -178,18 +180,15 @@ openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 # Set the path to the ffmpeg executable for pydub
 AudioSegment.converter = which("ffmpeg")
 
-def send_typing_action(chat_id):
-    """Send 'typing...' action to Telegram chat IMMEDIATELY"""
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendChatAction"
-    payload = {
-        "chat_id": chat_id,
-        "action": "typing"
-    }
+def send_whatsapp_typing_action(phone_number):
+    """Send 'typing...' action to WhatsApp chat IMMEDIATELY"""
+    # WhatsApp doesn't have a typing indicator in the API, but we can simulate
+    # instant response by implementing a read receipt or status update
     try:
-        # Use timeout=1 for instant response
-        requests.post(url, json=payload, timeout=1)
+        # For now, just log the action - WhatsApp Cloud API doesn't support typing indicators
+        logger.info(f"📱 Simulating typing action for WhatsApp {phone_number}")
     except Exception as e:
-        logger.error(f"Failed to send typing action: {e}")
+        logger.error(f"Failed to send WhatsApp typing action: {e}")
 
 def background_task(func, *args, **kwargs):
     """Run a function in background thread for instant responses"""
@@ -198,14 +197,41 @@ def background_task(func, *args, **kwargs):
     thread.daemon = True
     thread.start()
 
-def send_instant_reply(chat_id, message, reply_markup=None):
+def send_whatsapp_message(phone_number: str, message: str):
+    """Send message to WhatsApp using Cloud API"""
+    try:
+        url = f"https://graph.facebook.com/v18.0/{WHATSAPP_PHONE_NUMBER_ID}/messages"
+        headers = {
+            "Authorization": f"Bearer {WHATSAPP_ACCESS_TOKEN}",
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "messaging_product": "whatsapp",
+            "to": phone_number,
+            "type": "text",
+            "text": {"body": message}
+        }
+        
+        response = requests.post(url, json=payload, headers=headers)
+        
+        if response.status_code == 200:
+            logger.info(f"✅ WhatsApp message sent to {phone_number}")
+            return True
+        else:
+            logger.error(f"❌ WhatsApp API error: {response.text}")
+            return False
+    except Exception as e:
+        logger.error(f"❌ Error sending WhatsApp message: {e}")
+        return False
+
+def send_whatsapp_message(phone_number, message, reply_markup=None):
     """Send INSTANT reply without waiting for background processing"""
     # Show typing IMMEDIATELY
-    send_typing_action(chat_id)
+    send_whatsapp_typing_action(phone_number)
     
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    url = f"https://graph.facebook.com/v18.0/{WHATSAPP_PHONE_NUMBER_ID}/messages"
     payload = {
-        "chat_id": chat_id, 
+        "phone_number": phone_number, 
         "text": message,
         "parse_mode": "Markdown"
     }
@@ -222,25 +248,32 @@ def send_instant_reply(chat_id, message, reply_markup=None):
         return None
 
 
-def send_reply(chat_id, message, reply_markup=None):
-    """Legacy send reply - now uses instant version"""
-    return send_instant_reply(chat_id, message, reply_markup)
+def send_whatsapp_message(phone_number, message, reply_markup=None):
+    """Send reply message to WhatsApp with optional interactive buttons"""
+    return send_whatsapp_message(phone_number, message)
 
-def send_photo_to_telegram(chat_id, photo_data, caption=None):
-    """Send photo to Telegram chat"""
+def send_photo_to_whatsapp(phone_number, photo_data, caption=None):
+    """Send photo to WhatsApp chat"""
     try:
-        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendPhoto"
+        url = f"https://graph.facebook.com/v18.0/{WHATSAPP_PHONE_NUMBER_ID}/messages"
+        headers = {
+            "Authorization": f"Bearer {WHATSAPP_ACCESS_TOKEN}",
+            "Content-Type": "application/json"
+        }
         
-        files = {'photo': photo_data}
-        data = {'chat_id': chat_id}
+        # For WhatsApp, we need to upload the image first or use a URL
+        # This is a simplified version - in production, you'd upload to a CDN
+        payload = {
+            "messaging_product": "whatsapp",
+            "to": phone_number,
+            "type": "text",
+            "text": {"body": caption or "Image sent via Sofi AI"}
+        }
         
-        if caption:
-            data['caption'] = caption
-            
-        response = requests.post(url, files=files, data=data)
+        response = requests.post(url, json=payload, headers=headers)
         return response.json() if response.status_code == 200 else None
     except Exception as e:
-        logger.error(f"Error sending photo: {e}")
+        logger.error(f"Error sending WhatsApp photo: {e}")
         return None
 
 def detect_intent(message):
@@ -303,25 +336,25 @@ IMPORTANT NIGERIAN CONTEXT:
         logger.error(f"Error detecting intent: {e}")
         return {"intent": "general", "details": {}}
 
-async def get_user_balance(chat_id):
+async def get_user_balance(phone_number):
     """Get user's current balance using enhanced helper with force sync"""
     try:
         from utils.balance_helper import get_user_balance as get_balance_secure
-        return await get_balance_secure(str(chat_id), force_sync=True)
+        return await get_balance_secure(str(phone_number), force_sync=True)
     except Exception as e:
         logger.error(f"Error getting user balance: {e}")
         return 0.0
 
-async def check_virtual_account(chat_id):
+async def check_virtual_account(phone_number):
     """Check if user has a virtual account using enhanced helper"""
     try:
         from utils.balance_helper import check_virtual_account as check_virtual_account_secure
-        return await check_virtual_account_secure(str(chat_id))
+        return await check_virtual_account_secure(str(phone_number))
     except Exception as e:
         logger.error(f"Error checking virtual account: {e}")
         return None
 
-async def generate_ai_reply(chat_id: str, message: str):
+async def generate_ai_reply(phone_number: str, message: str):
     """Generate AI reply with conversation context and Nigerian expressions support"""
     # Ensure message is always a string
     if isinstance(message, bytes):
@@ -349,7 +382,7 @@ Proudly powered by Pip install AI Technologies - the future of AI banking."""
 
     try:
         # Check if user has a virtual account
-        virtual_account = await check_virtual_account(chat_id)
+        virtual_account = await check_virtual_account(phone_number)
           # First check if this is about account creation or account status
         account_keywords = ["create account", "sign up", "register", "get started", "open account", "account status", "my account"]
         is_account_request = any(keyword in message.lower() for keyword in account_keywords)
@@ -364,7 +397,7 @@ Proudly powered by Pip install AI Technologies - the future of AI banking."""
                 if account_status == "active":
                     # Get user's full name from Supabase instead of truncated bank name
                     from utils.user_onboarding import onboarding_service
-                    user_profile = await onboarding_service.get_user_profile(str(chat_id))
+                    user_profile = await onboarding_service.get_user_profile(str(phone_number))
                     
                     # Safe access to account details with fallbacks
                     account_number = virtual_account.get("accountNumber") or virtual_account.get("account_number", "Not available")
@@ -415,11 +448,11 @@ Proudly powered by Pip install AI Technologies - the future of AI banking."""
                     ]
                 }
                 
-                save_chat_message(chat_id, "assistant", reply)
-                return send_reply(chat_id, reply, keyboard)
+                save_chat_message(phone_number, "assistant", reply)
+                return send_whatsapp_message(phone_number, reply, keyboard)
 
         # Get conversation history
-        messages = get_chat_history(chat_id)
+        messages = get_chat_history(phone_number)
           # Add system prompt and current message
         conversation = [
             {"role": "system", "content": system_prompt},
@@ -450,8 +483,8 @@ Proudly powered by Pip install AI Technologies - the future of AI banking."""
         # Save the exchange to conversation history
         # Only save if ai_reply is a string (avoid MagicMock in tests)
         if isinstance(ai_reply, str):
-            save_chat_message(chat_id, "user", message)
-            save_chat_message(chat_id, "assistant", ai_reply)
+            save_chat_message(phone_number, "user", message)
+            save_chat_message(phone_number, "assistant", ai_reply)
         else:
             logger.warning(f"Not saving non-string ai_reply to chat history: {type(ai_reply)}")
         return ai_reply
@@ -461,18 +494,18 @@ Proudly powered by Pip install AI Technologies - the future of AI banking."""
         return "Sorry, I'm having trouble thinking right now. Please try again later."
 
 def download_file(file_id):
-    """Download file from Telegram"""
+    """Download file from WhatsApp"""
     # Get file path
-    file_info_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getFile?file_id={file_id}"
+    file_info_url = f"https://graph.facebook.com/v18.0/{WHATSAPP_PHONE_NUMBER_ID}/media?file_id={file_id}"
     file_info = requests.get(file_info_url).json()
     file_path = file_info["result"]["file_path"]
 
     # Download file
-    file_url = f"https://api.telegram.org/file/bot{TELEGRAM_BOT_TOKEN}/{file_path}"
+    file_url = f"https://graph.facebook.com/v18.0/{file_path}"
     file_data = requests.get(file_url).content
     return file_data
 
-def process_photo(file_id):
+def process_whatsapp_media(message):
     """Process photo messages"""
     try:
         # Download the image
@@ -570,7 +603,7 @@ def process_photo(file_id):
         logger.error(f"Error processing photo: {e}")
         return False, "I had trouble processing that image. Please try again or describe what you need help with."
 
-def process_voice(file_id):
+def process_whatsapp_voice(message):
     """Process voice messages"""
     try:
         # Download the voice file
@@ -643,15 +676,15 @@ def verify_account_name(account_number: str, bank_name: str) -> Dict:
             "error": "Error processing"
         }
 
-async def handle_transfer_flow(chat_id: str, message: str, user_data: dict = None, media_data: dict = None) -> str:
+async def handle_transfer_flow(phone_number: str, message: str, user_data: dict = None, media_data: dict = None) -> str:
     """Handle the transfer conversation flow with enhanced natural language processing"""
     from utils.enhanced_intent_detection import enhanced_intent_detector
     
-    state = conversation_state.get_state(chat_id)
+    state = conversation_state.get_state(phone_number)
     
     # Check if user wants to exit transfer flow
     if state and enhanced_intent_detector.detect_intent_change(message):
-        conversation_state.clear_state(chat_id)
+        conversation_state.clear_state(phone_number)
         # Let the message be handled by general AI
         return None
     
@@ -697,7 +730,7 @@ async def handle_transfer_flow(chat_id: str, message: str, user_data: dict = Non
                         'beneficiary_nickname': beneficiary['name']
                     }
                     
-                    conversation_state.set_state(chat_id, state)
+                    conversation_state.set_state(phone_number, state)
                     
                     return f"""💳 **Transfer to {beneficiary['name']}**
 
@@ -755,7 +788,7 @@ Is this correct? Reply 'yes' to continue or 'no' to cancel."""
             state['step'] = 'get_account'
             msg = "Please provide the recipient's account number:"
         
-        conversation_state.set_state(chat_id, state)
+        conversation_state.set_state(phone_number, state)
         return msg
     
     # Handle ongoing transfer conversation
@@ -808,7 +841,7 @@ Is this correct? Reply 'yes' to continue or 'no' to cancel."""
             state['step'] = 'get_bank'
             msg = f"📱 Account: {account_number}\n\nWhich bank is this account with?"
         
-        conversation_state.set_state(chat_id, state)
+        conversation_state.set_state(phone_number, state)
         return msg
     
     elif current_step == 'get_bank':
@@ -830,7 +863,7 @@ Is this correct? Reply 'yes' to continue or 'no' to cancel."""
         else:
             return f"Could not verify account: {verification_result.get('error')}. Please try again:"
         
-        conversation_state.set_state(chat_id, state)
+        conversation_state.set_state(phone_number, state)
         return msg
     
     elif current_step == 'get_amount':
@@ -851,7 +884,7 @@ Is this correct? Reply 'yes' to continue or 'no' to cancel."""
             # Store transaction for secure verification and get secure token
             from utils.secure_pin_verification import secure_pin_verification
             secure_token = secure_pin_verification.store_pending_transaction(transaction_id, {
-                'chat_id': chat_id,
+                'phone_number': phone_number,
                 'user_data': user_data,
                 'transfer_data': transfer,
                 'amount': amount
@@ -880,8 +913,8 @@ Is this correct? Reply 'yes' to continue or 'no' to cancel."""
                 ]]
             }
             
-            conversation_state.set_state(chat_id, state)            # Send message with secure PIN button
-            send_reply(chat_id, msg, pin_keyboard)
+            conversation_state.set_state(phone_number, state)            # Send message with secure PIN button
+            send_whatsapp_message(phone_number, msg, pin_keyboard)
             return None  # Don't send additional message
             
         except ValueError:
@@ -902,7 +935,7 @@ Is this correct? Reply 'yes' to continue or 'no' to cancel."""
             # Store transaction for secure verification and get secure token
             from utils.secure_pin_verification import secure_pin_verification
             secure_token = secure_pin_verification.store_pending_transaction(transaction_id, {
-                'chat_id': chat_id,
+                'phone_number': phone_number,
                 'user_data': user_data,
                 'transfer_data': transfer,
                 'amount': transfer['amount']
@@ -927,13 +960,13 @@ Is this correct? Reply 'yes' to continue or 'no' to cancel."""
                 ]]
             }
             
-            conversation_state.set_state(chat_id, state)
-            send_reply(chat_id, msg, pin_keyboard)
+            conversation_state.set_state(phone_number, state)
+            send_whatsapp_message(phone_number, msg, pin_keyboard)
             return None  # Don't send additional message
             
         elif response_lower in ['no', 'n', 'cancel', 'stop']:
             # User cancelled
-            conversation_state.clear_state(chat_id)
+            conversation_state.clear_state(phone_number)
             
             beneficiary_name = state.get('beneficiary_nickname', 'recipient')
             return f"❌ Transfer to {beneficiary_name} cancelled. Is there anything else I can help you with?"
@@ -951,7 +984,7 @@ Is this correct? Reply 'yes' to continue or 'no' to cancel."""
     
     return "I didn't understand that. Please try again."
 
-async def handle_airtime_commands(chat_id: str, message: str, user_data: dict, virtual_account: dict = None) -> Optional[str]:
+async def handle_airtime_commands(phone_number: str, message: str, user_data: dict, virtual_account: dict = None) -> Optional[str]:
     """Handle airtime and data purchase commands"""
     try:
         # Check if message is actually about airtime/data before processing
@@ -966,7 +999,7 @@ async def handle_airtime_commands(chat_id: str, message: str, user_data: dict, v
         from utils.airtime_handler import AirtimeHandler
         
         airtime_handler = AirtimeHandler()
-        response = await airtime_handler.handle_airtime_request(chat_id, message, user_data, virtual_account)
+        response = await airtime_handler.handle_airtime_request(phone_number, message, user_data, virtual_account)
         return response
     except Exception as e:
         logger.error(f"Error handling airtime command: {e}")
@@ -976,7 +1009,7 @@ async def handle_airtime_commands(chat_id: str, message: str, user_data: dict, v
             return "Sorry, I'm having trouble with airtime services right now. Please try again later."
         return None
 
-async def handle_crypto_commands(chat_id: str, message: str, user_data: dict) -> Optional[str]:
+async def handle_crypto_commands(phone_number: str, message: str, user_data: dict) -> Optional[str]:
     """Handle crypto wallet and transaction commands"""
     try:
         # Check if message is actually about crypto before processing
@@ -991,7 +1024,7 @@ async def handle_crypto_commands(chat_id: str, message: str, user_data: dict) ->
         from crypto.handlers import CryptoCommandHandler
         
         crypto_handler = CryptoCommandHandler()
-        response = await crypto_handler.handle_crypto_request(chat_id, message, user_data)
+        response = await crypto_handler.handle_crypto_request(phone_number, message, user_data)
         return response
     except Exception as e:
         logger.error(f"Error handling crypto command: {e}")
@@ -1001,13 +1034,13 @@ async def handle_crypto_commands(chat_id: str, message: str, user_data: dict) ->
             return "Sorry, I'm having trouble with crypto services right now. Please try again later."
         return None
 
-async def handle_message(chat_id: str, message: str, user_data: dict = None, virtual_account: dict = None) -> str:
+async def handle_message(phone_number: str, message: str, user_data: dict = None, virtual_account: dict = None) -> str:
     """Main message handler with AI Assistant integration - Powered by Pip install AI Technologies"""
     try:
         # Check for admin commands first (highest priority)
-        admin_command = await admin_handler.detect_admin_command(message, chat_id)
+        admin_command = await admin_handler.detect_admin_command(message, phone_number)
         if admin_command:
-            admin_response = await admin_handler.handle_admin_command(admin_command, message, chat_id)
+            admin_response = await admin_handler.handle_admin_command(admin_command, message, phone_number)
             return admin_response
         
         # Legacy smart transfer code removed - now using AI Assistant
@@ -1022,7 +1055,7 @@ async def handle_message(chat_id: str, message: str, user_data: dict = None, vir
                 context_data['virtual_account'] = virtual_account
             
             # Process message with AI Assistant
-            response, function_data = await assistant.process_message(chat_id, message, context_data)
+            response, function_data = await assistant.process_message(phone_number, message, context_data)
             
             # Check if any function returned requires_pin or completed transfer
             if function_data:
@@ -1043,7 +1076,7 @@ async def handle_message(chat_id: str, message: str, user_data: dict = None, vir
                             logger.info(f"⌨️ Keyboard: {pin_keyboard}")
                             
                             # Send message with PIN button
-                            send_reply(chat_id, pin_message, pin_keyboard)
+                            send_whatsapp_message(phone_number, pin_message, pin_keyboard)
                             
                             # Return special marker to prevent duplicate message sending
                             return "PIN_ALREADY_SENT"
@@ -1059,14 +1092,14 @@ async def handle_message(chat_id: str, message: str, user_data: dict = None, vir
                         # Generate and send beautiful HTML receipt
                         receipt_data = func_result.get("receipt_data", {})
                         if receipt_data:
-                            await send_beautiful_receipt(chat_id, receipt_data, func_result)
+                            await send_beautiful_receipt(phone_number, receipt_data, func_result)
                         
                         # Return the receipt message directly
                         return func_result.get("message", "Transfer completed successfully!")
             
             # If assistant handled it successfully, return the response
             if response and not response.startswith("Sorry, I encountered an error"):
-                logger.info(f"✅ AI Assistant handled message from {chat_id}")
+                logger.info(f"✅ AI Assistant handled message from {phone_number}")
                 return response
             else:
                 logger.info(f"⚠️ AI Assistant failed, falling back to legacy handlers")
@@ -1077,12 +1110,12 @@ async def handle_message(chat_id: str, message: str, user_data: dict = None, vir
         
         # Fallback to legacy handlers if assistant fails
         # Check for beneficiary commands first (before other handlers)
-        beneficiary_response = await legacy_beneficiary_handler.handle_beneficiary_command(chat_id, message, user_data or {})
+        beneficiary_response = await legacy_beneficiary_handler.handle_beneficiary_command(phone_number, message, user_data or {})
         if beneficiary_response:
             return beneficiary_response
         
         # Check for transaction history queries
-        history_response = await handle_transaction_history_query(chat_id, message, user_data)
+        history_response = await handle_transaction_history_query(phone_number, message, user_data)
         if history_response:
             return history_response
         
@@ -1090,38 +1123,38 @@ async def handle_message(chat_id: str, message: str, user_data: dict = None, vir
         summary_keywords = ['2 month', 'two month', 'monthly summary', 'financial summary', 'spending summary', 
                            'transaction summary', 'summarize my transactions', 'past 2 months', 'last 2 months']
         if any(keyword in message.lower() for keyword in summary_keywords):
-            summary_response = await transaction_summarizer.get_2_month_summary(chat_id, user_data)
+            summary_response = await transaction_summarizer.get_2_month_summary(phone_number, user_data)
             return summary_response
         
         # Check for balance inquiry
-        balance_response = await handle_balance_inquiry(chat_id, message, user_data, virtual_account)
+        balance_response = await handle_balance_inquiry(phone_number, message, user_data, virtual_account)
         if balance_response:
             return balance_response
         
         # Check for transfer intent
-        transfer_response = await handle_transfer_flow(chat_id, message, user_data)
+        transfer_response = await handle_transfer_flow(phone_number, message, user_data)
         if transfer_response:
             return transfer_response
         
         # Check for airtime/data commands
-        airtime_response = await handle_airtime_commands(chat_id, message, user_data, virtual_account)
+        airtime_response = await handle_airtime_commands(phone_number, message, user_data, virtual_account)
         if airtime_response:
             return airtime_response
         
         # Check for crypto commands
-        crypto_response = await handle_crypto_commands(chat_id, message, user_data)
+        crypto_response = await handle_crypto_commands(phone_number, message, user_data)
         if crypto_response:
             return crypto_response
         
         # Fall back to general AI conversation
-        ai_response = await generate_ai_reply(chat_id, message)
+        ai_response = await generate_ai_reply(phone_number, message)
         return ai_response
         
     except Exception as e:
         logger.error(f"Error handling message: {e}")
         return "Sorry, I encountered an error. Please try again."
 
-async def handle_balance_inquiry(chat_id: str, message: str, user_data: dict = None, virtual_account: dict = None) -> str:
+async def handle_balance_inquiry(phone_number: str, message: str, user_data: dict = None, virtual_account: dict = None) -> str:
     """Handle balance inquiry requests"""
     try:
         # Check if message is asking for balance
@@ -1138,7 +1171,7 @@ async def handle_balance_inquiry(chat_id: str, message: str, user_data: dict = N
         
         # Get user's virtual account if not provided
         if not virtual_account:
-            virtual_account = await check_virtual_account(chat_id)
+            virtual_account = await check_virtual_account(phone_number)
         
         if not virtual_account:
             return (
@@ -1149,11 +1182,11 @@ async def handle_balance_inquiry(chat_id: str, message: str, user_data: dict = N
             # The main handler should catch this and send the web app button
         
         # Get current balance
-        current_balance = await get_user_balance(chat_id)
+        current_balance = await get_user_balance(phone_number)
         
         # Get user's full name from Supabase
         from utils.user_onboarding import onboarding_service
-        user_profile = await onboarding_service.get_user_profile(str(chat_id))
+        user_profile = await onboarding_service.get_user_profile(str(phone_number))
         
         # Safe access to account details
         account_number = virtual_account.get("accountNumber") or virtual_account.get("account_number", "Not available")
@@ -1165,8 +1198,8 @@ async def handle_balance_inquiry(chat_id: str, message: str, user_data: dict = N
         try:
             supabase = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
             
-            # First get the user UUID from telegram_chat_id
-            user_result = supabase.table("users").select("id").eq("telegram_chat_id", str(chat_id)).execute()
+            # First get the user UUID from whatsapp_number
+            user_result = supabase.table("users").select("id").eq("whatsapp_number", phone_number).execute()
             
             if not user_result.data:
                 recent_transactions = ["• No user found"]
@@ -1386,48 +1419,121 @@ def security_events():
         logger.error(f"Error getting security events: {e}")
         return jsonify({"error": "Internal server error"}), 500
 
-@app.route("/webhook", methods=["POST"])
-async def webhook_incoming():
-    """Handle incoming Telegram messages and callback queries with INSTANT typing response"""
+@app.route("/webhook", methods=["GET", "POST"])
+async def whatsapp_webhook_handler():
+    """Handle incoming WhatsApp messages with INSTANT response"""
     try:
         # 🔒 Security monitoring for webhook
         client_ip = request.headers.get('X-Forwarded-For', request.remote_addr)
         user_agent = request.headers.get('User-Agent', 'Unknown')
         
         # Log webhook access
-        log_security_event("webhook_access", AlertLevel.LOW, client_ip, user_agent, "/webhook", "POST")
-        
-        # Validate Telegram webhook (basic check)
-        if not user_agent or 'telegram' not in user_agent.lower():
-            log_security_event("suspicious_webhook", AlertLevel.MEDIUM, client_ip, user_agent, "/webhook", "POST", 
-                             reason="Non-Telegram user agent")
+        log_security_event("whatsapp_webhook", AlertLevel.LOW, client_ip, user_agent, "/webhook", "POST")
         
         data = request.get_json()
         
         if not data:
             log_security_event("invalid_webhook_payload", AlertLevel.MEDIUM, client_ip, user_agent, "/webhook", "POST")
-            return jsonify({"error": "Invalid update payload", "response": None}), 400
+            return jsonify({"error": "Invalid WhatsApp payload"}), 400
         
-        # Handle callback queries (inline keyboard button presses)
-        if "callback_query" in data:
-            return await handle_callback_query(data["callback_query"])
+        # Handle WhatsApp webhook verification
+        if request.method == "GET":
+            # Webhook verification for WhatsApp
+            verify_token = request.args.get("hub.verify_token")
+            challenge = request.args.get("hub.challenge")
+            
+            if verify_token == os.getenv("WHATSAPP_VERIFY_TOKEN"):
+                return challenge
+            else:
+                return "Invalid verification token", 403
         
-        # Handle regular messages
-        if "message" not in data:
-            return jsonify({"error": "Invalid message payload", "response": None}), 400
+        # Process WhatsApp webhook data
+        if data.get("object") == "whatsapp_business_account":
+            entries = data.get("entry", [])
+            
+            for entry in entries:
+                changes = entry.get("changes", [])
+                
+                for change in changes:
+                    if change.get("field") == "messages":
+                        messages = change.get("value", {}).get("messages", [])
+                        
+                        for message in messages:
+                            # Extract message details
+                            phone_number = message.get("from")
+                            message_type = message.get("type")
+                            timestamp = message.get("timestamp")
+                            
+                            # Get message content based on type
+                            message_text = ""
+                            if message_type == "text":
+                                message_text = message.get("text", {}).get("body", "")
+                            elif message_type == "button":
+                                message_text = message.get("button", {}).get("text", "")
+                            elif message_type == "interactive":
+                                interactive = message.get("interactive", {})
+                                if interactive.get("type") == "button_reply":
+                                    message_text = interactive.get("button_reply", {}).get("title", "")
+                                elif interactive.get("type") == "list_reply":
+                                    message_text = interactive.get("list_reply", {}).get("title", "")
+                            
+                            if phone_number and message_text:
+                                # ⚡ INSTANT TYPING INDICATOR - Show typing IMMEDIATELY
+                                send_whatsapp_typing_action(phone_number)
+                                
+                                # Get user data for this WhatsApp number
+                                user_data = None
+                                try:
+                                    user_resp = supabase.table("users").select("*").eq("whatsapp_number", phone_number).execute()
+                                    user_data = user_resp.data[0] if user_resp.data else None
+                                except Exception as e:
+                                    logger.error(f"Error getting user data: {e}")
+                                
+                                # Process message with AI assistant
+                                try:
+                                    from assistant import get_assistant
+                                    assistant = get_assistant()
+                                    
+                                    # Process message and get response
+                                    response, function_data = await assistant.process_message(
+                                        phone_number=phone_number,
+                                        message=message_text,
+                                        user_data=user_data
+                                    )
+                                    
+                                    # Send response immediately
+                                    send_whatsapp_message(phone_number, response)
+                                    
+                                    # Handle any function data in background
+                                    if function_data:
+                                        def handle_function_data_background():
+                                            # Process any additional function results
+                                            logger.info(f"Processing function data for {phone_number}: {function_data}")
+                                        
+                                        background_task(handle_function_data_background)
+                                
+                                except Exception as e:
+                                    logger.error(f"Error processing WhatsApp message: {e}")
+                                    send_whatsapp_message(phone_number, "Sorry, I encountered an error. Please try again.")
+        
+        return jsonify({"status": "success"}), 200
+        
+    except Exception as e:
+        logger.error(f"WhatsApp webhook error: {e}")
+        return jsonify({"error": "Internal server error"}), 500
         
         message_data = data["message"]
-        chat_id = str(message_data["chat"]["id"])
+        phone_number = str(message_data["chat"]["id"])
         
         # ⚡ INSTANT TYPING INDICATOR - Show typing IMMEDIATELY when message arrives
-        send_typing_action(chat_id)
+        send_whatsapp_typing_action(phone_number)
         
         # Extract user information
         user_data = message_data.get("from", {})
         
         # Check if user exists in database (run in background)
         def check_user_background():
-            return supabase.table("users").select("*").eq("telegram_chat_id", str(chat_id)).execute()
+            return supabase.table("users").select("*").eq("whatsapp_number", phone_number).execute()
         
         # Start background user check but don't wait for it
         background_task(check_user_background)
@@ -1437,17 +1543,17 @@ async def webhook_incoming():
             file_id = message_data["photo"][-1]["file_id"]  # Get the highest quality photo
             
             # Send quick response first
-            send_instant_reply(chat_id, "📸 Processing your image...")
+            send_whatsapp_message(phone_number, "📸 Processing your image...")
             
             # Process photo in background
             def process_photo_background():
-                success, response = process_photo(file_id)
+                success, response = process_whatsapp_media(message)
                 if success:
                     # Use asyncio.run for the async call
-                    ai_response = asyncio.run(generate_ai_reply(chat_id, response))
-                    send_instant_reply(chat_id, ai_response)
+                    ai_response = asyncio.run(generate_ai_reply(phone_number, response))
+                    send_whatsapp_message(phone_number, ai_response)
                 else:
-                    send_instant_reply(chat_id, response)
+                    send_whatsapp_message(phone_number, response)
             
             background_task(process_photo_background)
             return jsonify({"status": "ok", "response": "Processing image..."}), 200
@@ -1457,13 +1563,13 @@ async def webhook_incoming():
             file_id = message_data["voice"]["file_id"]
             
             # Check if user is in PIN verification mode
-            state = conversation_state.get_state(chat_id)
+            state = conversation_state.get_state(phone_number)
             if state and state.get('step') == 'secure_pin_verification':
                 # Process voice PIN
                 from utils.voice_pin_processor import VoicePinProcessor
                 
                 voice_processor = VoicePinProcessor()
-                result = await voice_processor.process_voice_pin(file_id, chat_id)
+                result = await voice_processor.process_voice_pin(file_id, phone_number)
                 
                 if result['success']:
                     extracted_pin = result['pin']
@@ -1474,26 +1580,26 @@ async def webhook_incoming():
                     
                     # Handle the PIN as if it was typed
                     response = await handle_secure_transfer_confirmation(
-                        chat_id=chat_id,
+                        phone_number=phone_number,
                         message=extracted_pin,
                         user_data=user_data,
                         transfer_data=transfer_data
                     )
-                    send_reply(chat_id, response)
+                    send_whatsapp_message(phone_number, response)
                 else:
-                    send_reply(chat_id, result['error'])
+                    send_whatsapp_message(phone_number, result['error'])
                     
             else:
                 # Normal voice processing for general conversation
-                success, response = process_voice(file_id)
+                success, response = process_whatsapp_voice(message)
                 
                 if success:
                     # Process the transcribed text as a regular message
                     user_message = response
-                    ai_response = await handle_message(chat_id, user_message, user_data)
-                    send_reply(chat_id, ai_response)
+                    ai_response = await handle_message(phone_number, user_message, user_data)
+                    send_whatsapp_message(phone_number, ai_response)
                 else:
-                    send_reply(chat_id, response)
+                    send_whatsapp_message(phone_number, response)
         
         # Handle text messages with INSTANT response
         elif "text" in message_data:
@@ -1505,7 +1611,7 @@ async def webhook_incoming():
             # ⚡ INSTANT RESPONSE LOGIC - Get user data in background
             def get_user_data_async():
                 try:
-                    user_resp = supabase.table("users").select("*").eq("telegram_chat_id", str(chat_id)).execute()
+                    user_resp = supabase.table("users").select("*").eq("whatsapp_number", phone_number).execute()
                     return user_resp.data[0] if user_resp.data else None
                 except:
                     return None
@@ -1513,7 +1619,7 @@ async def webhook_incoming():
             def get_virtual_account_async():
                 try:
                     import asyncio
-                    return asyncio.run(check_virtual_account(chat_id))
+                    return asyncio.run(check_virtual_account(phone_number))
                 except:
                     return None
             
@@ -1543,7 +1649,7 @@ async def webhook_incoming():
                                     {"text": "🚀 Complete Registration", "web_app": {"url": "https://pipinstallsofi.com/onboard"}}
                                 ]]
                             }
-                            send_instant_reply(chat_id, brief_response, keyboard)
+                            send_whatsapp_message(phone_number, brief_response, keyboard)
                             return
                         
                         # Full onboarding for substantial messages
@@ -1564,7 +1670,7 @@ async def webhook_incoming():
                                     {"text": "🚀 Complete Registration", "web_app": {"url": "https://pipinstallsofi.com/onboard"}}
                                 ]]
                             }
-                            send_instant_reply(chat_id, onboarding_message, inline_keyboard)
+                            send_whatsapp_message(phone_number, onboarding_message, inline_keyboard)
                         else:
                             brief_nudge = "Hi! I'm Sofi AI. Tap below to get started:"
                             keyboard = {
@@ -1572,7 +1678,7 @@ async def webhook_incoming():
                                     {"text": "🚀 Get Started", "web_app": {"url": "https://pipinstallsofi.com/onboard"}}
                                 ]]
                             }
-                            send_instant_reply(chat_id, brief_nudge, keyboard)
+                            send_whatsapp_message(phone_number, brief_nudge, keyboard)
                         return
                     
                     # Process existing user messages - ASSISTANT ONLY
@@ -1590,7 +1696,7 @@ async def webhook_incoming():
                         
                         # 🎯 PURE ASSISTANT PROCESSING - Single source of truth
                         with app.app_context():  # Fix Flask context issues
-                            response, function_data = asyncio.run(assistant.process_message(chat_id, user_message, context_data))
+                            response, function_data = asyncio.run(assistant.process_message(phone_number, user_message, context_data))
                         
                         # Handle function results first (like PIN keyboards)
                         if function_data:
@@ -1611,25 +1717,25 @@ async def webhook_incoming():
                                     logger.info(f"⌨️ Keyboard: {pin_keyboard}")
                                     
                                     # Send message with PIN button
-                                    send_instant_reply(chat_id, pin_message, pin_keyboard)
+                                    send_whatsapp_message(phone_number, pin_message, pin_keyboard)
                                     return  # Don't send additional message
                         
                         # Send only the assistant response if no special handling
                         if response:
-                            send_instant_reply(chat_id, response)
+                            send_whatsapp_message(phone_number, response)
                             
                     except Exception as assistant_error:
                         logger.error(f"❌ Assistant processing error: {str(assistant_error)}")
-                        send_instant_reply(chat_id, "Sorry, I'm having trouble processing your request. Please try again.")
+                        send_whatsapp_message(phone_number, "Sorry, I'm having trouble processing your request. Please try again.")
                             
                 except Exception as e:
                     logger.error(f"Error in background message processing: {str(e)}")
-                    send_instant_reply(chat_id, "Sorry, I encountered an error. Please try again.")
+                    send_whatsapp_message(phone_number, "Sorry, I encountered an error. Please try again.")
             
             # Start background processing
             background_task(process_message_background)
             
-            # Return immediately to Telegram (under 1 second response)
+            # Return immediately to WhatsApp (under 1 second response)
             return jsonify({"success": True, "status": "processing"}), 200
 
         return jsonify({"success": True}), 200
@@ -1681,8 +1787,8 @@ def handle_paystack_webhook_legacy():
     return handle_paystack_webhook_route()
 
 # WhatsApp Cloud API Helper Functions
-def send_whatsapp_message(to_number: str, message_text: str) -> bool:
-    """Send a WhatsApp message using Cloud API"""
+def send_whatsapp_message(to_number: str, message_text: str, interactive_button: dict = None) -> bool:
+    """Send a WhatsApp message using Cloud API with optional interactive button"""
     try:
         access_token = os.getenv("WHATSAPP_ACCESS_TOKEN")
         phone_number_id = os.getenv("WHATSAPP_PHONE_NUMBER_ID")
@@ -1698,11 +1804,54 @@ def send_whatsapp_message(to_number: str, message_text: str) -> bool:
             "Content-Type": "application/json"
         }
         
-        payload = {
-            "messaging_product": "whatsapp",
-            "to": to_number,
-            "text": {"body": message_text}
-        }
+        # Create payload with interactive button if provided
+        if interactive_button:
+            payload = {
+                "messaging_product": "whatsapp",
+                "to": to_number,
+                "type": "interactive",
+                "interactive": {
+                    "type": "button",
+                    "body": {
+                        "text": message_text
+                    },
+                    "action": {
+                        "buttons": [
+                            {
+                                "type": "reply",
+                                "reply": {
+                                    "id": interactive_button.get("id", "btn_1"),
+                                    "title": interactive_button.get("title", "Open Link")
+                                }
+                            }
+                        ]
+                    }
+                }
+            }
+            
+            # If it's a web URL button, use the correct format
+            if interactive_button.get("url"):
+                payload["interactive"] = {
+                    "type": "cta_url",
+                    "body": {
+                        "text": message_text
+                    },
+                    "action": {
+                        "name": "cta_url",
+                        "parameters": {
+                            "display_text": interactive_button.get("title", "Open Link"),
+                            "url": interactive_button.get("url")
+                        }
+                    }
+                }
+        else:
+            # Standard text message
+            payload = {
+                "messaging_product": "whatsapp",
+                "to": to_number,
+                "type": "text", 
+                "text": {"body": message_text}
+            }
         
         response = requests.post(url, json=payload, headers=headers)
         
@@ -1751,31 +1900,42 @@ def parse_whatsapp_message(data: dict) -> tuple:
         return None, None
 
 async def route_whatsapp_message(sender: str, text: str) -> str:
-    """Route WhatsApp message to GPT-3.5 Turbo powered Sofi Assistant"""
+    """Route WhatsApp message to GPT-powered Sofi AI assistant"""
     try:
-        # Import the GPT-3.5 Turbo integration
-        from utils.whatsapp_gpt_integration import sofi_whatsapp_gpt
+        # 🤖 PRIMARY: Use GPT-powered Sofi AI for ALL messages
+        logger.info(f"🧠 Processing message via Sofi GPT: {sender} -> {text}")
         
-        logger.info(f"📱 Processing WhatsApp message from {sender}: {text}")
+        # Use the GPT integration for intelligent responses
+        gpt_response, button_data = await sofi_whatsapp_gpt.process_whatsapp_message(sender, text)
         
-        # Use GPT-3.5 Turbo to generate intelligent response
-        response = await sofi_whatsapp_gpt.process_whatsapp_message(sender, text)
+        if gpt_response:
+            logger.info(f"✅ GPT response generated for {sender}")
+            
+            # Send message with button if button_data is provided
+            if button_data:
+                success = send_whatsapp_message(sender, gpt_response, button_data)
+            else:
+                success = send_whatsapp_message(sender, gpt_response)
+            
+            return "Message sent with GPT response"
         
-        logger.info(f"🤖 Sofi GPT response to {sender}: {response[:100]}...")
-        return response
+        # Fallback only if GPT fails
+        logger.warning(f"⚠️ GPT failed, using fallback for {sender}")
         
-    except Exception as e:
-        logger.error(f"WhatsApp GPT routing error: {e}")
-        # Fallback response if GPT fails
-        return """🤖 Hi! I'm Sofi, your AI banking assistant. 
-
-I can help you with:
-💰 Balance checking
-💸 Money transfers  
-📱 Airtime purchases
-🔐 Account creation
-
-Try asking me something like "check balance" or "help me send money"!"""
+        # Import onboarding functions (fallback)
+        from utils.whatsapp_onboarding import (
+            handle_whatsapp_onboarding_response,
+            process_whatsapp_onboarding_step,
+            send_whatsapp_onboarding_link,
+            get_user_onboarding_state
+        )
+        
+        # Check if user is in onboarding process
+        onboarding_state = get_user_onboarding_state(sender)
+        if onboarding_state:
+            onboarding_response = process_whatsapp_onboarding_step(sender, text)
+            if onboarding_response:
+                return onboarding_response
         
         # Handle button responses (interactive messages)
         if text in ["quick_signup", "full_onboard", "learn_more"]:
@@ -1798,30 +1958,42 @@ Try asking me something like "check balance" or "help me send money"!"""
         except:
             user_exists = False
         
-        # If user doesn't exist, offer onboarding
+        # If user doesn't exist, offer onboarding with button
         if not user_exists and not onboarding_state:
-            return f"""👋 Hi! I'm Sofi, your AI financial assistant.
+            message = """👋 Hi! I'm Sofi, your AI financial assistant.
 
 I notice you're new here. Let me help you create your account!
 
-Type 'signup' to get started, or I can help you with:
+I can help you with:
 • Account creation
 • Balance checking  
 • Money transfers
 • Airtime purchases
 
-What would you like to do?"""
+Tap the button below to get started!"""
+            
+            button_data = {
+                "title": "🚀 Create Account",
+                "url": f"https://pipinstallsofi.com/whatsapp-onboard?whatsapp={sender}",
+                "id": "create_account"
+            }
+            
+            success = send_whatsapp_message(sender, message, button_data)
+            return "New user onboarding sent"
         
         # Balance check
         if "balance" in text:
-            from utils.balance_helper import get_user_balance
+            from utils.balance_helper_paystack import format_balance_message
             try:
-                # Use sender phone number as chat_id for WhatsApp users
-                balance = await get_user_balance(sender)
-                return f"💰 Your Sofi balance is ₦{balance:,.2f}"
+                # Use Paystack balance system for WhatsApp users
+                balance_message = await format_balance_message(sender)
+                success = send_whatsapp_message(sender, balance_message)
+                return "Balance check sent via WhatsApp"
             except Exception as e:
                 logger.error(f"Balance check failed: {e}")
-                return "❌ Unable to check balance. Please try again later."
+                error_msg = "❌ Unable to check balance. Please try again later."
+                send_whatsapp_message(sender, error_msg)
+                return "Balance check failed"
         
         # Send money command
         if "send" in text and "to" in text:
@@ -1880,37 +2052,54 @@ What would you like to do?"""
 
 @app.route("/whatsapp-webhook", methods=["GET", "POST"])
 def whatsapp_webhook():
-    """WhatsApp Cloud API webhook endpoint with full Sofi assistant integration"""
-    try:
-        if request.method == "GET":
-            # Webhook verification
-            verify_token = os.getenv("WHATSAPP_VERIFY_TOKEN", "sofi_ai_webhook_verify_2024")
-            
-            # Get query parameters
-            mode = request.args.get("hub.mode")
-            token = request.args.get("hub.verify_token")
-            challenge = request.args.get("hub.challenge")
-            
-            if mode == "subscribe" and token == verify_token:
-                logger.info("✅ WhatsApp webhook verified successfully")
-                return challenge, 200
-            else:
-                logger.error("❌ WhatsApp webhook verification failed")
-                return "Verification failed", 403
+    """Handle WhatsApp Cloud API webhooks"""
+    
+    if request.method == "GET":
+        # Webhook verification
+        verify_token = os.getenv("WHATSAPP_VERIFY_TOKEN")
         
-        elif request.method == "POST":
-            # Handle incoming WhatsApp messages with full assistant integration
-            from utils.whatsapp_assistant_integration import handle_whatsapp_webhook
-            
+        mode = request.args.get("hub.mode")
+        token = request.args.get("hub.verify_token")
+        challenge = request.args.get("hub.challenge")
+        
+        if mode == "subscribe" and token == verify_token:
+            logger.info("WhatsApp webhook verified successfully")
+            return challenge
+        else:
+            logger.warning("WhatsApp webhook verification failed")
+            return "Forbidden", 403
+    
+    elif request.method == "POST":
+        # Handle incoming messages
+        try:
             data = request.get_json()
-            result = handle_whatsapp_webhook(data)
             
-            logger.info(f"WhatsApp webhook processed: {result}")
-            return jsonify({"status": "success", "result": result}), 200
+            if not data:
+                return "Bad Request", 400
             
-    except Exception as e:
-        logger.error(f"❌ WhatsApp webhook error: {e}")
-        return "Internal Server Error", 500
+            # Parse the message
+            sender, text = parse_whatsapp_message(data)
+            
+            if not sender or not text:
+                logger.info("WhatsApp webhook: No valid message found")
+                return "OK", 200
+            
+            logger.info(f"WhatsApp message from {sender}: {text}")
+            
+            # Route and process the message
+            import asyncio
+            result = asyncio.run(route_whatsapp_message(sender, text))
+            
+            # The route_whatsapp_message now handles sending messages directly
+            # No need to send response again here
+            
+            logger.info(f"WhatsApp message processed: {result}")
+            
+            return "OK", 200
+            
+        except Exception as e:
+            logger.error(f"WhatsApp webhook error: {e}")
+            return "Internal Server Error", 500
 
 @app.route("/9psb-webhook", methods=["POST"])
 def ninepsb_webhook():
@@ -1936,10 +2125,10 @@ def create_virtual_account():
             if 'first_name' in data and 'last_name' in data:
                 data['full_name'] = f"{data['first_name']} {data['last_name']}"
             
-            # Generate a temporary telegram_id if not provided (for web form users)
-            if not data.get('telegram_id'):
+            # Generate a temporary whatsapp_number if not provided (for web form users)
+            if not data.get('whatsapp_number'):
                 import uuid
-                data['telegram_id'] = f"web_user_{uuid.uuid4().hex[:8]}"
+                data['whatsapp_number'] = f"web_user_{uuid.uuid4().hex[:8]}"
         
         onboarding = SofiUserOnboarding()
         result = onboarding.create_virtual_account(data)
@@ -1951,6 +2140,51 @@ def create_virtual_account():
             
     except Exception as e:
         logger.error(f"Error creating virtual account: {str(e)}")
+        return jsonify({"success": False, "error": "Internal server error"}), 500
+
+@app.route("/api/whatsapp_create_account", methods=["POST"])
+def whatsapp_create_account():
+    """WhatsApp-specific account creation endpoint"""
+    try:
+        from utils.whatsapp_account_manager_simple import whatsapp_account_manager
+        
+        data = request.get_json()
+        logger.info(f"🎯 WhatsApp account creation request: {data}")
+        
+        if not data:
+            return jsonify({"success": False, "error": "No data provided"}), 400
+        
+        # Extract and validate required fields
+        whatsapp_number = data.get('whatsapp_number', '').strip()
+        full_name = data.get('full_name', '').strip()
+        
+        if not full_name:
+            return jsonify({"success": False, "error": "Full name is required"}), 400
+        
+        # Create account via simplified WhatsApp manager
+        import asyncio
+        result = asyncio.run(whatsapp_account_manager.create_whatsapp_account(data))
+        
+        if result['success']:
+            # Send WhatsApp notification with account details
+            try:
+                account_message = whatsapp_account_manager.format_account_message(result)
+                
+                # Send to WhatsApp if we have the number
+                if whatsapp_number:
+                    success = send_whatsapp_message(whatsapp_number, account_message)
+                    logger.info(f"📱 Account details sent to WhatsApp: {success}")
+                
+            except Exception as e:
+                logger.error(f"Error sending WhatsApp notification: {e}")
+                # Don't fail the account creation if notification fails
+            
+            return jsonify(result), 201
+        else:
+            return jsonify(result), 400
+            
+    except Exception as e:
+        logger.error(f"Error creating WhatsApp account: {str(e)}")
         return jsonify({"success": False, "error": "Internal server error"}), 500
 
 # Removed duplicate onboard route - now using templates/onboarding.html (WORKING VERSION)
@@ -1968,6 +2202,16 @@ def onboard_page():
         logger.error(f"Error serving onboarding page: {e}")
         return "Internal server error", 500
 
+@app.route("/whatsapp-onboard")
+def whatsapp_onboard_page():
+    """Serve WhatsApp-style onboarding page"""
+    try:
+        whatsapp_number = request.args.get('whatsapp', '')
+        return render_template('whatsapp_onboarding.html', whatsapp_number=whatsapp_number)
+    except Exception as e:
+        logger.error(f"Error serving WhatsApp onboarding page: {e}")
+        return "Internal server error", 500
+
 @app.route("/verify-pin")
 def pin_verification_page():
     """Serve secure PIN verification page with token-based security and comprehensive bot handling"""
@@ -1981,11 +2225,11 @@ def pin_verification_page():
     logger.info(f"📊 /verify-pin accessed - IP: {client_ip}, UA: {user_agent[:50]}..., token: {secure_token[:10] if secure_token else 'None'}..., legacy_txn: {legacy_txn_id}")
     
     # 1. Enhanced bot detection with IP checking
-    from utils.security import is_telegram_bot_ip
+    from utils.security import is_whatsapp_bot_ip
     
-    bot_user_agents = ['TelegramBot', 'TwitterBot', 'facebookexternalhit', 'WhatsApp', 'Slackbot', 'LinkedInBot', 'SkypeBot']
+    bot_user_agents = ['WhatsAppBot', 'TwitterBot', 'facebookexternalhit', 'WhatsApp', 'Slackbot', 'LinkedInBot', 'SkypeBot']
     is_bot_ua = any(bot in user_agent for bot in bot_user_agents)
-    is_bot_ip = is_telegram_bot_ip(client_ip)
+    is_bot_ip = is_whatsapp_bot_ip(client_ip)
     
     if is_bot_ua or is_bot_ip:
         logger.info(f"🤖 Bot preview blocked: {user_agent} from IP: {client_ip} (Bot IP: {is_bot_ip})")
@@ -2270,7 +2514,7 @@ def onboard_user_api():
             }), 400
         
         # Validate required fields
-        required_fields = ['telegram_id', 'full_name', 'phone']
+        required_fields = ['whatsapp_number', 'full_name', 'phone']
         missing_fields = [field for field in required_fields if not user_data.get(field)]
         
         if missing_fields:
@@ -2289,14 +2533,14 @@ def onboard_user_api():
         if result.get('success'):
             logger.info(f"Successfully onboarded web user: {user_data.get('full_name')}")
             
-            # Send account details to user via Telegram if telegram_id is provided
-            telegram_id = user_data.get('telegram_id')
-            if telegram_id and not telegram_id.startswith('web_user_'):
+            # Send account details to user via WhatsApp if whatsapp_number is provided
+            whatsapp_number = user_data.get('whatsapp_number')
+            if whatsapp_number and not whatsapp_number.startswith('web_user_'):
                 try:
-                    asyncio.run(send_account_details_to_user(telegram_id, result))
-                    logger.info(f"Account details sent to Telegram user {telegram_id}")
+                    asyncio.run(send_account_details_to_user(whatsapp_number, result))
+                    logger.info(f"Account details sent to WhatsApp user {whatsapp_number}")
                 except Exception as e:
-                    logger.error(f"Failed to send account details to {telegram_id}: {e}")
+                    logger.error(f"Failed to send account details to {whatsapp_number}: {e}")
             
             return jsonify(result), 200
         else:
@@ -2310,8 +2554,8 @@ def onboard_user_api():
             'error': f'Internal server error: {str(e)}'
         }), 500
 
-async def send_account_details_to_user(chat_id: str, onboarding_result: dict):
-    """Send account details to user via Telegram after successful onboarding"""
+async def send_account_details_to_user(phone_number: str, onboarding_result: dict):
+    """Send account details to user via WhatsApp after successful onboarding"""
     try:
         account_details = onboarding_result.get('account_details', {})
         full_name = onboarding_result.get('full_name', '')
@@ -2328,24 +2572,24 @@ async def send_account_details_to_user(chat_id: str, onboarding_result: dict):
         )
         
         # Send message to user
-        send_reply(chat_id, welcome_message)
-        logger.info(f"Account details sent to user {chat_id}")
+        send_whatsapp_message(phone_number, welcome_message)
+        logger.info(f"Account details sent to user {phone_number}")
         
     except Exception as e:
-        logger.error(f"Error sending account details to user {chat_id}: {e}")
+        logger.error(f"Error sending account details to user {phone_number}: {e}")
 
 @app.route("/api/notify-onboarding", methods=["POST"])
 def notify_onboarding_complete():
     """Webhook endpoint for onboarding completion notifications"""
     try:
         data = request.get_json()
-        telegram_id = data.get('telegram_id')
+        whatsapp_number = data.get('whatsapp_number')
         onboarding_result = data.get('result', {})
         
-        if telegram_id and not telegram_id.startswith('web_user_'):
+        if whatsapp_number and not whatsapp_number.startswith('web_user_'):
             # Send account details to the user
             import asyncio
-            asyncio.run(send_account_details_to_user(telegram_id, onboarding_result))
+            asyncio.run(send_account_details_to_user(whatsapp_number, onboarding_result))
             
         return jsonify({'success': True}), 200
         
@@ -2357,12 +2601,12 @@ def notify_onboarding_complete():
 
 # Note: Old PIN entry web routes removed - now using inline keyboards
 
-def edit_message(chat_id, message_id, text, reply_markup=None):
-    """Edit a message in Telegram"""
+def edit_message(phone_number, message_id, text, reply_markup=None):
+    """Edit a message in WhatsApp"""
     try:
-        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/editMessageText"
+        url = f"https://api.whatsapp.org/bot{WHATSAPP_ACCESS_TOKEN}/editMessageText"
         payload = {
-            "chat_id": chat_id,
+            "phone_number": phone_number,
             "message_id": message_id,
             "text": text,
             "parse_mode": "Markdown"
@@ -2372,7 +2616,7 @@ def edit_message(chat_id, message_id, text, reply_markup=None):
         
         response = requests.post(url, json=payload)
         if response.status_code == 200:
-            logger.info(f"✅ Message edited successfully for chat {chat_id}")
+            logger.info(f"✅ Message edited successfully for chat {phone_number}")
             return response.json()
         else:
             logger.error(f"❌ Failed to edit message: {response.text}")
@@ -2385,16 +2629,16 @@ async def handle_callback_query(callback_query: dict):
     """Handle callback queries from inline keyboards (PIN entry, etc.)"""
     try:
         query_id = callback_query["id"]
-        chat_id = str(callback_query["from"]["id"])
+        phone_number = str(callback_query["from"]["id"])
         callback_data = callback_query.get("data", "")
         message_id = callback_query.get("message", {}).get("message_id")
         
-        logger.info(f"📱 Callback query from {chat_id}: {callback_data}")
+        logger.info(f"📱 Callback query from {phone_number}: {callback_data}")
         
         # Define answer_callback_query helper
         async def answer_callback_query(query_id: str, text: str = ""):
             """Answer a callback query to remove loading state"""
-            url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/answerCallbackQuery"
+            url = f"https://api.whatsapp.org/bot{WHATSAPP_ACCESS_TOKEN}/answerCallbackQuery"
             payload = {
                 "callback_query_id": query_id,
                 "text": text,
@@ -2477,7 +2721,7 @@ def get_transaction_details():
             'error': 'Internal server error'
         }), 500
 
-async def send_beautiful_receipt(chat_id, receipt_data, transfer_result):
+async def send_beautiful_receipt(phone_number, receipt_data, transfer_result):
     """Send a beautiful receipt after successful transfer"""
     try:
         # Import the beautiful receipt generator
@@ -2522,14 +2766,14 @@ async def send_beautiful_receipt(chat_id, receipt_data, transfer_result):
         receipt_text = receipt_generator.create_bank_transfer_receipt(transaction_data)
         
         # Send the receipt
-        send_reply(chat_id, receipt_text)
-        logger.info(f"📧 Beautiful receipt sent to {chat_id}")
+        send_whatsapp_message(phone_number, receipt_text)
+        logger.info(f"📧 Beautiful receipt sent to {phone_number}")
         
     except Exception as e:
         logger.error(f"❌ Error sending beautiful receipt: {str(e)}")
         # Fallback to simple reply
         txn_id = receipt_data.get('transaction_id', 'N/A') if receipt_data else 'N/A'
-        send_reply(chat_id, f"✅ Transfer completed successfully!\nTransaction ID: {txn_id}")
+        send_whatsapp_message(phone_number, f"✅ Transfer completed successfully!\nTransaction ID: {txn_id}")
 
 # --- 9PSB Webhook Test Endpoint Only ---
 
