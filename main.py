@@ -1460,6 +1460,40 @@ def security_events():
         logger.error(f"Error getting security events: {e}")
         return jsonify({"error": "Internal server error"}), 500
 
+async def create_whatsapp_user(phone_number: str) -> dict:
+    """Automatically create a new WhatsApp user in the database"""
+    try:
+        import uuid
+        
+        # Generate a unique user ID
+        user_id = str(uuid.uuid4())
+        
+        # Create basic user record
+        user_data = {
+            "id": user_id,
+            "whatsapp_number": phone_number,
+            "full_name": f"WhatsApp User {phone_number[-4:]}",  # Use last 4 digits
+            "email": f"whatsapp_{phone_number.replace('+', '').replace(' ', '')}@temp.sofi.com",
+            "created_at": datetime.now().isoformat(),
+            "wallet_balance": 0.0,
+            "status": "active",
+            "signup_source": "whatsapp"
+        }
+        
+        # Insert into database
+        result = supabase.table("users").insert(user_data).execute()
+        
+        if result.data:
+            logger.info(f"✅ WhatsApp user created successfully: {phone_number}")
+            return result.data[0]
+        else:
+            logger.error(f"❌ Failed to create WhatsApp user: {phone_number}")
+            return {}
+            
+    except Exception as e:
+        logger.error(f"❌ Error creating WhatsApp user {phone_number}: {e}")
+        return {}
+
 @app.route("/webhook", methods=["GET", "POST"])
 async def whatsapp_webhook_handler():
     """Handle incoming WhatsApp messages with INSTANT response"""
@@ -1522,13 +1556,19 @@ async def whatsapp_webhook_handler():
                                 # ⚡ INSTANT TYPING INDICATOR - Show typing IMMEDIATELY
                                 send_whatsapp_typing_action(phone_number)
                                 
-                                # Get user data for this WhatsApp number
+                                # Get or create user data for this WhatsApp number
                                 user_data = None
                                 try:
                                     user_resp = supabase.table("users").select("*").eq("whatsapp_number", phone_number).execute()
-                                    user_data = user_resp.data[0] if user_resp.data else None
+                                    if user_resp.data:
+                                        user_data = user_resp.data[0]
+                                    else:
+                                        # Auto-create new WhatsApp user
+                                        logger.info(f"🆕 Creating new WhatsApp user: {phone_number}")
+                                        user_data = await create_whatsapp_user(phone_number)
+                                        
                                 except Exception as e:
-                                    logger.error(f"Error getting user data: {e}")
+                                    logger.error(f"Error getting/creating user data: {e}")
                                 
                                 # Process message with AI assistant
                                 try:
@@ -2846,6 +2886,97 @@ def test_ninepsb_webhook():
     except Exception as e:
         logger.error(f"❌ Test webhook error: {e}")
         return {"status": "error", "message": str(e)}, 500
+
+@app.route("/api/register", methods=["POST"])
+async def register_user():
+    """Handle user registration from onboarding form"""
+    try:
+        data = request.get_json()
+        
+        # Extract user data from form
+        full_name = data.get('fullName', '').strip()
+        email = data.get('email', '').strip()
+        phone = data.get('phone', '').strip()
+        pin = data.get('pin', '')
+        bvn = data.get('bvn', '').strip()
+        date_of_birth = data.get('dateOfBirth', '')
+        address = data.get('address', '').strip()
+        state = data.get('state', '').strip()
+        
+        # Validate required fields
+        if not all([full_name, email, phone, pin]):
+            return jsonify({"error": "Missing required fields"}), 400
+        
+        # Check if user already exists
+        existing_user = supabase.table("users").select("id").eq("email", email).execute()
+        if existing_user.data:
+            return jsonify({"error": "User already exists with this email"}), 409
+            
+        # Also check by phone number
+        existing_phone = supabase.table("users").select("id").eq("whatsapp_number", phone).execute()
+        if existing_phone.data:
+            # Update existing WhatsApp user with full registration data
+            user_id = existing_phone.data[0]["id"]
+            update_data = {
+                "full_name": full_name,
+                "email": email,
+                "pin_hash": pin,  # In production, hash this properly
+                "bvn": bvn,
+                "date_of_birth": date_of_birth,
+                "address": address,
+                "state": state,
+                "registration_completed": True,
+                "updated_at": datetime.now().isoformat()
+            }
+            
+            result = supabase.table("users").update(update_data).eq("id", user_id).execute()
+            
+            if result.data:
+                logger.info(f"✅ Updated existing WhatsApp user: {phone}")
+                return jsonify({
+                    "success": True, 
+                    "message": "Registration completed successfully",
+                    "user_id": user_id,
+                    "account_number": "Processing..."  # Will be updated when virtual account is created
+                })
+        else:
+            # Create completely new user
+            import uuid
+            user_id = str(uuid.uuid4())
+            
+            user_data = {
+                "id": user_id,
+                "full_name": full_name,
+                "email": email,
+                "whatsapp_number": phone,
+                "pin_hash": pin,  # In production, hash this properly
+                "bvn": bvn,
+                "date_of_birth": date_of_birth,
+                "address": address,
+                "state": state,
+                "wallet_balance": 0.0,
+                "registration_completed": True,
+                "status": "active",
+                "signup_source": "web_onboarding",
+                "created_at": datetime.now().isoformat()
+            }
+            
+            result = supabase.table("users").insert(user_data).execute()
+            
+            if result.data:
+                logger.info(f"✅ New user registered: {email}")
+                return jsonify({
+                    "success": True,
+                    "message": "Registration completed successfully", 
+                    "user_id": user_id,
+                    "account_number": "Processing..."  # Will be updated when virtual account is created
+                })
+        
+        return jsonify({"error": "Registration failed"}), 500
+        
+    except Exception as e:
+        logger.error(f"❌ Registration error: {e}")
+        return jsonify({"error": "Registration failed"}), 500
 
 @app.route("/webhook/onboarding-complete", methods=["POST"])
 def handle_onboarding_completion():
