@@ -1998,8 +1998,8 @@ def parse_whatsapp_message(data: dict) -> tuple:
 async def route_whatsapp_message(sender: str, text: str, message_id: str = None) -> str:
     """Route WhatsApp message to OpenAI Assistant API with realistic typing simulation"""
     try:
-        # Import WhatsApp API helper
-        from utils.whatsapp_api import whatsapp_api
+        # Import fixed WhatsApp API helper with proper Meta typing indicators
+        from utils.whatsapp_api_fixed import whatsapp_api
         
         # 🤖 Process message via Sofi Assistant API  
         logger.info(f"🤖 Processing message via Sofi Assistant API: {sender} -> {text}")
@@ -2014,15 +2014,15 @@ async def route_whatsapp_message(sender: str, text: str, message_id: str = None)
         if assistant_response:
             logger.info(f"✅ Sofi Assistant response generated for {sender}")
             
-            # 📱 Send with realistic read receipts + typing simulation
+            # 📱 Send with proper Meta API read receipts + typing indicator
             success = await whatsapp_api.send_message_with_read_and_typing(
                 phone_number=sender,
                 message=assistant_response,
                 message_id_to_read=message_id,
-                typing_duration=2.5  # Longer typing for more realistic feel
+                typing_duration=2.0  # Shows typing indicator for 2 seconds
             )
             
-            return "Message sent with realistic typing simulation and read receipts"
+            return "Message sent with Meta's official typing indicator and read receipts"
         
         # Fallback only if Assistant fails
         logger.warning(f"⚠️ Assistant failed, using fallback for {sender}")

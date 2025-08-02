@@ -254,7 +254,7 @@ class AutoOnboardingManager:
     async def _send_whatsapp_onboarding(self, phone_number: str):
         """Send WhatsApp onboarding link to new user"""
         try:
-            from utils.whatsapp_api import whatsapp_api
+            from utils.whatsapp_api_fixed import whatsapp_api
             
             onboarding_message = """🎉 *Welcome to Sofi Digital Bank!*
 

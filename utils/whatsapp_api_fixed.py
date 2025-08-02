@@ -1,6 +1,6 @@
 """
 WhatsApp API Helper for Read Receipts and Typing Indicators
-Implements message reading and typing status for better UX
+Fixed implementation using Meta's official typing indicator API
 """
 
 import logging
@@ -30,7 +30,7 @@ class WhatsAppAPI:
     
     async def mark_message_as_read_with_typing(self, message_id: str) -> bool:
         """
-        Mark a WhatsApp message as read AND show typing indicator (correct Meta API way)
+        Mark a WhatsApp message as read AND show typing indicator (Meta's official API)
         
         Args:
             message_id (str): The ID of the message to mark as read
@@ -58,7 +58,7 @@ class WhatsAppAPI:
             )
             
             if response.status_code == 200:
-                logger.info(f"✅ Message {message_id} marked as read with typing indicator")
+                logger.info(f"✅ Message {message_id} marked as read with typing indicator shown")
                 return True
             else:
                 logger.error(f"❌ Failed to mark message as read with typing: {response.status_code} - {response.text}")
@@ -68,19 +68,9 @@ class WhatsAppAPI:
             logger.error(f"❌ Error marking message as read with typing: {e}")
             return False
     
-    async def send_typing_indicator(self, phone_number: str, duration: float = 2.0) -> bool:
-        """
-        Show typing indicator in WhatsApp chat by sending a temporary message
-        
-        Args:
-            phone_number (str): The recipient's phone number
-            duration (float): How long to show typing (seconds)
-            
-        Returns:
-        
     async def send_message_with_read_and_typing(self, phone_number: str, message: str, 
                                                message_id_to_read: Optional[str] = None,
-                                               typing_duration: float = 1.5) -> bool:
+                                               typing_duration: float = 2.0) -> bool:
         """
         Send a message with proper read receipt and typing using Meta's official API
         
@@ -94,7 +84,7 @@ class WhatsAppAPI:
             bool: True if successful, False otherwise
         """
         try:
-            # Step 1: Mark incoming message as read with typing indicator (Meta's correct way)
+            # Step 1: Mark incoming message as read with typing indicator (Meta's official way)
             if message_id_to_read:
                 await self.mark_message_as_read_with_typing(message_id_to_read)
             
@@ -107,72 +97,6 @@ class WhatsAppAPI:
         except Exception as e:
             logger.error(f"❌ Error in send_message_with_read_and_typing: {e}")
             return False
-                
-                # Send processing message
-                requests.post(
-                    f"{self.base_url}/messages",
-                    headers=self._get_headers(),
-                    json=clear_payload,
-                    timeout=5
-                )
-                
-                # Brief pause before actual response
-                await asyncio.sleep(0.5)
-                
-                return True
-            else:
-                logger.error(f"❌ Failed to send typing indicator: {response.status_code}")
-                return False
-                
-        except Exception as e:
-            logger.error(f"❌ Error showing typing indicator: {e}")
-            return False
-            
-            logger.info(f"✅ Typing simulation completed for {phone_number}")
-            return True
-                
-        except Exception as e:
-            logger.error(f"❌ Error showing typing indicator: {e}")
-            return False
-    
-    async def send_message_with_read_and_typing(self, phone_number: str, message: str, 
-                                               message_id_to_read: Optional[str] = None,
-                                               typing_duration: float = 2.0) -> bool:
-        """
-        Send a message with proper read receipt and realistic typing simulation
-        
-        Args:
-            phone_number (str): Recipient's phone number
-            message (str): Message to send
-            message_id_to_read (str, optional): Message ID to mark as read
-            typing_duration (float): How long to show typing
-            
-        Returns:
-            bool: True if successful, False otherwise
-        """
-        try:
-            # Step 1: Mark incoming message as read (blue checkmarks)
-            if message_id_to_read:
-                await self.mark_message_as_read(message_id_to_read)
-                await asyncio.sleep(0.3)  # Brief pause after reading
-            
-            # Step 2: Show realistic typing indicator
-            logger.info(f"🤖 Starting realistic typing simulation for {phone_number}")
-            
-            # Send "Sofi is typing..." message
-            typing_msg = await self.send_text_message(phone_number, "⌨️ Sofi is typing...")
-            
-            # Pause to simulate thinking/typing time
-            await asyncio.sleep(typing_duration)
-            
-            # Step 3: Send the actual response
-            logger.info(f"📤 Sending actual response to {phone_number}")
-            return await self.send_text_message(phone_number, message)
-            
-        except Exception as e:
-            logger.error(f"❌ Error in send_message_with_read_and_typing: {e}")
-            # Fallback: just send the message
-            return await self.send_text_message(phone_number, message)
     
     async def send_text_message(self, phone_number: str, message: str) -> bool:
         """
