@@ -1686,7 +1686,9 @@ def whatsapp_webhook_handler():
                 if success:
                     # Process the transcribed text as a regular message
                     user_message = response
-                    ai_response = await handle_message(phone_number, user_message, user_data)
+                    # Fix: Remove await and use synchronous call or asyncio.run
+                    import asyncio
+                    ai_response = asyncio.run(handle_message(phone_number, user_message, user_data))
                     send_whatsapp_message(phone_number, ai_response)
                 else:
                     send_whatsapp_message(phone_number, response)
