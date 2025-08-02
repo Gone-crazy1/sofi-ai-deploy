@@ -3175,6 +3175,18 @@ def whatsapp_flow_webhook():
     """
     Handle WhatsApp Flow webhook - both verification and encrypted data exchange
     """
+    return _handle_whatsapp_flow_webhook()
+
+# ===============================================
+# 📱 WHATSAPP FLOW WEBHOOK HANDLER (Like Xara)
+# ===============================================
+
+@app.route("/whatsapp-flow-webhook", methods=["GET", "POST"])
+def whatsapp_flow_webhook():
+    """
+    Handle WhatsApp Flow webhook - both verification and encrypted data exchange
+    Works with both www and non-www domains to avoid 307 redirects
+    """
     
     if request.method == 'GET':
         # Meta verification for Flow endpoint
@@ -3182,7 +3194,7 @@ def whatsapp_flow_webhook():
         token = request.args.get('hub.verify_token')
         challenge = request.args.get('hub.challenge')
         
-        verify_token = os.getenv('WHATSAPP_VERIFY_TOKEN', 'sofi_verify_token')
+        verify_token = os.getenv('WHATSAPP_VERIFY_TOKEN', 'sofi_ai_webhook_verify_2024')
         
         if mode == 'subscribe' and token == verify_token:
             logger.info("✅ WhatsApp Flow webhook verification successful")
