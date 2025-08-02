@@ -67,7 +67,7 @@ class WhatsAppAPI:
     
     async def send_typing_indicator(self, phone_number: str, duration: float = 2.0) -> bool:
         """
-        Show typing indicator in WhatsApp chat
+        Show typing indicator in WhatsApp chat by sending a temporary message
         
         Args:
             phone_number (str): The recipient's phone number
@@ -77,36 +77,63 @@ class WhatsAppAPI:
             bool: True if successful, False otherwise
         """
         try:
-            logger.info(f"⌨️ Showing typing indicator to {phone_number} for {duration}s")
+            logger.info(f"⌨️ Simulating typing indicator to {phone_number} for {duration}s")
             
-            # Send typing_on action
-            payload = {
+            # Send a temporary "typing..." message
+            typing_payload = {
                 "messaging_product": "whatsapp",
                 "recipient_type": "individual",
                 "to": phone_number,
-                "type": "interactive",
-                "interactive": {
-                    "type": "cta_url",
-                    "header": {
-                        "type": "text",
-                        "text": "🤖 Sofi is typing..."
-                    },
-                    "body": {
-                        "text": "Processing your request..."
-                    },
-                    "action": {
-                        "name": "cta_url",
-                        "parameters": {
-                            "display_url": "https://sofi-ai.com",
-                            "url": "https://sofi-ai.com"
-                        }
-                    }
+                "type": "text",
+                "text": {
+                    "body": "⌨️ Sofi is typing..."
                 }
             }
             
-            # Note: WhatsApp Business API doesn't have direct typing indicators
-            # We'll simulate it by adding a small delay and showing processing message
-            await asyncio.sleep(duration)
+            # Send the typing message
+            response = requests.post(
+                f"{self.base_url}/messages",
+                headers=self._get_headers(),
+                json=typing_payload,
+                timeout=10
+            )
+            
+            if response.status_code == 200:
+                logger.info(f"✅ Typing indicator sent to {phone_number}")
+                
+                # Wait for the specified duration
+                await asyncio.sleep(duration)
+                
+                # Send a "delete" or "correction" by sending empty message to clear typing
+                clear_payload = {
+                    "messaging_product": "whatsapp",
+                    "recipient_type": "individual", 
+                    "to": phone_number,
+                    "type": "text",
+                    "text": {
+                        "body": "🤖 Processing..."
+                    }
+                }
+                
+                # Send processing message
+                requests.post(
+                    f"{self.base_url}/messages",
+                    headers=self._get_headers(),
+                    json=clear_payload,
+                    timeout=5
+                )
+                
+                # Brief pause before actual response
+                await asyncio.sleep(0.5)
+                
+                return True
+            else:
+                logger.error(f"❌ Failed to send typing indicator: {response.status_code}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"❌ Error showing typing indicator: {e}")
+            return False
             
             logger.info(f"✅ Typing simulation completed for {phone_number}")
             return True
@@ -117,9 +144,9 @@ class WhatsAppAPI:
     
     async def send_message_with_read_and_typing(self, phone_number: str, message: str, 
                                                message_id_to_read: Optional[str] = None,
-                                               typing_duration: float = 1.5) -> bool:
+                                               typing_duration: float = 2.0) -> bool:
         """
-        Send a message with proper read receipt and typing simulation
+        Send a message with proper read receipt and realistic typing simulation
         
         Args:
             phone_number (str): Recipient's phone number
@@ -134,16 +161,25 @@ class WhatsAppAPI:
             # Step 1: Mark incoming message as read (blue checkmarks)
             if message_id_to_read:
                 await self.mark_message_as_read(message_id_to_read)
+                await asyncio.sleep(0.3)  # Brief pause after reading
             
-            # Step 2: Show typing indicator
-            await self.send_typing_indicator(phone_number, typing_duration)
+            # Step 2: Show realistic typing indicator
+            logger.info(f"🤖 Starting realistic typing simulation for {phone_number}")
             
-            # Step 3: Send the actual message
+            # Send "Sofi is typing..." message
+            typing_msg = await self.send_text_message(phone_number, "⌨️ Sofi is typing...")
+            
+            # Pause to simulate thinking/typing time
+            await asyncio.sleep(typing_duration)
+            
+            # Step 3: Send the actual response
+            logger.info(f"📤 Sending actual response to {phone_number}")
             return await self.send_text_message(phone_number, message)
             
         except Exception as e:
             logger.error(f"❌ Error in send_message_with_read_and_typing: {e}")
-            return False
+            # Fallback: just send the message
+            return await self.send_text_message(phone_number, message)
     
     async def send_text_message(self, phone_number: str, message: str) -> bool:
         """

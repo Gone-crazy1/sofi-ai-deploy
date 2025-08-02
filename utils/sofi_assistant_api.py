@@ -39,13 +39,24 @@ class SofiAssistantManager:
             raise
     
     async def send_message_to_assistant(self, phone_number: str, message: str) -> str:
-        """Send message to Sofi Assistant and get response"""
+        """Send message to Sofi Assistant with auto-onboarding check"""
         try:
             logger.info(f"🤖 Sending message to Sofi Assistant: {phone_number} -> {message}")
             
             # Store phone number for function execution context
             self._current_phone_number = phone_number
             
+            # 🎯 STEP 1: Check if user exists and handle auto-onboarding
+            from utils.fixed_balance_manager import handle_whatsapp_user_auto_onboard
+            
+            user_status = await handle_whatsapp_user_auto_onboard(phone_number)
+            
+            if user_status["is_new_user"]:
+                # New user detected - return onboarding message
+                logger.info(f"🆕 New WhatsApp user {phone_number} - sending onboarding")
+                return user_status["message"]
+            
+            # 🎯 STEP 2: Existing user - process with Assistant API
             # Get or create thread for this user
             thread_id = self.get_or_create_thread(phone_number)
             

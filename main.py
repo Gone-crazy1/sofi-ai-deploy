@@ -1996,18 +1996,13 @@ def parse_whatsapp_message(data: dict) -> tuple:
         return None, None, None
 
 async def route_whatsapp_message(sender: str, text: str, message_id: str = None) -> str:
-    """Route WhatsApp message to OpenAI Assistant API with read receipts and typing"""
+    """Route WhatsApp message to OpenAI Assistant API with realistic typing simulation"""
     try:
-        # 📨 STEP 1: Mark incoming message as read (blue checkmarks)
+        # Import WhatsApp API helper
         from utils.whatsapp_api import whatsapp_api
         
-        if message_id:
-            await whatsapp_api.mark_message_as_read(message_id)
-        
-        # ⌨️ STEP 2: Show typing indicator
-        await whatsapp_api.send_typing_indicator(sender, duration=1.5)
-        
-        # 🤖 PRIMARY: Use OpenAI Assistant API for ALL messages (like Telegram)
+        # 🤖 Process message via Sofi Assistant API  
+        logger.info(f"🤖 Processing message via Sofi Assistant API: {sender} -> {text}")
         logger.info(f"� Processing message via Sofi Assistant API: {sender} -> {text}")
         
         # Import and use the Assistant API manager
@@ -2019,10 +2014,15 @@ async def route_whatsapp_message(sender: str, text: str, message_id: str = None)
         if assistant_response:
             logger.info(f"✅ Sofi Assistant response generated for {sender}")
             
-            # 📤 Send the assistant's response using WhatsApp API (no extra typing needed)
-            success = await whatsapp_api.send_text_message(sender, assistant_response)
+            # 📱 Send with realistic read receipts + typing simulation
+            success = await whatsapp_api.send_message_with_read_and_typing(
+                phone_number=sender,
+                message=assistant_response,
+                message_id_to_read=message_id,
+                typing_duration=2.5  # Longer typing for more realistic feel
+            )
             
-            return "Message sent with Assistant response and read receipts"
+            return "Message sent with realistic typing simulation and read receipts"
         
         # Fallback only if Assistant fails
         logger.warning(f"⚠️ Assistant failed, using fallback for {sender}")
