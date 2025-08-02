@@ -1658,7 +1658,8 @@ def whatsapp_webhook_handler():
                 from utils.voice_pin_processor import VoicePinProcessor
                 
                 voice_processor = VoicePinProcessor()
-                result = await voice_processor.process_voice_pin(file_id, phone_number)
+                # Remove await - make this synchronous or handle differently
+                result = voice_processor.process_voice_pin_sync(file_id, phone_number)
                 
                 if result['success']:
                     extracted_pin = result['pin']
@@ -1667,8 +1668,8 @@ def whatsapp_webhook_handler():
                     from utils.secure_transfer_handler import handle_secure_transfer_confirmation
                     transfer_data = state.get('transfer', {})
                     
-                    # Handle the PIN as if it was typed
-                    response = await handle_secure_transfer_confirmation(
+                    # Handle the PIN as if it was typed - remove await
+                    response = handle_secure_transfer_confirmation_sync(
                         phone_number=phone_number,
                         message=extracted_pin,
                         user_data=user_data,
