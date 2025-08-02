@@ -3167,16 +3167,6 @@ def handle_onboarding_completion():
         return {"status": "error", "message": str(e)}, 500
 
 # ===============================================
-# 📱 WHATSAPP FLOW WEBHOOK HANDLER (Like Xara)
-# ===============================================
-
-@app.route("/whatsapp-flow-webhook", methods=["GET", "POST"])
-def whatsapp_flow_webhook():
-    """
-    Handle WhatsApp Flow webhook - both verification and encrypted data exchange
-    """
-    return _handle_whatsapp_flow_webhook()
-
 # ===============================================
 # 📱 WHATSAPP FLOW WEBHOOK HANDLER (Like Xara)
 # ===============================================
