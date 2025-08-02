@@ -10,6 +10,7 @@ import secrets
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+from cryptography.hazmat.primitives.padding import PKCS7
 from cryptography.hazmat.backends import default_backend
 
 class FlowEncryption:
@@ -42,7 +43,7 @@ class FlowEncryption:
     
     def decrypt_request(self, encrypted_flow_data, encrypted_aes_key, initial_vector):
         """
-        Decrypt incoming WhatsApp Flow request
+        Decrypt incoming WhatsApp Flow request using proper crypto primitives
         
         Args:
             encrypted_flow_data (str): Base64 encoded encrypted payload
@@ -60,11 +61,11 @@ class FlowEncryption:
             encrypted_key = base64.b64decode(encrypted_aes_key)
             iv = base64.b64decode(initial_vector)
             
-            print(f"Data length: {len(encrypted_data)}")
-            print(f"Key length: {len(encrypted_key)}")
-            print(f"IV length: {len(iv)}")
+            print(f"📊 Data length: {len(encrypted_data)}")
+            print(f"📊 RSA key length: {len(encrypted_key)}")
+            print(f"📊 IV length: {len(iv)}")
             
-            # Decrypt AES key using RSA private key
+            # Step 1: Decrypt AES key using RSA-OAEP with SHA-256
             aes_key = self.private_key.decrypt(
                 encrypted_key,
                 padding.OAEP(
@@ -74,95 +75,60 @@ class FlowEncryption:
                 )
             )
             
-            print(f"AES key decrypted, length: {len(aes_key)}")
+            print(f"✅ AES key decrypted, length: {len(aes_key)} bytes")
             
-            # Check if data length is valid for AES CBC
-            if len(encrypted_data) % 16 != 0:
-                print(f"⚠️  Data length {len(encrypted_data)} not multiple of 16, attempting to fix...")
-                # Pad the data to make it a multiple of 16
-                padding_needed = 16 - (len(encrypted_data) % 16)
-                encrypted_data += b'\x00' * padding_needed
-                print(f"Padded data length: {len(encrypted_data)}")
+            # Validate AES key length (should be 16 bytes for AES-128)
+            if len(aes_key) != 16:
+                raise ValueError(f"Unexpected AES key length: {len(aes_key)}, expected 16")
             
-            # Decrypt data using AES key
+            # Step 2: Decrypt data using AES-128-CBC
             cipher = Cipher(
                 algorithms.AES(aes_key),
                 modes.CBC(iv),
                 backend=default_backend()
             )
             decryptor = cipher.decryptor()
+            decrypted_padded = decryptor.update(encrypted_data) + decryptor.finalize()
             
-            try:
-                decrypted_padded = decryptor.update(encrypted_data) + decryptor.finalize()
-                
-                # Remove PKCS7 padding properly
-                if len(decrypted_padded) > 0:
-                    # Get the padding length from the last byte
-                    padding_length = decrypted_padded[-1]
-                    
-                    # Validate padding length is reasonable (1-16 for AES)
-                    if 1 <= padding_length <= 16:
-                        # Verify all padding bytes are the same
-                        padding_bytes = decrypted_padded[-padding_length:]
-                        if all(b == padding_length for b in padding_bytes):
-                            # Valid PKCS7 padding - remove it
-                            decrypted_data = decrypted_padded[:-padding_length]
-                            print(f"✅ Removed {padding_length} bytes of PKCS7 padding")
-                        else:
-                            # Invalid padding pattern - try without padding removal
-                            print("⚠️  Invalid PKCS7 padding pattern, using raw data")
-                            decrypted_data = decrypted_padded.rstrip(b'\x00')
-                    else:
-                        # Padding length out of range - try alternative cleanup
-                        print(f"⚠️  Invalid padding length {padding_length}, trying cleanup")
-                        decrypted_data = decrypted_padded.rstrip(b'\x00\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b\x0c\x0d\x0e\x0f\x10')
-                else:
-                    decrypted_data = decrypted_padded
-                    
-                print(f"Decrypted data length: {len(decrypted_data)}")
-                print(f"First 50 bytes (hex): {decrypted_data[:50].hex()}")
-                
-            except ValueError as ve:
-                print(f"❌ AES decryption failed: {ve}")
-                # Try alternative: maybe it's not properly base64 encoded
-                print("🔄 Trying alternative decryption method...")
-                return None
+            print(f"📊 Decrypted padded length: {len(decrypted_padded)}")
+            print(f"🔍 First 32 bytes (hex): {decrypted_padded[:32].hex()}")
+            print(f"🔍 Last 16 bytes (hex): {decrypted_padded[-16:].hex()}")
             
-            # Parse JSON with better error handling
+            # Step 3: Remove PKCS7 padding using proper unpadding
+            unpadder = PKCS7(128).unpadder()  # 128-bit block size for AES
             try:
-                # Try UTF-8 decoding
-                decoded_text = decrypted_data.decode('utf-8')
-                print(f"✅ UTF-8 decoded: {decoded_text[:100]}...")
+                decrypted_data = unpadder.update(decrypted_padded)
+                decrypted_data += unpadder.finalize()
+                print(f"✅ PKCS7 unpadding successful, final length: {len(decrypted_data)}")
+            except ValueError as pad_error:
+                print(f"❌ PKCS7 unpadding failed: {pad_error}")
+                # Log more details for debugging
+                padding_byte = decrypted_padded[-1]
+                print(f"🔍 Last byte (padding indicator): {padding_byte}")
+                print(f"🔍 Last 16 bytes: {[hex(b) for b in decrypted_padded[-16:]]}")
+                raise ValueError(f"PKCS7 unpadding failed: {pad_error}")
+            
+            # Step 4: Decode as UTF-8 and parse JSON
+            try:
+                plaintext = decrypted_data.decode('utf-8')
+                print(f"✅ UTF-8 decode successful")
+                print(f"📄 Plaintext (first 200 chars): {plaintext[:200]}...")
                 
-                # Parse JSON
-                payload = json.loads(decoded_text)
-                
-                print("✅ Request decrypted successfully")
-                print(f"Payload: {json.dumps(payload, indent=2)}")
+                payload = json.loads(plaintext)
+                print("✅ JSON parsing successful")
+                print(f"📋 Payload keys: {list(payload.keys())}")
                 
                 return payload
                 
-            except UnicodeDecodeError as ude:
-                print(f"❌ UTF-8 decode error: {ude}")
-                print("🔄 Trying alternative encodings...")
+            except UnicodeDecodeError as decode_error:
+                print(f"❌ UTF-8 decode failed: {decode_error}")
+                print(f"� Raw bytes (first 50): {decrypted_data[:50]}")
+                raise ValueError(f"UTF-8 decode failed: {decode_error}")
                 
-                # Try different encodings
-                for encoding in ['latin-1', 'cp1252', 'iso-8859-1']:
-                    try:
-                        decoded_text = decrypted_data.decode(encoding)
-                        payload = json.loads(decoded_text)
-                        print(f"✅ Success with {encoding} encoding")
-                        return payload
-                    except:
-                        continue
-                        
-                print("❌ All encoding attempts failed")
-                return None
-                
-            except json.JSONDecodeError as jde:
-                print(f"❌ JSON parse error: {jde}")
-                print(f"Raw decrypted text: {decrypted_data}")
-                return None
+            except json.JSONDecodeError as json_error:
+                print(f"❌ JSON parsing failed: {json_error}")
+                print(f"🔍 Text content: {plaintext}")
+                raise ValueError(f"JSON parsing failed: {json_error}")
             
         except Exception as e:
             print(f"❌ Decryption error: {e}")
@@ -172,7 +138,7 @@ class FlowEncryption:
     
     def encrypt_response(self, response_data, aes_key):
         """
-        Encrypt response data using AES key
+        Encrypt response data using AES key with proper PKCS7 padding
         
         Args:
             response_data (dict): Response data to encrypt
@@ -188,17 +154,20 @@ class FlowEncryption:
             response_json = json.dumps(response_data)
             response_bytes = response_json.encode('utf-8')
             
-            print(f"Response JSON: {response_json}")
+            print(f"📄 Response JSON: {response_json}")
+            print(f"📊 Response bytes length: {len(response_bytes)}")
             
-            # Add PKCS7 padding
-            block_size = 16
-            padding_length = block_size - (len(response_bytes) % block_size)
-            padded_data = response_bytes + bytes([padding_length] * padding_length)
+            # Add PKCS7 padding using proper library
+            padder = PKCS7(128).padder()  # 128-bit block size for AES
+            padded_data = padder.update(response_bytes)
+            padded_data += padder.finalize()
+            
+            print(f"📊 Padded data length: {len(padded_data)}")
             
             # Generate random IV
             iv = secrets.token_bytes(16)
             
-            # Encrypt using AES
+            # Encrypt using AES-128-CBC
             cipher = Cipher(
                 algorithms.AES(aes_key),
                 modes.CBC(iv),
@@ -211,7 +180,7 @@ class FlowEncryption:
             encrypted_b64 = base64.b64encode(encrypted_data).decode('utf-8')
             
             print("✅ Response encrypted successfully")
-            print(f"Encrypted length: {len(encrypted_data)}")
+            print(f"📊 Encrypted length: {len(encrypted_data)}")
             
             return encrypted_b64
             
