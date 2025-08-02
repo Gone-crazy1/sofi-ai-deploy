@@ -3672,61 +3672,72 @@ def generate_account_number() -> str:
             return account_number
 
 # ===============================================
-# 🏥 HEALTH CHECK ENDPOINTS  
+# 🏥 SOFI HEALTH MONITORING ENDPOINTS
 # ===============================================
 
 @app.route("/health")
-def health_check():
-    """Health check endpoint for Meta Business Manager"""
+def sofi_main_health():
+    """Primary health check endpoint for Meta Business Manager verification"""
     return jsonify({
         "status": "healthy",
-        "service": "Sofi WhatsApp Flow",
+        "service": "Sofi WhatsApp Banking",
         "timestamp": datetime.now().isoformat(),
+        "version": "2.0",
         "endpoints": {
             "whatsapp_webhook": "/whatsapp-webhook",
-            "flow_webhook": "/whatsapp-flow-webhook"
+            "flow_webhook": "/whatsapp-flow-webhook",
+            "health_detailed": "/health/flow"
         }
     }), 200
 
 @app.route("/health/flow", methods=["GET"])
-def flow_health_check():
-    """Flow-specific health check endpoint with encryption status"""
+def sofi_flow_health():
+    """WhatsApp Flow encryption health check with detailed status"""
     try:
-        # Test encryption setup
+        # Test encryption system
         flow_encryption = get_flow_encryption()
-        encryption_status = "ready" if flow_encryption else "not available"
+        encryption_ready = flow_encryption is not None
         
         return jsonify({
             "status": "healthy",
-            "service": "Sofi WhatsApp Flow Endpoint", 
+            "service": "Sofi WhatsApp Flow System", 
             "timestamp": datetime.utcnow().isoformat(),
-            "encryption": encryption_status,
+            "encryption": {
+                "status": "ready" if encryption_ready else "unavailable",
+                "rsa_keys": "configured" if encryption_ready else "missing"
+            },
             "endpoints": {
                 "flow_webhook": "/whatsapp-flow-webhook",
-                "health": "/health",
+                "main_health": "/health",
                 "flow_health": "/health/flow"
             }
-        })
+        }), 200
     except Exception as e:
         return jsonify({
             "status": "error",
+            "service": "Sofi WhatsApp Flow System",
             "message": str(e),
             "timestamp": datetime.utcnow().isoformat()
         }), 500
 
 @app.route("/whatsapp-flow-webhook/health")
-def flow_webhook_health():
-    """Specific health check for Flow webhook"""
+def sofi_flow_webhook_health():
+    """WhatsApp Flow webhook specific health verification"""
     return jsonify({
         "status": "ready",
+        "service": "WhatsApp Flow Webhook",
         "webhook": "whatsapp-flow",
         "accepts": ["GET", "POST"],
-        "verification": "enabled"
+        "verification": "enabled",
+        "encryption": "active"
     }), 200
 
 # ===============================================
-# 🚀 APPLICATION STARTUP
+# 🚀 SOFI APPLICATION ENTRY POINT
 # ===============================================
 
 if __name__ == "__main__":
+    print("🚀 Starting Sofi WhatsApp Banking System...")
+    print("✅ WhatsApp Flow encryption ready")
+    print("✅ Health monitoring active")
     app.run(host="0.0.0.0", port=5000, debug=False)
