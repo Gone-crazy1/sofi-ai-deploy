@@ -1995,27 +1995,27 @@ def parse_whatsapp_message(data: dict) -> tuple:
         return None, None
 
 async def route_whatsapp_message(sender: str, text: str) -> str:
-    """Route WhatsApp message to GPT-powered Sofi AI assistant"""
+    """Route WhatsApp message to OpenAI Assistant API (like Telegram)"""
     try:
-        # 🤖 PRIMARY: Use GPT-powered Sofi AI for ALL messages
-        logger.info(f"🧠 Processing message via Sofi GPT: {sender} -> {text}")
+        # 🤖 PRIMARY: Use OpenAI Assistant API for ALL messages (like Telegram)
+        logger.info(f"� Processing message via Sofi Assistant API: {sender} -> {text}")
         
-        # Use the GPT integration for intelligent responses
-        gpt_response, button_data = await sofi_whatsapp_gpt.process_whatsapp_message(sender, text)
+        # Import and use the Assistant API manager
+        from utils.sofi_assistant_api import sofi_assistant
         
-        if gpt_response:
-            logger.info(f"✅ GPT response generated for {sender}")
+        # Send message to Sofi Assistant and get intelligent response
+        assistant_response = sofi_assistant.send_message_to_assistant(sender, text)
+        
+        if assistant_response:
+            logger.info(f"✅ Sofi Assistant response generated for {sender}")
             
-            # Send message with button if button_data is provided
-            if button_data:
-                success = send_whatsapp_message(sender, gpt_response, button_data)
-            else:
-                success = send_whatsapp_message(sender, gpt_response)
+            # Send the assistant's response
+            success = send_whatsapp_message(sender, assistant_response)
             
-            return "Message sent with GPT response"
+            return "Message sent with Assistant response"
         
-        # Fallback only if GPT fails
-        logger.warning(f"⚠️ GPT failed, using fallback for {sender}")
+        # Fallback only if Assistant fails
+        logger.warning(f"⚠️ Assistant failed, using fallback for {sender}")
         
         # Import onboarding functions (fallback)
         from utils.whatsapp_onboarding import (
