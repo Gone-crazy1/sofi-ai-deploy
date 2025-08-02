@@ -95,30 +95,74 @@ class FlowEncryption:
             try:
                 decrypted_padded = decryptor.update(encrypted_data) + decryptor.finalize()
                 
-                # Remove PKCS7 padding
+                # Remove PKCS7 padding properly
                 if len(decrypted_padded) > 0:
+                    # Get the padding length from the last byte
                     padding_length = decrypted_padded[-1]
-                    if padding_length <= 16 and padding_length > 0:
-                        decrypted_data = decrypted_padded[:-padding_length]
+                    
+                    # Validate padding length is reasonable (1-16 for AES)
+                    if 1 <= padding_length <= 16:
+                        # Verify all padding bytes are the same
+                        padding_bytes = decrypted_padded[-padding_length:]
+                        if all(b == padding_length for b in padding_bytes):
+                            # Valid PKCS7 padding - remove it
+                            decrypted_data = decrypted_padded[:-padding_length]
+                            print(f"✅ Removed {padding_length} bytes of PKCS7 padding")
+                        else:
+                            # Invalid padding pattern - try without padding removal
+                            print("⚠️  Invalid PKCS7 padding pattern, using raw data")
+                            decrypted_data = decrypted_padded.rstrip(b'\x00')
                     else:
-                        # Invalid padding, try without padding removal
-                        decrypted_data = decrypted_padded.rstrip(b'\x00')
+                        # Padding length out of range - try alternative cleanup
+                        print(f"⚠️  Invalid padding length {padding_length}, trying cleanup")
+                        decrypted_data = decrypted_padded.rstrip(b'\x00\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b\x0c\x0d\x0e\x0f\x10')
                 else:
                     decrypted_data = decrypted_padded
                     
+                print(f"Decrypted data length: {len(decrypted_data)}")
+                print(f"First 50 bytes (hex): {decrypted_data[:50].hex()}")
+                
             except ValueError as ve:
                 print(f"❌ AES decryption failed: {ve}")
                 # Try alternative: maybe it's not properly base64 encoded
                 print("🔄 Trying alternative decryption method...")
                 return None
             
-            # Parse JSON
-            payload = json.loads(decrypted_data.decode('utf-8'))
-            
-            print("✅ Request decrypted successfully")
-            print(f"Payload: {json.dumps(payload, indent=2)}")
-            
-            return payload
+            # Parse JSON with better error handling
+            try:
+                # Try UTF-8 decoding
+                decoded_text = decrypted_data.decode('utf-8')
+                print(f"✅ UTF-8 decoded: {decoded_text[:100]}...")
+                
+                # Parse JSON
+                payload = json.loads(decoded_text)
+                
+                print("✅ Request decrypted successfully")
+                print(f"Payload: {json.dumps(payload, indent=2)}")
+                
+                return payload
+                
+            except UnicodeDecodeError as ude:
+                print(f"❌ UTF-8 decode error: {ude}")
+                print("🔄 Trying alternative encodings...")
+                
+                # Try different encodings
+                for encoding in ['latin-1', 'cp1252', 'iso-8859-1']:
+                    try:
+                        decoded_text = decrypted_data.decode(encoding)
+                        payload = json.loads(decoded_text)
+                        print(f"✅ Success with {encoding} encoding")
+                        return payload
+                    except:
+                        continue
+                        
+                print("❌ All encoding attempts failed")
+                return None
+                
+            except json.JSONDecodeError as jde:
+                print(f"❌ JSON parse error: {jde}")
+                print(f"Raw decrypted text: {decrypted_data}")
+                return None
             
         except Exception as e:
             print(f"❌ Decryption error: {e}")
