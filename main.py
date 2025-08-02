@@ -42,6 +42,7 @@ from utils.conversation_state import conversation_state
 from utils.nigerian_expressions import enhance_nigerian_message, get_response_guidance
 from utils.prompt_schemas import get_image_prompt, validate_image_result
 from utils.whatsapp_gpt_integration import sofi_whatsapp_gpt
+from whatsapp_onboarding import WhatsAppOnboardingManager, send_onboarding_message
 from unittest.mock import MagicMock
 
 # ⚡ INSTANT RESPONSE CACHE for ultra-fast replies
@@ -2037,33 +2038,91 @@ async def route_whatsapp_message(sender: str, text: str) -> str:
             supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_KEY")
             supabase = create_client(supabase_url, supabase_key)
             
-            user_result = supabase.table("users").select("*").eq("whatsapp_phone", sender).execute()
+            # Check for existing user by WhatsApp number
+            user_result = supabase.table("users").select("*").eq("whatsapp_number", sender).execute()
             user_exists = bool(user_result.data)
-        except:
+            
+            # If user exists, get their name for personalization
+            user_name = None
+            if user_exists and user_result.data:
+                user_name = user_result.data[0].get('full_name')
+                
+        except Exception as e:
+            logger.error(f"Database check failed: {e}")
             user_exists = False
+            user_name = None
         
-        # If user doesn't exist, offer onboarding with button
+        # 🚀 SMART ONBOARDING: Detect new users and send interactive onboarding
         if not user_exists and not onboarding_state:
-            message = """👋 Hi! I'm Sofi, your AI financial assistant.
-
-I notice you're new here. Let me help you create your account!
-
-I can help you with:
-• Account creation
-• Balance checking  
-• Money transfers
-• Airtime purchases
-
-Tap the button below to get started!"""
+            # Check if message indicates user wants to start (common greeting patterns)
+            onboarding_triggers = [
+                "hi", "hello", "hey", "start", "begin", "signup", "sign up", 
+                "create account", "register", "join", "onboard", "help"
+            ]
             
-            button_data = {
-                "title": "🚀 Create Account",
-                "url": f"https://pipinstallsofi.com/whatsapp-onboard?whatsapp={sender}",
-                "id": "create_account"
-            }
+            if any(trigger in text.lower() for trigger in onboarding_triggers):
+                logger.info(f"🎯 Triggering interactive onboarding for new user: {sender}")
+                
+                try:
+                    # Send interactive onboarding message with URL button
+                    onboarding_manager = WhatsAppOnboardingManager()
+                    result = onboarding_manager.send_onboarding_message(sender)
+                    
+                    if result['success']:
+                        logger.info(f"✅ Interactive onboarding sent to {sender}")
+                        
+                        # Also create a basic user record for tracking
+                        await create_whatsapp_user(sender)
+                        
+                        return "Interactive onboarding sent with URL button"
+                    else:
+                        logger.error(f"❌ Onboarding failed: {result.get('error')}")
+                        # Fallback to simple message
+                        fallback_msg = "👋 Welcome to Sofi! Please visit our website to create your account: https://sofi-ai-deploy.onrender.com/onboard"
+                        send_whatsapp_message(sender, fallback_msg)
+                        return "Fallback onboarding sent"
+                        
+                except Exception as e:
+                    logger.error(f"❌ Onboarding system error: {e}")
+                    # Fallback message
+                    fallback_msg = "👋 Welcome to Sofi! I'm your AI banking assistant. Please visit our website to get started: https://sofi-ai-deploy.onrender.com/onboard"
+                    send_whatsapp_message(sender, fallback_msg)
+                    return "Fallback message sent"
+            else:
+                # User messaged but didn't use onboarding trigger
+                welcome_msg = """👋 Hi! I'm Sofi, your AI financial assistant.
+                
+I notice you're new here. I can help you with banking, transfers, and more!
+
+Say "start" or "help" to begin your onboarding journey! 🚀"""
+                
+                send_whatsapp_message(sender, welcome_msg)
+                return "Welcome message sent to new user"
+        
+        # 🎉 RETURNING USER: Send welcome back with dashboard access
+        elif user_exists:
+            # Check if it's a greeting or general query
+            greeting_patterns = ["hi", "hello", "hey", "start", "dashboard", "account"]
             
-            success = send_whatsapp_message(sender, message, button_data)
-            return "New user onboarding sent"
+            if any(pattern in text.lower() for pattern in greeting_patterns):
+                try:
+                    onboarding_manager = WhatsAppOnboardingManager()
+                    result = onboarding_manager.send_welcome_back_message(sender, user_name)
+                    
+                    if result['success']:
+                        logger.info(f"✅ Welcome back message sent to {sender}")
+                        return "Welcome back message with dashboard access sent"
+                    else:
+                        # Fallback for returning users
+                        welcome_back = f"Welcome back{', ' + user_name if user_name else ''}! 👋\n\nI'm ready to help with your banking needs. Try:\n• 'balance' - Check account balance\n• 'transfer' - Send money\n• 'help' - See all options"
+                        send_whatsapp_message(sender, welcome_back)
+                        return "Welcome back message sent"
+                        
+                except Exception as e:
+                    logger.error(f"❌ Welcome back error: {e}")
+                    welcome_back = "Welcome back! How can I help you today? 😊"
+                    send_whatsapp_message(sender, welcome_back)
+                    return "Simple welcome back sent"
         
         # Balance check
         if "balance" in text:
@@ -2275,15 +2334,56 @@ def whatsapp_create_account():
 
 @app.route("/onboard")
 def onboard_page():
-    """Serve beautiful onboarding page"""
+    """Serve secure onboarding page with token validation"""
     try:
-        with open('web_onboarding.html', 'r', encoding='utf-8') as f:
-            html_content = f.read()
-        return html_content, 200, {'Content-Type': 'text/html'}
-    except FileNotFoundError:
-        return "Onboarding page not found", 404
+        # Get token parameter
+        token = request.args.get('token')
+        whatsapp_number = request.args.get('whatsapp', '')
+        
+        # If token is provided, validate it
+        if token:
+            try:
+                onboarding_manager = WhatsAppOnboardingManager()
+                
+                # Extract WhatsApp number from token if not provided directly
+                if not whatsapp_number:
+                    token_parts = token.split(':')
+                    if len(token_parts) >= 1:
+                        whatsapp_number = token_parts[0]
+                
+                # Validate token
+                is_valid = onboarding_manager.validate_token(token, whatsapp_number)
+                
+                if not is_valid:
+                    logger.warning(f"❌ Invalid onboarding token for {whatsapp_number}")
+                    return "❌ Invalid or expired onboarding link. Please request a new one from Sofi.", 403
+                
+                logger.info(f"✅ Valid onboarding token for {whatsapp_number}")
+                
+            except Exception as e:
+                logger.error(f"❌ Token validation error: {e}")
+                return "❌ Error validating onboarding link. Please try again.", 500
+        
+        # Serve onboarding page
+        try:
+            with open('web_onboarding.html', 'r', encoding='utf-8') as f:
+                html_content = f.read()
+            
+            # Inject WhatsApp number if available
+            if whatsapp_number:
+                html_content = html_content.replace(
+                    'value="" placeholder="WhatsApp Number"',
+                    f'value="{whatsapp_number}" readonly'
+                )
+            
+            return html_content, 200, {'Content-Type': 'text/html'}
+            
+        except FileNotFoundError:
+            logger.error("❌ web_onboarding.html not found")
+            return render_template('onboarding.html', whatsapp_number=whatsapp_number)
+            
     except Exception as e:
-        logger.error(f"Error serving onboarding page: {e}")
+        logger.error(f"❌ Error serving onboarding page: {e}")
         return "Internal server error", 500
 
 @app.route("/whatsapp-onboard")
@@ -3011,6 +3111,113 @@ def handle_onboarding_completion():
     except Exception as e:
         logger.error(f"❌ Onboarding completion webhook error: {e}")
         return {"status": "error", "message": str(e)}, 500
+
+# ===============================================
+# 🧪 WHATSAPP ONBOARDING TEST ENDPOINTS
+# ===============================================
+
+@app.route("/test/onboarding/<whatsapp_number>")
+def test_onboarding(whatsapp_number):
+    """Test endpoint to manually trigger onboarding for a WhatsApp number"""
+    try:
+        logger.info(f"🧪 Testing onboarding for {whatsapp_number}")
+        
+        # Clean the number
+        clean_number = whatsapp_number.lstrip('+')
+        
+        # Send onboarding message
+        onboarding_manager = WhatsAppOnboardingManager()
+        result = onboarding_manager.send_onboarding_message(f"+{clean_number}")
+        
+        if result['success']:
+            return jsonify({
+                "success": True,
+                "message": f"✅ Onboarding message sent to +{clean_number}",
+                "message_id": result.get('message_id'),
+                "onboard_url": result.get('onboard_url')
+            })
+        else:
+            return jsonify({
+                "success": False,
+                "error": result.get('error'),
+                "details": result.get('details')
+            }), 500
+            
+    except Exception as e:
+        logger.error(f"❌ Test onboarding error: {e}")
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+@app.route("/test/token/<whatsapp_number>")
+def test_token_generation(whatsapp_number):
+    """Test endpoint to generate and validate tokens"""
+    try:
+        logger.info(f"🧪 Testing token for {whatsapp_number}")
+        
+        # Clean the number
+        clean_number = whatsapp_number.lstrip('+')
+        full_number = f"+{clean_number}"
+        
+        onboarding_manager = WhatsAppOnboardingManager()
+        
+        # Generate token
+        token = onboarding_manager.generate_secure_token(full_number)
+        
+        # Validate token
+        is_valid = onboarding_manager.validate_token(token, full_number)
+        
+        # Generate URL
+        url = f"{onboarding_manager.onboard_domain}/onboard?token={token}"
+        
+        return jsonify({
+            "success": True,
+            "whatsapp_number": full_number,
+            "token": token,
+            "is_valid": is_valid,
+            "onboard_url": url,
+            "expires_in_hours": 24
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Test token error: {e}")
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+@app.route("/test/onboarding-config")
+def test_onboarding_config():
+    """Test endpoint to check onboarding configuration"""
+    try:
+        config = {
+            "whatsapp_token": "✅ Set" if os.getenv('WHATSAPP_TOKEN') else "❌ Missing",
+            "phone_number_id": "✅ Set" if os.getenv('WHATSAPP_PHONE_NUMBER_ID') else "❌ Missing",
+            "onboard_domain": os.getenv('ONBOARD_DOMAIN', 'Not set'),
+            "token_secret": "✅ Set" if os.getenv('ONBOARD_TOKEN_SECRET') else "❌ Missing",
+            "supabase_url": "✅ Set" if os.getenv('SUPABASE_URL') else "❌ Missing",
+            "supabase_key": "✅ Set" if os.getenv('SUPABASE_KEY') else "❌ Missing"
+        }
+        
+        all_required_set = all(
+            val == "✅ Set" for key, val in config.items() 
+            if key in ['whatsapp_token', 'phone_number_id', 'supabase_url', 'supabase_key']
+        )
+        
+        return jsonify({
+            "success": True,
+            "config": config,
+            "ready": all_required_set,
+            "message": "✅ Onboarding system ready!" if all_required_set else "❌ Missing required configuration"
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Config test error: {e}")
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=False)
