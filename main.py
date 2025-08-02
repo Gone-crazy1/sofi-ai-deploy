@@ -3214,6 +3214,8 @@ def whatsapp_flow_webhook():
                 return 'Bad Request', 400
             
             logger.info("🔐 Received encrypted Flow data")
+            logger.info(f"📋 Payload keys: {list(payload.keys())}")
+            logger.info(f"📄 Full payload: {json.dumps(payload, indent=2)}")
             
             # Check if this is encrypted flow data
             if 'encrypted_flow_data' in payload:
@@ -3233,12 +3235,19 @@ def whatsapp_flow_webhook():
 def handle_encrypted_flow_data(payload):
     """Handle encrypted WhatsApp Flow data exchange"""
     try:
-        encrypted_flow_data = payload.get('encrypted_flow_data')
-        encrypted_aes_key = payload.get('encrypted_aes_key')
-        initial_vector = payload.get('initial_vector')
+        # Meta/WhatsApp might use different field names
+        encrypted_flow_data = payload.get('encrypted_flow_data') or payload.get('data')
+        encrypted_aes_key = payload.get('encrypted_aes_key') or payload.get('aes_key')
+        initial_vector = payload.get('initial_vector') or payload.get('iv')
+        
+        logger.info(f"🔍 Encrypted fields found:")
+        logger.info(f"   encrypted_flow_data: {'✅' if encrypted_flow_data else '❌'}")
+        logger.info(f"   encrypted_aes_key: {'✅' if encrypted_aes_key else '❌'}")
+        logger.info(f"   initial_vector: {'✅' if initial_vector else '❌'}")
         
         if not all([encrypted_flow_data, encrypted_aes_key, initial_vector]):
             logger.error("❌ Missing encryption fields")
+            logger.info(f"Available payload fields: {list(payload.keys())}")
             return 'Missing required encryption fields', 421
         
         # Get encryption handler

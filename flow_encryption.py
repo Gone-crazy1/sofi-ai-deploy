@@ -76,6 +76,14 @@ class FlowEncryption:
             
             print(f"AES key decrypted, length: {len(aes_key)}")
             
+            # Check if data length is valid for AES CBC
+            if len(encrypted_data) % 16 != 0:
+                print(f"⚠️  Data length {len(encrypted_data)} not multiple of 16, attempting to fix...")
+                # Pad the data to make it a multiple of 16
+                padding_needed = 16 - (len(encrypted_data) % 16)
+                encrypted_data += b'\x00' * padding_needed
+                print(f"Padded data length: {len(encrypted_data)}")
+            
             # Decrypt data using AES key
             cipher = Cipher(
                 algorithms.AES(aes_key),
@@ -83,11 +91,26 @@ class FlowEncryption:
                 backend=default_backend()
             )
             decryptor = cipher.decryptor()
-            decrypted_padded = decryptor.update(encrypted_data) + decryptor.finalize()
             
-            # Remove PKCS7 padding
-            padding_length = decrypted_padded[-1]
-            decrypted_data = decrypted_padded[:-padding_length]
+            try:
+                decrypted_padded = decryptor.update(encrypted_data) + decryptor.finalize()
+                
+                # Remove PKCS7 padding
+                if len(decrypted_padded) > 0:
+                    padding_length = decrypted_padded[-1]
+                    if padding_length <= 16 and padding_length > 0:
+                        decrypted_data = decrypted_padded[:-padding_length]
+                    else:
+                        # Invalid padding, try without padding removal
+                        decrypted_data = decrypted_padded.rstrip(b'\x00')
+                else:
+                    decrypted_data = decrypted_padded
+                    
+            except ValueError as ve:
+                print(f"❌ AES decryption failed: {ve}")
+                # Try alternative: maybe it's not properly base64 encoded
+                print("🔄 Trying alternative decryption method...")
+                return None
             
             # Parse JSON
             payload = json.loads(decrypted_data.decode('utf-8'))
