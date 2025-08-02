@@ -6,3 +6,5 @@ supabase
 openai
 pillow
 pydub
+gunicorn
+waitress
