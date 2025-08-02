@@ -43,6 +43,9 @@ class SofiAssistantManager:
         try:
             logger.info(f"🤖 Sending message to Sofi Assistant: {phone_number} -> {message}")
             
+            # Store phone number for function execution context
+            self._current_phone_number = phone_number
+            
             # Get or create thread for this user
             thread_id = self.get_or_create_thread(phone_number)
             
@@ -133,6 +136,9 @@ class SofiAssistantManager:
                     
                     logger.info(f"🔧 Executing function: {function_name}")
                     
+                    # Set current phone number context for function execution
+                    self._current_phone_number = getattr(self, '_current_phone_number', '')
+                    
                     # Execute the function (now properly async)
                     result = await self.execute_function(function_name, function_args)
                     
@@ -170,11 +176,24 @@ class SofiAssistantManager:
                 return result
             elif function_name == "send_money":
                 from functions.transfer_functions import send_money
-                result = await send_money(**function_args)
+                # Fix parameter mapping - send_money expects chat_id as first parameter
+                # Get phone number from context (need to pass it from the call)
+                phone_number = getattr(self, '_current_phone_number', function_args.get("chat_id", ""))
+                result = await send_money(
+                    chat_id=phone_number,
+                    amount=function_args.get("amount"),
+                    account_number=function_args.get("account_number"),
+                    bank_name=function_args.get("bank_name"),
+                    narration=function_args.get("narration", "Transfer via Sofi AI")
+                )
                 return result
             elif function_name == "verify_account_name":
-                from functions.transfer_functions import verify_account_name
-                result = await verify_account_name(**function_args)
+                # Use the verify_account_name function from main.py
+                from main import verify_account_name
+                result = verify_account_name(
+                    account_number=function_args.get("account_number"),
+                    bank_name=function_args.get("bank_name")
+                )
                 return result
             # Add more function handlers as needed
             else:
