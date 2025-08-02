@@ -27,6 +27,9 @@ import time
 from utils.bank_api import BankAPI
 from utils.secure_transfer_handler import SecureTransferHandler
 from utils.balance_helper import get_user_balance as get_balance_secure, check_virtual_account as check_virtual_account_secure
+from flow_encryption import get_flow_encryption
+from cryptography.hazmat.primitives.asymmetric import padding
+from cryptography.hazmat.primitives import hashes
 # Paystack Integration - Banking Partner
 from paystack import get_paystack_service
 from paystack.paystack_webhook import handle_paystack_webhook
@@ -43,6 +46,7 @@ from utils.nigerian_expressions import enhance_nigerian_message, get_response_gu
 from utils.prompt_schemas import get_image_prompt, validate_image_result
 from utils.whatsapp_gpt_integration import sofi_whatsapp_gpt
 from whatsapp_onboarding import WhatsAppOnboardingManager, send_onboarding_message
+from whatsapp_flow_onboarding import WhatsAppFlowOnboarding, send_flow_onboarding
 from unittest.mock import MagicMock
 
 # ⚡ INSTANT RESPONSE CACHE for ultra-fast replies
@@ -2052,7 +2056,7 @@ async def route_whatsapp_message(sender: str, text: str) -> str:
             user_exists = False
             user_name = None
         
-        # 🚀 SMART ONBOARDING: Detect new users and send interactive onboarding
+        # 🚀 SMART ONBOARDING: Detect new users and send WhatsApp Flow
         if not user_exists and not onboarding_state:
             # Check if message indicates user wants to start (common greeting patterns)
             onboarding_triggers = [
@@ -2061,31 +2065,45 @@ async def route_whatsapp_message(sender: str, text: str) -> str:
             ]
             
             if any(trigger in text.lower() for trigger in onboarding_triggers):
-                logger.info(f"🎯 Triggering interactive onboarding for new user: {sender}")
+                logger.info(f"🎯 Triggering WhatsApp Flow onboarding for new user: {sender}")
                 
                 try:
-                    # Send interactive onboarding message with URL button
-                    onboarding_manager = WhatsAppOnboardingManager()
-                    result = onboarding_manager.send_onboarding_message(sender)
+                    # Send WhatsApp Flow message (native form in WhatsApp)
+                    flow_onboarding = WhatsAppFlowOnboarding()
+                    result = flow_onboarding.send_flow_message(sender)
                     
                     if result['success']:
-                        logger.info(f"✅ Interactive onboarding sent to {sender}")
+                        logger.info(f"✅ WhatsApp Flow sent to {sender}")
                         
                         # Also create a basic user record for tracking
                         await create_whatsapp_user(sender)
                         
-                        return "Interactive onboarding sent with URL button"
+                        return "WhatsApp Flow onboarding sent"
                     else:
-                        logger.error(f"❌ Onboarding failed: {result.get('error')}")
-                        # Fallback to simple message
-                        fallback_msg = "👋 Welcome to Sofi! Please visit our website to create your account: https://sofi-ai-deploy.onrender.com/onboard"
-                        send_whatsapp_message(sender, fallback_msg)
-                        return "Fallback onboarding sent"
+                        logger.error(f"❌ Flow onboarding failed: {result.get('error')}")
+                        # Fallback to simple interactive button
+                        try:
+                            onboarding_manager = WhatsAppOnboardingManager()
+                            fallback_result = onboarding_manager.send_onboarding_message(sender)
+                            
+                            if fallback_result['success']:
+                                return "Fallback interactive onboarding sent"
+                            else:
+                                # Final fallback to simple message
+                                fallback_msg = "👋 Welcome to Sofi! I'm your AI banking assistant. Let me help you create your account. Please reply with your full name to get started."
+                                send_whatsapp_message(sender, fallback_msg)
+                                return "Simple fallback message sent"
+                                
+                        except Exception as e:
+                            logger.error(f"❌ All onboarding methods failed: {e}")
+                            fallback_msg = "👋 Welcome to Sofi! I'm your AI banking assistant. Type 'help' to see what I can do."
+                            send_whatsapp_message(sender, fallback_msg)
+                            return "Basic welcome message sent"
                         
                 except Exception as e:
-                    logger.error(f"❌ Onboarding system error: {e}")
+                    logger.error(f"❌ Flow onboarding system error: {e}")
                     # Fallback message
-                    fallback_msg = "👋 Welcome to Sofi! I'm your AI banking assistant. Please visit our website to get started: https://sofi-ai-deploy.onrender.com/onboard"
+                    fallback_msg = "👋 Welcome to Sofi! I'm your AI banking assistant. I can help you with banking, transfers, and more. Type 'help' to get started."
                     send_whatsapp_message(sender, fallback_msg)
                     return "Fallback message sent"
             else:
@@ -2094,7 +2112,7 @@ async def route_whatsapp_message(sender: str, text: str) -> str:
                 
 I notice you're new here. I can help you with banking, transfers, and more!
 
-Say "start" or "help" to begin your onboarding journey! 🚀"""
+Say "start" or "help" to begin your account setup! 🚀"""
                 
                 send_whatsapp_message(sender, welcome_msg)
                 return "Welcome message sent to new user"
@@ -2138,23 +2156,59 @@ Say "start" or "help" to begin your onboarding journey! 🚀"""
                 send_whatsapp_message(sender, error_msg)
                 return "Balance check failed"
         
-        # Send money command
+        # Send money command - Use WhatsApp Flow (like Xara)
         if "send" in text and "to" in text:
             try:
                 # Simple parsing: "send 2000 to uche"
                 import re
-                match = re.search(r'send\s+(\d+)\s+to\s+(\w+)', text)
+                match = re.search(r'send\s+(\d+)\s+to\s+(\w+)', text, re.IGNORECASE)
                 if match:
                     amount = float(match.group(1))
                     recipient = match.group(2)
                     
-                    # For now, return a message that transfer needs more info
-                    return f"💸 To send ₦{amount:,.2f} to {recipient}, I need their account details. Please use the Sofi app for secure transfers: https://{os.getenv('DOMAIN', 'pipinstallsofi.com')}"
+                    # For demo purposes, use a placeholder account
+                    # In production, you'd look up the recipient's account
+                    account_number = "9325313442"  # Example account
+                    
+                    logger.info(f"💸 Initiating transfer Flow: ₦{amount} to {recipient}")
+                    
+                    # Send WhatsApp Flow for PIN verification (exactly like Xara)
+                    try:
+                        from sofi_whatsapp_flow import send_transfer_flow
+                        result = send_transfer_flow(sender, amount, recipient, account_number)
+                        
+                        if result['success']:
+                            logger.info(f"✅ Transfer verification Flow sent to {sender}")
+                            return "Transfer verification Flow sent"
+                        else:
+                            logger.error(f"❌ Transfer Flow failed: {result.get('error')}")
+                            # Fallback message
+                            fallback_msg = f"💸 To send ₦{amount:,.2f} to {recipient}, please reply with 'confirm {amount} {recipient}' to proceed."
+                            send_whatsapp_message(sender, fallback_msg)
+                            return "Transfer fallback sent"
+                            
+                    except Exception as flow_error:
+                        logger.error(f"❌ Transfer Flow system error: {flow_error}")
+                        # Fallback message
+                        fallback_msg = f"💸 To send ₦{amount:,.2f} to {recipient}, I need their account details. Please use the format: 'send {amount} to {recipient} account 1234567890'"
+                        send_whatsapp_message(sender, fallback_msg)
+                        return "Transfer system fallback sent"
                 else:
-                    return "❌ Please use format: 'send 2000 to John'"
+                    help_msg = """💸 Send Money Format:
+
+Examples:
+• "send 2000 to John"
+• "send 5000 to Mary"
+• "send 1000 to Uche"
+
+I'll ask for PIN verification to complete the transfer securely."""
+                    send_whatsapp_message(sender, help_msg)
+                    return "Send money help sent"
             except Exception as e:
                 logger.error(f"Send money parsing failed: {e}")
-                return "❌ Transfer failed. Please check the format and try again."
+                error_msg = "❌ Transfer failed. Please check the format and try again."
+                send_whatsapp_message(sender, error_msg)
+                return "Transfer parsing failed"
         
         # Airtime purchase
         if "airtime" in text:
@@ -3113,8 +3167,837 @@ def handle_onboarding_completion():
         return {"status": "error", "message": str(e)}, 500
 
 # ===============================================
+# 📱 WHATSAPP FLOW WEBHOOK HANDLER (Like Xara)
+# ===============================================
+
+@app.route("/whatsapp-flow-webhook", methods=["GET", "POST"])
+def whatsapp_flow_webhook():
+    """
+    Handle WhatsApp Flow webhook - both verification and encrypted data exchange
+    """
+    
+    if request.method == 'GET':
+        # Meta verification for Flow endpoint
+        mode = request.args.get('hub.mode')
+        token = request.args.get('hub.verify_token')
+        challenge = request.args.get('hub.challenge')
+        
+        verify_token = os.getenv('WHATSAPP_VERIFY_TOKEN', 'sofi_verify_token')
+        
+        if mode == 'subscribe' and token == verify_token:
+            logger.info("✅ WhatsApp Flow webhook verification successful")
+            return challenge
+        else:
+            logger.warning("❌ WhatsApp Flow webhook verification failed")
+            return 'Forbidden', 403
+    
+    elif request.method == 'POST':
+        # Flow data exchange with encryption
+        try:
+            # Get encrypted payload
+            payload = request.get_json()
+            
+            if not payload:
+                logger.error("❌ No payload received")
+                return 'Bad Request', 400
+            
+            logger.info("🔐 Received encrypted Flow data")
+            
+            # Check if this is encrypted flow data
+            if 'encrypted_flow_data' in payload:
+                return handle_encrypted_flow_data(payload)
+            
+            # Handle unencrypted legacy format
+            else:
+                logger.info("📱 Handling legacy flow data format")
+                return handle_legacy_flow_data(payload)
+                
+        except Exception as e:
+            logger.error(f"❌ Flow webhook error: {e}")
+            import traceback
+            traceback.print_exc()
+            return 'Internal Server Error', 500
+
+def handle_encrypted_flow_data(payload):
+    """Handle encrypted WhatsApp Flow data exchange"""
+    try:
+        encrypted_flow_data = payload.get('encrypted_flow_data')
+        encrypted_aes_key = payload.get('encrypted_aes_key')
+        initial_vector = payload.get('initial_vector')
+        
+        if not all([encrypted_flow_data, encrypted_aes_key, initial_vector]):
+            logger.error("❌ Missing encryption fields")
+            return 'Missing required encryption fields', 421
+        
+        # Get encryption handler
+        flow_encryption = get_flow_encryption()
+        if not flow_encryption:
+            logger.error("❌ Flow encryption not initialized")
+            return 'Encryption not available', 500
+        
+        # Decrypt request
+        logger.info("🔓 Decrypting flow request...")
+        decrypted_data = flow_encryption.decrypt_request(
+            encrypted_flow_data, 
+            encrypted_aes_key, 
+            initial_vector
+        )
+        
+        if not decrypted_data:
+            logger.error("❌ Decryption failed")
+            return 'Decryption failed', 421
+        
+        # Process the flow request
+        response_data = process_flow_request(decrypted_data)
+        
+        # Decrypt AES key for response encryption
+        aes_key = flow_encryption.decrypt_aes_key(encrypted_aes_key)
+        if not aes_key:
+            logger.error("❌ AES key decryption failed")
+            return 'Key decryption failed', 500
+        
+        # Encrypt response
+        logger.info("🔒 Encrypting flow response...")
+        encrypted_response = flow_encryption.encrypt_response(response_data, aes_key)
+        
+        if not encrypted_response:
+            logger.error("❌ Response encryption failed")
+            return 'Encryption failed', 500
+        
+        logger.info("✅ Flow response encrypted and sent")
+        return encrypted_response, 200, {'Content-Type': 'text/plain'}
+        
+    except Exception as e:
+        logger.error(f"❌ Encrypted flow handling error: {e}")
+        import traceback
+        traceback.print_exc()
+        return 'Processing failed', 500
+
+def handle_legacy_flow_data(payload):
+    """Handle unencrypted legacy flow data format"""
+    try:
+        logger.info(f"📱 Legacy flow data: {json.dumps(payload, indent=2)}")
+        
+        # Extract flow data
+        flow_data = payload.get("data", {}) or payload.get("flow_data", {})
+        flow_token = payload.get("flow_token", "") or payload.get("token", "")
+        action = flow_data.get("action", "")
+        
+        logger.info(f"🎯 Flow action: {action}")
+        
+        # Handle onboarding flow completion
+        if action == "create_account":
+            return handle_onboarding_flow_completion(flow_data, flow_token)
+        
+        # Handle transfer verification flow
+        elif action == "approve_transfer":
+            return handle_transfer_flow_completion(flow_data, flow_token)
+        
+        # Default response
+        return jsonify({
+            "status": "success",
+            "message": "Flow completed"
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Legacy flow handling error: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+def process_flow_request(decrypted_data):
+    """Process decrypted flow request and return appropriate response"""
+    
+    version = decrypted_data.get('version')
+    action = decrypted_data.get('action')
+    screen = decrypted_data.get('screen')
+    data = decrypted_data.get('data', {})
+    flow_token = decrypted_data.get('flow_token')
+    
+    logger.info(f"📱 Processing Flow - Action: {action}, Screen: {screen}")
+    
+    # Handle different actions
+    if action == 'INIT':
+        return handle_flow_init(flow_token, data)
+    
+    elif action == 'data_exchange':
+        if screen == 'ONBOARDING':
+            return handle_onboarding_flow_submission(data, flow_token)
+        elif screen == 'PIN_VERIFICATION':
+            return handle_pin_verification_flow_submission(data, flow_token)
+    
+    elif action == 'BACK':
+        return handle_flow_back(screen, data)
+    
+    # Default success response
+    return {
+        "screen": "SUCCESS",
+        "data": {
+            "extension_message_response": {
+                "params": {
+                    "flow_token": flow_token,
+                    "status": "completed"
+                }
+            }
+        }
+    }
+
+def handle_flow_init(flow_token, data):
+    """Handle flow initialization"""
+    logger.info("🎯 Handling flow initialization")
+    
+    return {
+        "screen": "ONBOARDING",
+        "data": {
+            "welcome_message": "Welcome to Sofi Banking",
+            "subtitle": "Complete your account setup to get started"
+        }
+    }
+
+def handle_onboarding_flow_submission(data, flow_token):
+    """Handle onboarding form submission from encrypted flow"""
+    try:
+        logger.info("📝 Processing onboarding flow submission")
+        
+        full_name = data.get('full_name')
+        email = data.get('email')
+        pin = data.get('pin')
+        terms_agreement = data.get('terms_agreement')
+        
+        # Validate input
+        if not all([full_name, email, pin, terms_agreement]):
+            logger.warning("❌ Missing required onboarding fields")
+            return {
+                "screen": "ONBOARDING",
+                "data": {
+                    "error_message": "All fields are required"
+                }
+            }
+        
+        if len(pin) != 4 or not pin.isdigit():
+            logger.warning("❌ Invalid PIN format")
+            return {
+                "screen": "ONBOARDING",
+                "data": {
+                    "error_message": "PIN must be exactly 4 digits"
+                }
+            }
+        
+        # Extract phone number from flow token
+        phone_number = extract_phone_from_flow_token(flow_token)
+        if not phone_number:
+            phone_number = "2348104611794"  # Default for testing
+        
+        # Generate account number
+        account_number = generate_account_number()
+        
+        # Hash PIN
+        pin_hash = hashlib.sha256(pin.encode()).hexdigest()
+        
+        # Create user account
+        user_data = {
+            'phone_number': phone_number,
+            'full_name': full_name,
+            'email': email,
+            'pin_hash': pin_hash,
+            'account_number': account_number,
+            'balance': 0.00,
+            'is_active': True,
+            'created_at': datetime.utcnow().isoformat()
+        }
+        
+        result = supabase.table('users').insert(user_data).execute()
+        
+        if result.data:
+            logger.info(f"✅ Account created: {account_number}")
+            
+            # Create virtual account
+            create_virtual_account(phone_number, account_number, full_name)
+            
+            # Success response - terminate flow
+            return {
+                "screen": "SUCCESS",
+                "data": {
+                    "extension_message_response": {
+                        "params": {
+                            "flow_token": flow_token,
+                            "account_number": account_number,
+                            "full_name": full_name,
+                            "status": "account_created"
+                        }
+                    }
+                }
+            }
+        else:
+            logger.error("❌ Account creation failed")
+            return {
+                "screen": "ONBOARDING",
+                "data": {
+                    "error_message": "Account creation failed. Please try again."
+                }
+            }
+            
+    except Exception as e:
+        logger.error(f"❌ Onboarding flow error: {e}")
+        return {
+            "screen": "ONBOARDING",
+            "data": {
+                "error_message": "An error occurred. Please try again."
+            }
+        }
+
+def handle_pin_verification_flow_submission(data, flow_token):
+    """Handle PIN verification form submission from encrypted flow"""
+    try:
+        logger.info("🔐 Processing PIN verification flow")
+        
+        pin = data.get('pin')
+        amount = data.get('amount')
+        recipient = data.get('recipient')
+        
+        # Get user info from flow token
+        phone_number = extract_phone_from_flow_token(flow_token)
+        if not phone_number:
+            phone_number = "2348104611794"  # Default for testing
+        
+        # Verify PIN
+        user_result = supabase.table('users').select('*').eq('phone_number', phone_number).execute()
+        
+        if not user_result.data:
+            logger.warning("❌ User not found for PIN verification")
+            return {
+                "screen": "PIN_VERIFICATION",
+                "data": {
+                    "error_message": "User not found"
+                }
+            }
+        
+        user = user_result.data[0]
+        pin_hash = hashlib.sha256(pin.encode()).hexdigest()
+        
+        if pin_hash != user['pin_hash']:
+            logger.warning("❌ Incorrect PIN provided")
+            return {
+                "screen": "PIN_VERIFICATION",
+                "data": {
+                    "error_message": "Incorrect PIN"
+                }
+            }
+        
+        logger.info("✅ PIN verified successfully")
+        
+        # PIN verified - proceed with transaction
+        return {
+            "screen": "SUCCESS",
+            "data": {
+                "extension_message_response": {
+                    "params": {
+                        "flow_token": flow_token,
+                        "pin_verified": True,
+                        "amount": amount,
+                        "recipient": recipient,
+                        "status": "pin_verified"
+                    }
+                }
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ PIN verification flow error: {e}")
+        return {
+            "screen": "PIN_VERIFICATION",
+            "data": {
+                "error_message": "Verification failed. Please try again."
+            }
+        }
+
+def extract_phone_from_flow_token(flow_token):
+    """Extract phone number from flow token"""
+    # Implement your flow token parsing logic
+    # For now, you can parse it based on your token format
+    try:
+        # If flow token contains phone number, extract it
+        # This depends on how you structure your flow tokens
+        if flow_token and len(flow_token) > 10:
+            # Try to extract phone number from token
+            # Placeholder implementation
+            return "2348104611794"
+        return None
+    except:
+        return None
+
+def handle_flow_back(screen, data):
+    """Handle back button press in flow"""
+    logger.info(f"⬅️  Flow back button pressed on screen: {screen}")
+    
+    # Return to previous screen based on current screen
+    if screen == "PIN_VERIFICATION":
+        return {
+            "screen": "ONBOARDING",
+            "data": {}
+        }
+    
+    # Default to initial screen
+    return {
+        "screen": "ONBOARDING",
+        "data": {
+            "welcome_message": "Welcome to Sofi Banking"
+        }
+    }
+
+def handle_onboarding_flow_completion(flow_data: dict, flow_token: str) -> tuple:
+    """Handle onboarding flow completion (account creation)"""
+    try:
+        # Extract user data
+        full_name = flow_data.get("full_name", "").strip()
+        email = flow_data.get("email", "").strip()
+        pin = flow_data.get("pin", "").strip()
+        terms_agreement = flow_data.get("terms_agreement", False)
+        
+        logger.info(f"👤 Creating account for: {full_name} ({email})")
+        
+        # Validate required fields
+        if not all([full_name, email, pin]):
+            return jsonify({
+                "status": "error", 
+                "message": "Missing required fields"
+            }), 400
+        
+        if not terms_agreement:
+            return jsonify({
+                "status": "error",
+                "message": "Terms agreement required"
+            }), 400
+        
+        # Create user account
+        user_id = str(uuid.uuid4())
+        account_number = generate_account_number()
+        
+        # Hash the PIN for security
+        import hashlib
+        pin_hash = hashlib.sha256(pin.encode()).hexdigest()
+        
+        # Insert user into database
+        user_record = {
+            "id": user_id,
+            "full_name": full_name,
+            "email": email,
+            "pin_hash": pin_hash,
+            "created_at": datetime.now().isoformat(),
+            "wallet_balance": 0.0,
+            "status": "active",
+            "signup_source": "whatsapp_flow",
+            "terms_accepted": terms_agreement,
+            "flow_token": flow_token
+        }
+        
+        result = supabase.table("users").insert(user_record).execute()
+        
+        if result.data:
+            # Create virtual account
+            virtual_account = {
+                "user_id": user_id,
+                "account_number": account_number,
+                "bank_name": "9PSB",
+                "bank_code": "120001",
+                "balance": 0.0,
+                "created_at": datetime.now().isoformat()
+            }
+            
+            supabase.table("virtual_accounts").insert(virtual_account).execute()
+            
+            logger.info(f"✅ Account created successfully: {account_number}")
+            
+            return jsonify({
+                "status": "success",
+                "message": "Account created successfully",
+                "user_id": user_id,
+                "account_number": account_number,
+                "bank_name": "9PSB"
+            }), 200
+        else:
+            logger.error("❌ Failed to create user account")
+            return jsonify({
+                "status": "error",
+                "message": "Failed to create account"
+            }), 500
+            
+    except Exception as e:
+        logger.error(f"❌ Onboarding flow error: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+def handle_transfer_flow_completion(flow_data: dict, flow_token: str) -> tuple:
+    """Handle transfer verification flow completion"""
+    try:
+        # Extract transfer data
+        pin = flow_data.get("pin", "").strip()
+        amount = flow_data.get("amount", 0)
+        recipient = flow_data.get("recipient", "")
+        account = flow_data.get("account", "")
+        
+        logger.info(f"💸 Transfer verification: ₦{amount} to {recipient} ({account})")
+        
+        # Validate PIN (you'd normally check against user's stored PIN hash)
+        if not pin or len(pin) != 4:
+            return jsonify({
+                "status": "error",
+                "message": "Invalid PIN"
+            }), 400
+        
+        # Process transfer (implement your transfer logic here)
+        # For now, just log and return success
+        
+        logger.info(f"✅ Transfer approved: ₦{amount} to {recipient}")
+        
+        return jsonify({
+            "status": "success",
+            "message": "Transfer approved",
+            "amount": amount,
+            "recipient": recipient,
+            "account": account
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"❌ Transfer flow error: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+def generate_account_number() -> str:
+    """Generate a unique 10-digit account number"""
+    import random
+    while True:
+        account_number = ''.join([str(random.randint(0, 9)) for _ in range(10)])
+        
+        # Check if account number already exists
+        existing = supabase.table("virtual_accounts").select("account_number").eq("account_number", account_number).execute()
+        
+        if not existing.data:
+            return account_number
+
+def handle_account_creation_flow(flow_data: Dict[str, Any], flow_token: str) -> Dict[str, Any]:
+    """Handle account creation from WhatsApp Flow"""
+    try:
+        # Extract form data
+        full_name = flow_data.get("full_name", "").strip()
+        email = flow_data.get("email", "").strip()
+        pin = flow_data.get("pin", "").strip()
+        terms_agreement = flow_data.get("terms_agreement", False)
+        whatsapp_number = flow_data.get("whatsapp_number", "")
+        
+        logger.info(f"🏦 Creating account for: {full_name} ({email})")
+        
+        # Validate required fields
+        if not all([full_name, email, pin, terms_agreement]):
+            return jsonify({
+                "status": "error", 
+                "message": "Missing required fields"
+            }), 400
+        
+        # Validate PIN format
+        if not pin.isdigit() or len(pin) != 4:
+            return jsonify({
+                "status": "error",
+                "message": "PIN must be 4 digits"
+            }), 400
+        
+        # Create user account
+        user_id = str(uuid.uuid4())
+        account_number = generate_account_number()
+        
+        # Hash PIN for security
+        import hashlib
+        pin_hash = hashlib.sha256(pin.encode()).hexdigest()
+        
+        # Create user record
+        user_record = {
+            "id": user_id,
+            "full_name": full_name,
+            "email": email,
+            "whatsapp_number": whatsapp_number,
+            "pin_hash": pin_hash,
+            "created_at": datetime.now().isoformat(),
+            "wallet_balance": 0.0,
+            "status": "active",
+            "signup_source": "whatsapp_flow",
+            "terms_accepted": terms_agreement
+        }
+        
+        # Insert into database
+        result = supabase.table("users").insert(user_record).execute()
+        
+        if result.data:
+            # Create virtual account
+            virtual_account = {
+                "user_id": user_id,
+                "account_number": account_number,
+                "bank_name": "9PSB",
+                "bank_code": "120001",
+                "whatsapp_number": whatsapp_number,
+                "balance": 0.0,
+                "created_at": datetime.now().isoformat()
+            }
+            
+            supabase.table("virtual_accounts").insert(virtual_account).execute()
+            
+            # Send success message back to WhatsApp
+            success_message = f"""🎉 Account Created Successfully!
+
+Welcome to Sofi, {full_name}!
+
+Account Details:
+💳 Account Number: {account_number}
+🏦 Bank: 9PSB
+💰 Balance: ₦0.00
+
+You can now:
+• Check balance: "balance"
+• Send money: "send 1000 to..."
+• Buy airtime: "airtime 100"
+
+Type "help" to see all commands!"""
+            
+            # Send to WhatsApp
+            if whatsapp_number:
+                send_whatsapp_message(whatsapp_number, success_message)
+                logger.info(f"✅ Account creation success sent to {whatsapp_number}")
+            
+            return jsonify({
+                "status": "success",
+                "message": "Account created successfully",
+                "user_id": user_id,
+                "account_number": account_number
+            }), 200
+        else:
+            return jsonify({
+                "status": "error",
+                "message": "Database error"
+            }), 500
+            
+    except Exception as e:
+        logger.error(f"❌ Account creation flow error: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+def handle_transfer_approval_flow(flow_data: Dict[str, Any], flow_token: str) -> Dict[str, Any]:
+    """Handle transfer approval from WhatsApp Flow (like Xara's PIN verification)"""
+    try:
+        # Extract form data
+        pin = flow_data.get("pin", "").strip()
+        amount = float(flow_data.get("amount", 0))
+        recipient = flow_data.get("recipient", "")
+        account = flow_data.get("account", "")
+        whatsapp_number = flow_data.get("whatsapp_number", "")
+        
+        logger.info(f"💸 Processing transfer: ₦{amount} to {recipient} ({account})")
+        
+        # Validate PIN
+        if not pin.isdigit() or len(pin) != 4:
+            error_msg = "❌ Invalid PIN format. PIN must be 4 digits."
+            if whatsapp_number:
+                send_whatsapp_message(whatsapp_number, error_msg)
+            return jsonify({"status": "error", "message": "Invalid PIN"}), 400
+        
+        # Get user by WhatsApp number
+        user_result = supabase.table("users").select("*").eq("whatsapp_number", whatsapp_number).execute()
+        
+        if not user_result.data:
+            error_msg = "❌ User not found. Please create an account first."
+            if whatsapp_number:
+                send_whatsapp_message(whatsapp_number, error_msg)
+            return jsonify({"status": "error", "message": "User not found"}), 404
+        
+        user = user_result.data[0]
+        
+        # Verify PIN
+        import hashlib
+        pin_hash = hashlib.sha256(pin.encode()).hexdigest()
+        
+        if pin_hash != user.get("pin_hash"):
+            error_msg = "❌ Incorrect PIN. Transaction cancelled."
+            if whatsapp_number:
+                send_whatsapp_message(whatsapp_number, error_msg)
+            return jsonify({"status": "error", "message": "Incorrect PIN"}), 401
+        
+        # Check balance
+        balance = float(user.get("wallet_balance", 0))
+        if balance < amount:
+            error_msg = f"❌ Insufficient balance. Available: ₦{balance:,.2f}, Required: ₦{amount:,.2f}"
+            if whatsapp_number:
+                send_whatsapp_message(whatsapp_number, error_msg)
+            return jsonify({"status": "error", "message": "Insufficient balance"}), 400
+        
+        # Process transfer (simplified - you'd integrate with actual banking API)
+        new_balance = balance - amount
+        
+        # Update user balance
+        supabase.table("users").update({
+            "wallet_balance": new_balance,
+            "updated_at": datetime.now().isoformat()
+        }).eq("id", user["id"]).execute()
+        
+        # Create transaction record
+        transaction_id = str(uuid.uuid4())
+        transaction_record = {
+            "id": transaction_id,
+            "user_id": user["id"],
+            "type": "transfer",
+            "amount": amount,
+            "recipient": recipient,
+            "recipient_account": account,
+            "status": "completed",
+            "created_at": datetime.now().isoformat()
+        }
+        
+        supabase.table("transactions").insert(transaction_record).execute()
+        
+        # Send success message
+        success_message = f"""✅ Transfer Successful!
+
+₦{amount:,.2f} sent to {recipient}
+Account: {account}
+
+Transaction ID: {transaction_id[:8]}...
+New Balance: ₦{new_balance:,.2f}
+
+Thank you for using Sofi! 🎉"""
+        
+        if whatsapp_number:
+            send_whatsapp_message(whatsapp_number, success_message)
+            logger.info(f"✅ Transfer success sent to {whatsapp_number}")
+        
+        return jsonify({
+            "status": "success",
+            "message": "Transfer completed successfully",
+            "transaction_id": transaction_id,
+            "new_balance": new_balance
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"❌ Transfer approval flow error: {e}")
+        error_msg = "❌ Transfer failed due to system error. Please try again."
+        if whatsapp_number:
+            send_whatsapp_message(whatsapp_number, error_msg)
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+def generate_account_number() -> str:
+    """Generate a unique 10-digit account number"""
+    import random
+    while True:
+        account_number = ''.join([str(random.randint(0, 9)) for _ in range(10)])
+        
+        # Check if account number already exists
+        existing = supabase.table("virtual_accounts").select("account_number").eq("account_number", account_number).execute()
+        
+        if not existing.data:
+            return account_number
+
+# ===============================================
+# 🔍 HEALTH CHECK ENDPOINTS FOR META VERIFICATION
+# ===============================================
+
+@app.route("/health")
+def health_check():
+    """Health check endpoint for Meta Business Manager"""
+    return jsonify({
+        "status": "healthy",
+        "service": "Sofi WhatsApp Flow",
+        "timestamp": datetime.now().isoformat(),
+        "endpoints": {
+            "whatsapp_webhook": "/whatsapp-webhook",
+            "flow_webhook": "/whatsapp-flow-webhook"
+        }
+    }), 200
+
+@app.route("/health/flow", methods=["GET"])
+def flow_health_check():
+    """Flow-specific health check endpoint with encryption status"""
+    try:
+        # Test encryption setup
+        flow_encryption = get_flow_encryption()
+        encryption_status = "ready" if flow_encryption else "not available"
+        
+        return jsonify({
+            "status": "healthy",
+            "service": "Sofi WhatsApp Flow Endpoint",
+            "timestamp": datetime.utcnow().isoformat(),
+            "encryption": encryption_status,
+            "endpoints": {
+                "flow_webhook": "/whatsapp-flow-webhook",
+                "health": "/health",
+                "flow_health": "/health/flow"
+            }
+        })
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": str(e),
+            "timestamp": datetime.utcnow().isoformat()
+        }), 500
+
+@app.route("/whatsapp-flow-webhook/health")
+def flow_webhook_health():
+    """Specific health check for Flow webhook"""
+    return jsonify({
+        "status": "ready",
+        "webhook": "whatsapp-flow",
+        "accepts": ["GET", "POST"],
+        "verification": "enabled"
+    }), 200
+
+# ===============================================
 # 🧪 WHATSAPP ONBOARDING TEST ENDPOINTS
 # ===============================================
+
+@app.route("/test/flow/<whatsapp_number>")
+def test_flow_onboarding(whatsapp_number):
+    """Test endpoint to manually trigger Flow onboarding for a WhatsApp number"""
+    try:
+        logger.info(f"🧪 Testing Flow onboarding for {whatsapp_number}")
+        
+        # Clean the number
+        clean_number = whatsapp_number.lstrip('+')
+        
+        # Send Flow message
+        flow_onboarding = WhatsAppFlowOnboarding()
+        result = flow_onboarding.send_flow_message(f"+{clean_number}")
+        
+        if result['success']:
+            return jsonify({
+                "success": True,
+                "message": f"✅ WhatsApp Flow sent to +{clean_number}",
+                "message_id": result.get('message_id'),
+                "flow_token": result.get('flow_token'),
+                "note": "User will see native WhatsApp form - no browser redirect!"
+            })
+        else:
+            return jsonify({
+                "success": False,
+                "error": result.get('error'),
+                "details": result.get('details')
+            }), 500
+            
+    except Exception as e:
+        logger.error(f"❌ Test Flow onboarding error: {e}")
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+@app.route("/test/flow-json")
+def test_flow_json():
+    """Test endpoint to view the Flow JSON structure"""
+    try:
+        flow_onboarding = WhatsAppFlowOnboarding()
+        flow_json = flow_onboarding.create_sofi_onboarding_flow()
+        
+        return jsonify({
+            "success": True,
+            "flow_json": flow_json,
+            "note": "This is the native WhatsApp Flow structure - lightweight and fast!"
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Test Flow JSON error: {e}")
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
 
 @app.route("/test/onboarding/<whatsapp_number>")
 def test_onboarding(whatsapp_number):
@@ -3125,16 +4008,36 @@ def test_onboarding(whatsapp_number):
         # Clean the number
         clean_number = whatsapp_number.lstrip('+')
         
-        # Send onboarding message
+        # Try Flow first (preferred), then fallback to URL button
+        try:
+            # Test WhatsApp Flow
+            flow_onboarding = WhatsAppFlowOnboarding()
+            flow_result = flow_onboarding.send_flow_message(f"+{clean_number}")
+            
+            if flow_result['success']:
+                return jsonify({
+                    "success": True,
+                    "method": "WhatsApp Flow (Native)",
+                    "message": f"✅ Native WhatsApp Flow sent to +{clean_number}",
+                    "message_id": flow_result.get('message_id'),
+                    "flow_token": flow_result.get('flow_token'),
+                    "note": "User sees native form in WhatsApp - no browser!"
+                })
+        except Exception as flow_error:
+            logger.warning(f"⚠️ Flow method failed, trying URL button: {flow_error}")
+        
+        # Fallback to URL button method
         onboarding_manager = WhatsAppOnboardingManager()
         result = onboarding_manager.send_onboarding_message(f"+{clean_number}")
         
         if result['success']:
             return jsonify({
                 "success": True,
-                "message": f"✅ Onboarding message sent to +{clean_number}",
+                "method": "Interactive URL Button (Fallback)",
+                "message": f"✅ Interactive button sent to +{clean_number}",
                 "message_id": result.get('message_id'),
-                "onboard_url": result.get('onboard_url')
+                "onboard_url": result.get('onboard_url'),
+                "note": "User will tap button to open webview"
             })
         else:
             return jsonify({
