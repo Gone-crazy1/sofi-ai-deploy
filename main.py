@@ -3567,10 +3567,11 @@ class InlineFlowEncryption:
             return None
     
     def encrypt_response(self, response_data):
-        """Encrypt Flow response for Meta"""
+        """Encrypt Flow response for Meta using AES-GCM mode with INVERTED IV"""
         try:
             import base64
             import json
+            import traceback
             from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
             
             if not hasattr(self, 'response_aes_key'):
@@ -3581,21 +3582,43 @@ class InlineFlowEncryption:
             response_json = json.dumps(response_data)
             response_bytes = response_json.encode('utf-8')
             
-            # Add PKCS7 padding
-            block_size = 16
-            padding_length = block_size - (len(response_bytes) % block_size)
-            padded_response = response_bytes + bytes([padding_length] * padding_length)
+            logger.info(f"🔒 Encrypting response: {len(response_bytes)} bytes")
+            logger.info(f"🔒 Response preview: {response_json[:100]}...")
             
-            # Encrypt using stored AES key and IV
-            cipher = Cipher(algorithms.AES(self.response_aes_key), modes.CBC(self.response_iv))
+            # CRITICAL: Meta requires INVERTED IV for response encryption
+            # Flip all bits of the original IV (XOR with 0xFF)
+            flipped_iv = bytearray()
+            for byte in self.response_iv:
+                flipped_iv.append(byte ^ 0xFF)
+            
+            logger.info(f"🔄 Original IV: {self.response_iv.hex()}")
+            logger.info(f"🔄 Flipped IV: {bytes(flipped_iv).hex()}")
+            
+            # Encrypt using AES-GCM with the FLIPPED IV
+            cipher = Cipher(algorithms.AES(self.response_aes_key), modes.GCM(bytes(flipped_iv)))
             encryptor = cipher.encryptor()
-            encrypted_response = encryptor.update(padded_response) + encryptor.finalize()
+            
+            # Encrypt the response bytes
+            encrypted_response = encryptor.update(response_bytes) + encryptor.finalize()
+            
+            # Get the authentication tag
+            auth_tag = encryptor.tag
+            
+            # Combine encrypted data + auth tag (Meta's expected format)
+            final_encrypted_data = encrypted_response + auth_tag
             
             # Return Base64 encoded encrypted response
-            return base64.b64encode(encrypted_response).decode('utf-8')
+            encrypted_b64 = base64.b64encode(final_encrypted_data).decode('utf-8')
+            
+            logger.info(f"✅ Response encrypted with FLIPPED IV: {len(final_encrypted_data)} bytes -> {len(encrypted_b64)} chars")
+            logger.info(f"🔒 Auth tag length: {len(auth_tag)} bytes")
+            logger.info(f"🔒 Encrypted response preview: {encrypted_b64[:50]}...")
+            
+            return encrypted_b64
             
         except Exception as e:
             logger.error(f"❌ Flow encryption error: {e}")
+            logger.error(f"❌ Encryption traceback: {traceback.format_exc()}")
             return None
 
 def handle_encrypted_flow_data(payload):
