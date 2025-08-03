@@ -1996,272 +1996,98 @@ def parse_whatsapp_message(data: dict) -> tuple:
         return None, None, None
 
 async def route_whatsapp_message(sender: str, text: str, message_id: str = None) -> str:
-    """Route WhatsApp message to OpenAI Assistant API with realistic typing simulation"""
+    """Route WhatsApp message with FORCED onboarding for all users without Sofi accounts"""
     try:
-        # Import fixed WhatsApp API helper with proper Meta typing indicators
+        logger.info(f"📱 WhatsApp message from {sender}: '{text}'")
+        
+        # Import APIs
         from utils.whatsapp_api_fixed import whatsapp_api
+        from utils.whatsapp_onboarding import send_whatsapp_onboarding_link, handle_whatsapp_onboarding_response
         
-        # 🤖 Process message via Sofi Assistant API  
-        logger.info(f"🤖 Processing message via Sofi Assistant API: {sender} -> {text}")
-        logger.info(f"� Processing message via Sofi Assistant API: {sender} -> {text}")
-        
-        # Import and use the Assistant API manager
-        from utils.sofi_assistant_api import sofi_assistant
-        
-        # Send message to Sofi Assistant and get intelligent response
-        assistant_response = await sofi_assistant.send_message_to_assistant(sender, text)
-        
-        if assistant_response:
-            logger.info(f"✅ Sofi Assistant response generated for {sender}")
-            
-            # 📱 Send with proper Meta API read receipts + typing indicator
-            success = await whatsapp_api.send_message_with_read_and_typing(
-                phone_number=sender,
-                message=assistant_response,
-                message_id_to_read=message_id,
-                typing_duration=2.0  # Shows typing indicator for 2 seconds
-            )
-            
-            return "Message sent with Meta's official typing indicator and read receipts"
-        
-        # Fallback only if Assistant fails
-        logger.warning(f"⚠️ Assistant failed, using fallback for {sender}")
-        
-        # Import onboarding functions (fallback)
-        from utils.whatsapp_onboarding import (
-            handle_whatsapp_onboarding_response,
-            process_whatsapp_onboarding_step,
-            send_whatsapp_onboarding_link,
-            get_user_onboarding_state
-        )
-        
-        # Check if user is in onboarding process
-        onboarding_state = get_user_onboarding_state(sender)
-        if onboarding_state:
-            onboarding_response = process_whatsapp_onboarding_step(sender, text)
-            if onboarding_response:
-                return onboarding_response
-        
-        # Handle button responses (interactive messages)
-        if text in ["quick_signup", "full_onboard", "learn_more"]:
-            return handle_whatsapp_onboarding_response(sender, text)
-        
-        # Account creation commands
-        if any(keyword in text for keyword in ["signup", "sign up", "create account", "register", "join", "onboard"]):
-            send_whatsapp_onboarding_link(sender)
-            return "🎉 Welcome! I've sent you onboarding options above. Please choose how you'd like to proceed."
-        
-        # Check if user exists in database
+        # 🚨 STEP 1: FORCE CHECK - Does user have ACTUAL Sofi account?
         try:
             from supabase import create_client
             supabase_url = os.getenv("SUPABASE_URL")
             supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_KEY")
             supabase = create_client(supabase_url, supabase_key)
             
-            # Check for existing user by WhatsApp number
+            # Check if user has ACTUAL account with account_number (not just user record)
             user_result = supabase.table("users").select("*").eq("whatsapp_number", sender).execute()
-            user_exists = bool(user_result.data)
             
-            # If user exists, get their name for personalization
-            user_name = None
-            if user_exists and user_result.data:
-                user_name = user_result.data[0].get('full_name')
+            has_sofi_account = False
+            if user_result.data and len(user_result.data) > 0:
+                user = user_result.data[0]
+                # User must have account_number to be considered onboarded
+                has_sofi_account = bool(user.get('account_number') and user.get('customer_code'))
+                
+            logger.info(f"🔍 User {sender} has Sofi account: {has_sofi_account}")
                 
         except Exception as e:
-            logger.error(f"Database check failed: {e}")
-            user_exists = False
-            user_name = None
+            logger.error(f"❌ Database check failed: {e}")
+            has_sofi_account = False
         
-        # 🚀 SMART ONBOARDING: Detect new users and send WhatsApp Flow
-        if not user_exists and not onboarding_state:
-            # Check if message indicates user wants to start (common greeting patterns)
-            onboarding_triggers = [
-                "hi", "hello", "hey", "start", "begin", "signup", "sign up", 
-                "create account", "register", "join", "onboard", "help"
-            ]
+        # 🚨 STEP 2: FORCE ONBOARDING - No Sofi account = No chat
+        if not has_sofi_account:
+            logger.info(f"🆕 FORCING onboarding for {sender} - no Sofi account detected")
             
-            if any(trigger in text.lower() for trigger in onboarding_triggers):
-                logger.info(f"🎯 Triggering WhatsApp Flow onboarding for new user: {sender}")
-                
-                try:
-                    # Send WhatsApp Flow message (native form in WhatsApp)
-                    flow_onboarding = WhatsAppFlowOnboarding()
-                    result = flow_onboarding.send_flow_message(sender)
-                    
-                    if result['success']:
-                        logger.info(f"✅ WhatsApp Flow sent to {sender}")
-                        
-                        # Also create a basic user record for tracking
-                        await create_whatsapp_user(sender)
-                        
-                        return "WhatsApp Flow onboarding sent"
-                    else:
-                        logger.error(f"❌ Flow onboarding failed: {result.get('error')}")
-                        # Fallback to simple interactive button
-                        try:
-                            onboarding_manager = WhatsAppOnboardingManager()
-                            fallback_result = onboarding_manager.send_onboarding_message(sender)
-                            
-                            if fallback_result['success']:
-                                return "Fallback interactive onboarding sent"
-                            else:
-                                # Final fallback to simple message
-                                fallback_msg = "👋 Welcome to Sofi! I'm your AI banking assistant. Let me help you create your account. Please reply with your full name to get started."
-                                send_whatsapp_message(sender, fallback_msg)
-                                return "Simple fallback message sent"
-                                
-                        except Exception as e:
-                            logger.error(f"❌ All onboarding methods failed: {e}")
-                            fallback_msg = "👋 Welcome to Sofi! I'm your AI banking assistant. Type 'help' to see what I can do."
-                            send_whatsapp_message(sender, fallback_msg)
-                            return "Basic welcome message sent"
-                        
-                except Exception as e:
-                    logger.error(f"❌ Flow onboarding system error: {e}")
-                    # Fallback message
-                    fallback_msg = "👋 Welcome to Sofi! I'm your AI banking assistant. I can help you with banking, transfers, and more. Type 'help' to get started."
-                    send_whatsapp_message(sender, fallback_msg)
-                    return "Fallback message sent"
+            # Handle onboarding button responses
+            if text in ["quick_signup", "full_onboard", "learn_more"]:
+                result = handle_whatsapp_onboarding_response(sender, text)
+                return f"Onboarding response sent: {text}"
+            
+            # Send forced onboarding link for ANY message
+            success = send_whatsapp_onboarding_link(sender)
+            if success:
+                return f"🚨 FORCED onboarding sent to {sender} - no Sofi account"
             else:
-                # User messaged but didn't use onboarding trigger
-                welcome_msg = """👋 Hi! I'm Sofi, your AI financial assistant.
-                
-I notice you're new here. I can help you with banking, transfers, and more!
-
-Say "start" or "help" to begin your account setup! 🚀"""
-                
-                send_whatsapp_message(sender, welcome_msg)
-                return "Welcome message sent to new user"
+                # Fallback message
+                await whatsapp_api.send_message_with_read_and_typing(
+                    phone_number=sender,
+                    message="👋 Welcome to Sofi! Please create your account first: https://pipinstallsofi.com/onboard",
+                    message_id_to_read=message_id,
+                    typing_duration=1.0
+                )
+                return "Fallback onboarding message sent"
         
-        # 🎉 RETURNING USER: Send welcome back with dashboard access
-        elif user_exists:
-            # Check if it's a greeting or general query
-            greeting_patterns = ["hi", "hello", "hey", "start", "dashboard", "account"]
+        # ✅ STEP 3: Normal Assistant chat (only for users with Sofi accounts)
+        logger.info(f"✅ User {sender} has Sofi account - proceeding to Assistant")
+        
+        from utils.sofi_assistant_api import sofi_assistant
+        assistant_response = await sofi_assistant.send_message_to_assistant(sender, text)
+        
+        if assistant_response:
+            await whatsapp_api.send_message_with_read_and_typing(
+                phone_number=sender,
+                message=assistant_response,
+                message_id_to_read=message_id,
+                typing_duration=2.0
+            )
+            return "Message processed by Sofi Assistant"
+        else:
+            await whatsapp_api.send_message_with_read_and_typing(
+                phone_number=sender,
+                message="Sorry, I'm having trouble right now. Please try again.",
+                message_id_to_read=message_id,
+                typing_duration=1.0
+            )
+            return "Assistant error - fallback sent"
             
-            if any(pattern in text.lower() for pattern in greeting_patterns):
-                try:
-                    onboarding_manager = WhatsAppOnboardingManager()
-                    result = onboarding_manager.send_welcome_back_message(sender, user_name)
-                    
-                    if result['success']:
-                        logger.info(f"✅ Welcome back message sent to {sender}")
-                        return "Welcome back message with dashboard access sent"
-                    else:
-                        # Fallback for returning users
-                        welcome_back = f"Welcome back{', ' + user_name if user_name else ''}! 👋\n\nI'm ready to help with your banking needs. Try:\n• 'balance' - Check account balance\n• 'transfer' - Send money\n• 'help' - See all options"
-                        send_whatsapp_message(sender, welcome_back)
-                        return "Welcome back message sent"
-                        
-                except Exception as e:
-                    logger.error(f"❌ Welcome back error: {e}")
-                    welcome_back = "Welcome back! How can I help you today? 😊"
-                    send_whatsapp_message(sender, welcome_back)
-                    return "Simple welcome back sent"
-        
-        # Balance check
-        if "balance" in text:
-            from utils.balance_helper_paystack import format_balance_message
-            try:
-                # Use Paystack balance system for WhatsApp users
-                balance_message = await format_balance_message(sender)
-                success = send_whatsapp_message(sender, balance_message)
-                return "Balance check sent via WhatsApp"
-            except Exception as e:
-                logger.error(f"Balance check failed: {e}")
-                error_msg = "❌ Unable to check balance. Please try again later."
-                send_whatsapp_message(sender, error_msg)
-                return "Balance check failed"
-        
-        # Send money command - Use WhatsApp Flow (like Xara)
-        if "send" in text and "to" in text:
-            try:
-                # Simple parsing: "send 2000 to uche"
-                import re
-                match = re.search(r'send\s+(\d+)\s+to\s+(\w+)', text, re.IGNORECASE)
-                if match:
-                    amount = float(match.group(1))
-                    recipient = match.group(2)
-                    
-                    # For demo purposes, use a placeholder account
-                    # In production, you'd look up the recipient's account
-                    account_number = "9325313442"  # Example account
-                    
-                    logger.info(f"💸 Initiating transfer Flow: ₦{amount} to {recipient}")
-                    
-                    # Send WhatsApp Flow for PIN verification (exactly like Xara)
-                    try:
-                        from sofi_whatsapp_flow import send_transfer_flow
-                        result = send_transfer_flow(sender, amount, recipient, account_number)
-                        
-                        if result['success']:
-                            logger.info(f"✅ Transfer verification Flow sent to {sender}")
-                            return "Transfer verification Flow sent"
-                        else:
-                            logger.error(f"❌ Transfer Flow failed: {result.get('error')}")
-                            # Fallback message
-                            fallback_msg = f"💸 To send ₦{amount:,.2f} to {recipient}, please reply with 'confirm {amount} {recipient}' to proceed."
-                            send_whatsapp_message(sender, fallback_msg)
-                            return "Transfer fallback sent"
-                            
-                    except Exception as flow_error:
-                        logger.error(f"❌ Transfer Flow system error: {flow_error}")
-                        # Fallback message
-                        fallback_msg = f"💸 To send ₦{amount:,.2f} to {recipient}, I need their account details. Please use the format: 'send {amount} to {recipient} account 1234567890'"
-                        send_whatsapp_message(sender, fallback_msg)
-                        return "Transfer system fallback sent"
-                else:
-                    help_msg = """💸 Send Money Format:
-
-Examples:
-• "send 2000 to John"
-• "send 5000 to Mary"
-• "send 1000 to Uche"
-
-I'll ask for PIN verification to complete the transfer securely."""
-                    send_whatsapp_message(sender, help_msg)
-                    return "Send money help sent"
-            except Exception as e:
-                logger.error(f"Send money parsing failed: {e}")
-                error_msg = "❌ Transfer failed. Please check the format and try again."
-                send_whatsapp_message(sender, error_msg)
-                return "Transfer parsing failed"
-        
-        # Airtime purchase
-        if "airtime" in text:
-            try:
-                # Simple parsing: extract amount
-                import re
-                match = re.search(r'(\d+)', text)
-                if match:
-                    amount = float(match.group(1))
-                    return f"📱 To buy ₦{amount:,.2f} airtime, please use the Sofi app for secure purchases: https://{os.getenv('DOMAIN', 'pipinstallsofi.com')}"
-                else:
-                    return "❌ Please specify amount: 'airtime 1000'"
-            except Exception as e:
-                logger.error(f"Airtime parsing failed: {e}")
-                return "❌ Airtime purchase failed. Please try again."
-        
-        # Help and default message
-        domain = os.getenv('DOMAIN', 'pipinstallsofi.com')
-        return f"""🤖 I can help you with:
-
-💰 **Account & Balance**
-• 'balance' - Check your account
-• 'signup' - Create new account
-
-💸 **Transactions** 
-• 'send 2000 to Uche' - Send money
-• 'airtime 5000' - Buy airtime
-
-🔒 **Secure Features**
-For full security and all features, use the Sofi app:
-🌐 https://{domain}
-
-What would you like to do?"""
-        
     except Exception as e:
-        logger.error(f"WhatsApp routing error: {e}")
-        return "❌ Sorry, I encountered an error. Please try again later."
+        logger.error(f"❌ Error routing WhatsApp message: {e}")
+        
+        # Emergency fallback
+        try:
+            from utils.whatsapp_api_fixed import whatsapp_api
+            await whatsapp_api.send_message_with_read_and_typing(
+                phone_number=sender,
+                message="I'm experiencing technical difficulties. Please try again in a few minutes.",
+                message_id_to_read=message_id,
+                typing_duration=1.0
+            )
+        except:
+            pass
+            
+        return f"Error: {str(e)}"
 
 @app.route("/whatsapp-webhook", methods=["GET", "POST"])
 def whatsapp_webhook():
