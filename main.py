@@ -3388,10 +3388,20 @@ class InlineFlowEncryption:
     
     def __init__(self):
         import os
-        # Get private key from environment
-        self.private_key_pem = os.getenv('WHATSAPP_FLOW_PRIVATE_KEY')
-        if not self.private_key_pem:
+        import base64
+        # Get private key from environment (Base64 encoded)
+        private_key_b64 = os.getenv('WHATSAPP_FLOW_PRIVATE_KEY')
+        if not private_key_b64:
             logger.warning("⚠️ WHATSAPP_FLOW_PRIVATE_KEY not set - Flow encryption disabled")
+            self.private_key_pem = None
+        else:
+            try:
+                # Decode Base64 to get PEM format
+                self.private_key_pem = base64.b64decode(private_key_b64).decode('utf-8')
+                logger.info("✅ Private key decoded from Base64 successfully")
+            except Exception as e:
+                logger.error(f"❌ Failed to decode private key: {e}")
+                self.private_key_pem = None
     
     def decrypt_request(self, encrypted_flow_data, encrypted_aes_key, initial_vector):
         """Decrypt incoming Flow request from Meta"""
