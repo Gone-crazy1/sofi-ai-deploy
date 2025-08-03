@@ -3803,6 +3803,17 @@ def process_flow_request(decrypted_data):
     flow_token = decrypted_data.get('flow_token')
     
     logger.info(f"📱 Processing Flow - Action: {action}, Screen: {screen}")
+    logger.info(f"📱 Flow Token: {flow_token}")
+    logger.info(f"📱 Full decrypted data: {decrypted_data}")
+    
+    # Handle Meta health check (ping action)
+    if action == 'ping':
+        logger.info("💊 Meta health check detected - returning status active")
+        return {
+            "data": {
+                "status": "active"
+            }
+        }
     
     # Handle different actions
     if action == 'INIT':
