@@ -4007,8 +4007,10 @@ def handle_onboarding_flow_submission(data, flow_token):
     """Handle onboarding form submission from encrypted flow"""
     try:
         import hashlib
-        from datetime import datetime
+        import time
         import uuid
+        import traceback
+        from datetime import datetime
         
         logger.info("📝 Processing onboarding flow submission")
         logger.info(f"📋 Received data: {data}")
@@ -4209,23 +4211,15 @@ def handle_onboarding_flow_submission(data, flow_token):
             
     except Exception as e:
         logger.error(f"❌ Onboarding flow error: {e}")
+        import traceback
         logger.error(f"❌ Traceback: {traceback.format_exc()}")
         return {
             "screen": "screen_oxjvpn",
             "data": {
                 "error_message": "An error occurred. Please try again.",
-                "full_name": data.get('full_name', ''),
-                "email": data.get('email', ''),
-                "phone": data.get('phone', '')
-            }
-        }
-            
-    except Exception as e:
-        logger.error(f"❌ Onboarding flow error: {e}")
-        return {
-            "screen": "ONBOARDING",
-            "data": {
-                "error_message": "An error occurred. Please try again."
+                "full_name": data.get('First Name', '') or data.get('full_name', ''),
+                "email": data.get('Email', '') or data.get('email', ''),
+                "phone": data.get('Phone Number', '') or data.get('phone', '')
             }
         }
 
