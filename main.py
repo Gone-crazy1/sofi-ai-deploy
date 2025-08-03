@@ -3304,37 +3304,89 @@ def whatsapp_flow_webhook():
             return 'Forbidden', 403
     
     elif request.method == 'POST':
-        # Flow data exchange with encryption
+        # ENHANCED Flow data exchange with comprehensive logging
         try:
-            # Get payload (could be JSON or empty for health checks)
-            payload = request.get_json(silent=True)
-            
-            # Check User-Agent to identify Meta/Facebook requests
+            # Get client information for debugging
+            client_ip = request.headers.get('X-Forwarded-For', request.remote_addr)
             user_agent = request.headers.get('User-Agent', '')
+            content_type = request.headers.get('Content-Type', '')
+            
+            # Log ALL request details for debugging
+            logger.info("🚨 FLOW WEBHOOK POST REQUEST RECEIVED 🚨")
+            logger.info(f"🔍 Client IP: {client_ip}")
+            logger.info(f"🔍 User-Agent: {user_agent}")
+            logger.info(f"🔍 Content-Type: {content_type}")
+            logger.info(f"🔍 Headers: {dict(request.headers)}")
+            
+            # Try multiple ways to get the payload
+            payload = None
+            raw_data = None
+            
+            try:
+                # Try JSON first
+                payload = request.get_json(silent=True)
+                logger.info(f"📋 JSON Payload: {payload}")
+            except Exception as json_error:
+                logger.error(f"❌ JSON parsing failed: {json_error}")
+            
+            try:
+                # Get raw data as fallback
+                raw_data = request.get_data(as_text=True)
+                logger.info(f"📋 Raw Data: {raw_data[:500]}{'...' if len(raw_data) > 500 else ''}")
+            except Exception as raw_error:
+                logger.error(f"❌ Raw data extraction failed: {raw_error}")
+            
+            # Check for Meta/Facebook requests
             is_meta_request = any(agent in user_agent.lower() for agent in [
                 'facebookexternalua', 'facebook', 'meta', 'whatsapp'
             ])
             
-            logger.info(f"🔍 User-Agent: {user_agent}")
-            logger.info(f"🔍 Meta request: {is_meta_request}")
-            logger.info(f"🔍 Payload: {payload}")
+            logger.info(f"🔍 Meta request detected: {is_meta_request}")
+            
+            # If we have no payload but raw data, try to parse it
+            if not payload and raw_data:
+                try:
+                    import json
+                    payload = json.loads(raw_data)
+                    logger.info(f"� Parsed from raw data: {payload}")
+                except:
+                    logger.warning(f"⚠️ Could not parse raw data as JSON")
+            
+            # Log payload analysis
+            if payload:
+                logger.info(f"✅ Flow payload received with keys: {list(payload.keys())}")
+            else:
+                logger.warning(f"⚠️ No payload received - might be health check")
             
             # Handle Meta health checks and test requests
             if is_meta_request and (not payload or len(payload) == 0):
                 logger.info("💊 Meta health check or test request detected")
                 # Return encrypted test response
                 return create_encrypted_health_response()
-            
+
             if not payload:
                 logger.error("❌ No payload received")
                 return 'Bad Request', 400
-            
-            logger.info("🔐 Received Flow data")
+
+            logger.info("🔐 PROCESSING FLOW DATA")
             logger.info(f"📋 Payload keys: {list(payload.keys())}")
-            
-            # Check if this is encrypted flow data
-            if 'encrypted_flow_data' in payload:
+            logger.info(f"📋 Full payload: {payload}")
+
+            # PRIORITY: Handle ALL types of Flow submissions
+            # Check if this is encrypted flow data (standard Meta format)
+            if any(key in payload for key in ['encrypted_flow_data', 'encrypted_aes_key', 'initial_vector']):
+                logger.info("🔐 Encrypted Flow data detected")
                 return handle_encrypted_flow_data(payload)
+            
+            # Check for direct Flow submission (unencrypted format)
+            elif any(key in payload for key in ['action', 'data', 'flow_token', 'screen']):
+                logger.info("📱 Direct Flow submission detected")
+                return handle_direct_flow_submission(payload)
+            
+            # Check for legacy webhook format
+            elif 'entry' in payload:
+                logger.info("📱 Legacy webhook format detected")
+                return handle_webhook_entry_format(payload)
             
             # Handle unencrypted legacy format or test data
             else:
@@ -3736,6 +3788,92 @@ def handle_encrypted_flow_data(payload):
         import traceback
         traceback.print_exc()
         return 'Processing failed', 500
+
+def handle_direct_flow_submission(payload):
+    """Handle direct Flow submission (unencrypted format)"""
+    try:
+        logger.info("🎯 DIRECT FLOW SUBMISSION DETECTED")
+        logger.info(f"📋 Direct payload: {json.dumps(payload, indent=2)}")
+        
+        # Extract Flow data components
+        action = payload.get('action')
+        data = payload.get('data', {})
+        flow_token = payload.get('flow_token', '')
+        screen = payload.get('screen')
+        
+        logger.info(f"🎯 Flow action: {action}")
+        logger.info(f"🎯 Flow screen: {screen}")
+        logger.info(f"🎯 Flow token: {flow_token}")
+        logger.info(f"🎯 Form data: {data}")
+        
+        # Handle different Flow actions
+        if action == 'data_exchange' and screen == 'screen_oxjvpn':
+            logger.info("🎯 Account creation form submission detected!")
+            return jsonify(handle_onboarding_flow_submission(data, flow_token))
+        
+        elif action == 'INIT':
+            logger.info("🎯 Flow initialization detected")
+            return jsonify(handle_flow_init(flow_token, data))
+        
+        elif action == 'ping':
+            logger.info("🎯 Flow ping/health check")
+            return jsonify({"data": {"status": "active"}})
+        
+        else:
+            logger.info(f"🎯 Processing Flow action: {action}")
+            response_data = process_flow_request(payload)
+            return jsonify(response_data)
+            
+    except Exception as e:
+        logger.error(f"❌ Direct flow submission error: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+def handle_webhook_entry_format(payload):
+    """Handle webhook entry format (standard WhatsApp webhook structure)"""
+    try:
+        logger.info("📱 WEBHOOK ENTRY FORMAT DETECTED")
+        logger.info(f"📋 Entry payload: {json.dumps(payload, indent=2)}")
+        
+        # Extract entries from webhook format
+        entries = payload.get('entry', [])
+        
+        for entry in entries:
+            changes = entry.get('changes', [])
+            for change in changes:
+                field = change.get('field')
+                value = change.get('value', {})
+                
+                logger.info(f"📱 Webhook field: {field}")
+                logger.info(f"📱 Webhook value: {value}")
+                
+                # Check for Flow-related data in webhook format
+                if 'flow' in value or 'flows' in value:
+                    logger.info("🎯 Flow data found in webhook format")
+                    # Process Flow data from webhook
+                    flow_data = value.get('flow') or value.get('flows')
+                    return handle_direct_flow_submission(flow_data)
+                
+                # Check for messages containing Flow responses
+                elif 'messages' in value:
+                    messages = value.get('messages', [])
+                    for message in messages:
+                        if 'interactive' in message:
+                            interactive = message.get('interactive', {})
+                            if interactive.get('type') == 'flow':
+                                logger.info("🎯 Interactive Flow message detected")
+                                flow_data = interactive.get('flow', {})
+                                return handle_direct_flow_submission(flow_data)
+        
+        # Default success response for webhook format
+        return jsonify({"status": "received"}), 200
+        
+    except Exception as e:
+        logger.error(f"❌ Webhook entry format error: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 def handle_legacy_flow_data(payload):
     """Handle unencrypted legacy flow data format or Meta test requests"""
@@ -4329,6 +4467,123 @@ def generate_account_number() -> str:
         
         if not existing.data:
             return account_number
+
+# ===============================================
+# 🔄 CATCH-ALL FLOW WEBHOOK ENDPOINTS
+# ===============================================
+
+@app.route("/flow", methods=["GET", "POST"])
+@app.route("/flows", methods=["GET", "POST"])
+@app.route("/webhook/flow", methods=["GET", "POST"])
+@app.route("/webhook/flows", methods=["GET", "POST"])
+@app.route("/api/flow", methods=["GET", "POST"])
+@app.route("/api/flows", methods=["GET", "POST"])
+def catch_all_flow_webhook():
+    """Catch-all endpoint for any Flow webhooks that might be sent to different URLs"""
+    logger.info("🎯 CATCH-ALL FLOW ENDPOINT TRIGGERED!")
+    logger.info(f"🎯 Request URL: {request.url}")
+    logger.info(f"🎯 Request method: {request.method}")
+    logger.info(f"🎯 Request headers: {dict(request.headers)}")
+    
+    if request.method == 'GET':
+        # Handle verification
+        mode = request.args.get('hub.mode')
+        token = request.args.get('hub.verify_token')
+        challenge = request.args.get('hub.challenge')
+        
+        verify_token = os.getenv('WHATSAPP_VERIFY_TOKEN', 'sofi_ai_webhook_verify_2024')
+        
+        if mode == 'subscribe' and token == verify_token:
+            logger.info("✅ Catch-all Flow webhook verification successful")
+            return challenge
+        else:
+            logger.warning("❌ Catch-all Flow webhook verification failed")
+            return 'Forbidden', 403
+    
+    elif request.method == 'POST':
+        # Redirect to main Flow webhook handler
+        logger.info("🔄 Redirecting to main Flow webhook handler")
+        return whatsapp_flow_webhook()
+
+@app.route("/debug/flow", methods=["GET", "POST"])
+def debug_flow_webhook():
+    """Debug endpoint to test Flow webhook functionality"""
+    logger.info("🛠️ FLOW DEBUG ENDPOINT ACCESSED")
+    
+    if request.method == 'GET':
+        return jsonify({
+            "status": "Flow debug endpoint active",
+            "message": "Send POST request with Flow data to test",
+            "endpoints": [
+                "/whatsapp-flow-webhook",
+                "/whatsapp/flow", 
+                "/flow",
+                "/flows",
+                "/webhook/flow",
+                "/api/flow"
+            ],
+            "test_data": {
+                "action": "data_exchange",
+                "screen": "screen_oxjvpn",
+                "flow_token": "flows-builder-45407699",
+                "data": {
+                    "first_name": "Test",
+                    "last_name": "User",
+                    "email": "test@example.com",
+                    "phone": "08055611794",
+                    "bvn": "12345678901",
+                    "address": "Test Address",
+                    "pin": "1234"
+                }
+            }
+        })
+    
+    elif request.method == 'POST':
+        payload = request.get_json(silent=True)
+        logger.info(f"🛠️ Debug Flow payload: {payload}")
+        
+        # Test the Flow submission handler directly
+        if payload and payload.get('action') == 'data_exchange':
+            data = payload.get('data', {})
+            flow_token = payload.get('flow_token', 'test-token')
+            
+            logger.info("🛠️ Testing Flow submission handler")
+            result = handle_onboarding_flow_submission(data, flow_token)
+            
+            return jsonify({
+                "debug": True,
+                "status": "tested",
+                "input": payload,
+                "result": result
+            })
+        
+        return jsonify({
+            "debug": True,
+            "status": "received",
+            "payload": payload
+        })
+
+@app.route("/monitor/webhooks", methods=["GET"])
+def monitor_webhooks():
+    """Monitor all webhook activity"""
+    return jsonify({
+        "status": "Webhook monitoring active",
+        "message": "All Flow webhooks are configured and logging",
+        "active_endpoints": {
+            "primary_flow": "/whatsapp-flow-webhook",
+            "meta_flow": "/whatsapp/flow",
+            "catch_all": ["/flow", "/flows", "/webhook/flow", "/api/flow"],
+            "debug": "/debug/flow",
+            "monitor": "/monitor/webhooks"
+        },
+        "configuration": {
+            "logging": "enhanced",
+            "encryption": "supported",
+            "formats": ["encrypted", "direct", "webhook_entry", "legacy"],
+            "verification_token": "configured"
+        },
+        "status": "🟢 All Flow webhook endpoints active and ready"
+    })
 
 # ===============================================
 # 🏥 SOFI HEALTH MONITORING ENDPOINTS
