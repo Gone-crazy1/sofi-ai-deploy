@@ -1967,6 +1967,7 @@ def send_whatsapp_onboarding_flow(phone_number: str) -> bool:
                         "flow_message_version": "3",
                         "flow_id": flow_id,
                         "flow_cta": "Create Account",
+                        "flow_token": "flows-builder-45407699",
                         "flow_action": "navigate",
                         "flow_action_payload": {
                             "screen": "screen_oxjvpn"
@@ -3416,40 +3417,141 @@ class InlineFlowEncryption:
                 logger.warning("🔧 Private key not configured - cannot decrypt")
                 return None
             
+            logger.info(f"🔍 Decryption input lengths:")
+            logger.info(f"   encrypted_flow_data: {len(encrypted_flow_data)} chars")
+            logger.info(f"   encrypted_aes_key: {len(encrypted_aes_key)} chars")
+            logger.info(f"   initial_vector: {len(initial_vector)} chars")
+            
             # Load private key
             private_key = serialization.load_pem_private_key(
                 self.private_key_pem.encode(),
                 password=None
             )
             
-            # Decode Base64 data
-            encrypted_aes_key_bytes = base64.b64decode(encrypted_aes_key)
-            encrypted_flow_data_bytes = base64.b64decode(encrypted_flow_data)
-            iv_bytes = base64.b64decode(initial_vector)
+            # Decode Base64 data with validation
+            try:
+                encrypted_aes_key_bytes = base64.b64decode(encrypted_aes_key)
+                encrypted_flow_data_bytes = base64.b64decode(encrypted_flow_data)
+                iv_bytes = base64.b64decode(initial_vector)
+                
+                logger.info(f"🔍 Decoded data lengths:")
+                logger.info(f"   AES key: {len(encrypted_aes_key_bytes)} bytes")
+                logger.info(f"   Flow data: {len(encrypted_flow_data_bytes)} bytes")
+                logger.info(f"   IV: {len(iv_bytes)} bytes")
+                
+                # Check block alignment
+                is_block_aligned = len(encrypted_flow_data_bytes) % 16 == 0
+                logger.info(f"🔍 Block alignment: {is_block_aligned}")
+                
+                if not is_block_aligned:
+                    logger.warning(f"⚠️ Flow data length {len(encrypted_flow_data_bytes)} is not AES block-aligned")
+                    logger.warning("⚠️ Meta might be using a different encryption mode or data format")
+                    # We'll still try to decrypt, but this might be the issue
+                    
+                if len(iv_bytes) != 16:
+                    logger.error(f"❌ IV length {len(iv_bytes)} is not 16 bytes")
+                    return None
+                    
+            except Exception as decode_error:
+                logger.error(f"❌ Base64 decode error: {decode_error}")
+                return None
             
             # Decrypt AES key using RSA private key
-            aes_key = private_key.decrypt(
-                encrypted_aes_key_bytes,
-                padding.OAEP(
-                    mgf=padding.MGF1(algorithm=hashes.SHA256()),
-                    algorithm=hashes.SHA256(),
-                    label=None
+            try:
+                aes_key = private_key.decrypt(
+                    encrypted_aes_key_bytes,
+                    padding.OAEP(
+                        mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                        algorithm=hashes.SHA256(),
+                        label=None
+                    )
                 )
-            )
+                logger.info(f"✅ AES key decrypted: {len(aes_key)} bytes")
+            except Exception as rsa_error:
+                logger.error(f"❌ RSA decryption error: {rsa_error}")
+                return None
             
-            # Decrypt flow data using AES
-            cipher = Cipher(algorithms.AES(aes_key), modes.CBC(iv_bytes))
-            decryptor = cipher.decryptor()
+            # Try different AES modes if the data isn't block-aligned
+            decrypted_data = None
             
-            # Decrypt and remove padding
-            decrypted_padded = decryptor.update(encrypted_flow_data_bytes) + decryptor.finalize()
+            # Method 1: Try GCM mode (no padding required)
+            if len(encrypted_flow_data_bytes) >= 16:  # GCM needs at least 16 bytes for tag
+                try:
+                    logger.info("🔄 Trying AES-GCM decryption...")
+                    # For GCM, the last 16 bytes are usually the authentication tag
+                    if len(encrypted_flow_data_bytes) > 16:
+                        ciphertext = encrypted_flow_data_bytes[:-16]
+                        tag = encrypted_flow_data_bytes[-16:]
+                        
+                        cipher = Cipher(algorithms.AES(aes_key), modes.GCM(iv_bytes, tag))
+                        decryptor = cipher.decryptor()
+                        decrypted_data = decryptor.update(ciphertext) + decryptor.finalize()
+                        logger.info(f"✅ GCM decryption successful: {len(decrypted_data)} bytes")
+                except Exception as gcm_error:
+                    logger.info(f"ℹ️ GCM decryption failed: {gcm_error}")
+                    decrypted_data = None
             
-            # Remove PKCS7 padding
-            padding_length = decrypted_padded[-1]
-            decrypted_data = decrypted_padded[:-padding_length]
+            # Method 2: Try CBC mode (original method) if block-aligned
+            if decrypted_data is None and len(encrypted_flow_data_bytes) % 16 == 0:
+                try:
+                    logger.info("🔄 Trying AES-CBC decryption...")
+                    cipher = Cipher(algorithms.AES(aes_key), modes.CBC(iv_bytes))
+                    decryptor = cipher.decryptor()
+                    
+                    decrypted_padded = decryptor.update(encrypted_flow_data_bytes) + decryptor.finalize()
+                    
+                    if len(decrypted_padded) > 0:
+                        # Remove PKCS7 padding
+                        padding_length = decrypted_padded[-1]
+                        if padding_length <= 16 and padding_length <= len(decrypted_padded):
+                            # Verify padding
+                            valid_padding = True
+                            for i in range(padding_length):
+                                if decrypted_padded[-(i+1)] != padding_length:
+                                    valid_padding = False
+                                    break
+                            
+                            if valid_padding:
+                                decrypted_data = decrypted_padded[:-padding_length]
+                                logger.info(f"✅ CBC decryption successful: {len(decrypted_data)} bytes")
+                            else:
+                                logger.warning("⚠️ Invalid PKCS7 padding in CBC mode")
+                        else:
+                            logger.warning(f"⚠️ Invalid padding length: {padding_length}")
+                except Exception as cbc_error:
+                    logger.info(f"ℹ️ CBC decryption failed: {cbc_error}")
+                    decrypted_data = None
+            
+            # Method 3: Try CTR mode (no padding, any length)
+            if decrypted_data is None:
+                try:
+                    logger.info("🔄 Trying AES-CTR decryption...")
+                    cipher = Cipher(algorithms.AES(aes_key), modes.CTR(iv_bytes))
+                    decryptor = cipher.decryptor()
+                    decrypted_data = decryptor.update(encrypted_flow_data_bytes) + decryptor.finalize()
+                    logger.info(f"✅ CTR decryption successful: {len(decrypted_data)} bytes")
+                except Exception as ctr_error:
+                    logger.info(f"ℹ️ CTR decryption failed: {ctr_error}")
+                    decrypted_data = None
+            
+            if decrypted_data is None:
+                logger.error("❌ All decryption methods failed")
+                return None
             
             # Parse JSON
-            flow_data = json.loads(decrypted_data.decode('utf-8'))
+            try:
+                flow_data = json.loads(decrypted_data.decode('utf-8'))
+                logger.info(f"✅ JSON parsed successfully: {list(flow_data.keys())}")
+            except Exception as json_error:
+                logger.error(f"❌ JSON parse error: {json_error}")
+                logger.error(f"Raw decrypted data: {decrypted_data[:100]}...")
+                # Try to decode as plain text to see what we got
+                try:
+                    text_data = decrypted_data.decode('utf-8', errors='replace')
+                    logger.error(f"Decoded text: {text_data[:200]}...")
+                except:
+                    pass
+                return None
             
             # Store AES key and IV for response encryption
             self.response_aes_key = aes_key
@@ -3460,6 +3562,8 @@ class InlineFlowEncryption:
             
         except Exception as e:
             logger.error(f"❌ Flow decryption error: {e}")
+            import traceback
+            logger.error(f"❌ Decryption traceback: {traceback.format_exc()}")
             return None
     
     def encrypt_response(self, response_data):
@@ -3503,9 +3607,17 @@ def handle_encrypted_flow_data(payload):
         initial_vector = payload.get('initial_vector') or payload.get('iv')
         
         logger.info(f"🔍 Encrypted fields found:")
-        logger.info(f"   encrypted_flow_data: {'✅' if encrypted_flow_data else '❌'}")
-        logger.info(f"   encrypted_aes_key: {'✅' if encrypted_aes_key else '❌'}")
-        logger.info(f"   initial_vector: {'✅' if initial_vector else '❌'}")
+        logger.info(f"   encrypted_flow_data: {'✅' if encrypted_flow_data else '❌'} ({len(encrypted_flow_data) if encrypted_flow_data else 0} chars)")
+        logger.info(f"   encrypted_aes_key: {'✅' if encrypted_aes_key else '❌'} ({len(encrypted_aes_key) if encrypted_aes_key else 0} chars)")
+        logger.info(f"   initial_vector: {'✅' if initial_vector else '❌'} ({len(initial_vector) if initial_vector else 0} chars)")
+        
+        # Log first few characters for debugging (safe for logs)
+        if encrypted_flow_data:
+            logger.info(f"   flow_data sample: {encrypted_flow_data[:20]}...")
+        if encrypted_aes_key:
+            logger.info(f"   aes_key sample: {encrypted_aes_key[:20]}...")
+        if initial_vector:
+            logger.info(f"   iv sample: {initial_vector[:20]}...")
         
         # Check if this might be a Meta test/health request
         user_agent = request.headers.get('User-Agent', '')
@@ -3674,7 +3786,7 @@ def process_flow_request(decrypted_data):
         return handle_flow_init(flow_token, data)
     
     elif action == 'data_exchange':
-        if screen == 'ONBOARDING':
+        if screen == 'screen_oxjvpn':  # Create Your Account screen
             return handle_onboarding_flow_submission(data, flow_token)
         elif screen == 'PIN_VERIFICATION':
             return handle_pin_verification_flow_submission(data, flow_token)
@@ -3697,15 +3809,27 @@ def process_flow_request(decrypted_data):
 
 def handle_flow_init(flow_token, data):
     """Handle flow initialization"""
-    logger.info("🎯 Handling flow initialization")
+    logger.info(f"🎯 Handling flow initialization - Token: {flow_token}")
     
-    return {
-        "screen": "ONBOARDING",
-        "data": {
-            "welcome_message": "Welcome to Sofi Banking",
-            "subtitle": "Complete your account setup to get started"
+    # Check if this is the correct Flow token
+    if flow_token == "flows-builder-45407699":
+        logger.info("✅ Correct Flow token detected")
+        return {
+            "screen": "screen_oxjvpn",  # First screen: Create Your Account
+            "data": {
+                "welcome_message": "Welcome to Sofi AI Banking",
+                "subtitle": "Complete your secure account setup to get started with instant transfers and payments"
+            }
         }
-    }
+    else:
+        logger.warning(f"⚠️ Unknown Flow token: {flow_token}")
+        return {
+            "screen": "screen_oxjvpn", 
+            "data": {
+                "welcome_message": "Welcome to Sofi Banking",
+                "subtitle": "Complete your account setup to get started"
+            }
+        }
 
 def handle_onboarding_flow_submission(data, flow_token):
     """Handle onboarding form submission from encrypted flow"""
@@ -3867,11 +3991,14 @@ def handle_pin_verification_flow_submission(data, flow_token):
 def extract_phone_from_flow_token(flow_token):
     """Extract phone number from flow token"""
     # Implement your flow token parsing logic
-    # For now, you can parse it based on your token format
     try:
-        # If flow token contains phone number, extract it
-        # This depends on how you structure your flow tokens
-        if flow_token and len(flow_token) > 10:
+        # For flows-builder-45407699 token, we might need to get phone from context
+        # For now, return a default test number
+        if flow_token == "flows-builder-45407699":
+            logger.info("✅ Recognized Sofi AI Flow token")
+            # In production, you'd extract the actual phone number from the Flow context
+            return "2348104611794"  # Default test number
+        elif flow_token and len(flow_token) > 10:
             # Try to extract phone number from token
             # Placeholder implementation
             return "2348104611794"
@@ -3886,15 +4013,15 @@ def handle_flow_back(screen, data):
     # Return to previous screen based on current screen
     if screen == "PIN_VERIFICATION":
         return {
-            "screen": "ONBOARDING",
+            "screen": "screen_oxjvpn",  # Back to Create Account screen
             "data": {}
         }
     
     # Default to initial screen
     return {
-        "screen": "ONBOARDING",
+        "screen": "screen_oxjvpn",
         "data": {
-            "welcome_message": "Welcome to Sofi Banking"
+            "welcome_message": "Welcome to Sofi AI Banking"
         }
     }
 
