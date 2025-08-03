@@ -179,5 +179,45 @@ class WhatsAppAPI:
             logger.error(f"❌ Error sending Flow: {e}")
             return False
 
+    async def send_interactive_button_message(self, phone_number: str, interactive_data: dict) -> bool:
+        """
+        Send WhatsApp interactive message with URL button (Meta's official structure)
+        
+        Args:
+            phone_number (str): WhatsApp number to send to
+            interactive_data (dict): Interactive message data with button
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            logger.info(f"🔗 Sending interactive button message to {phone_number}")
+            
+            payload = {
+                "messaging_product": "whatsapp",
+                "recipient_type": "individual",
+                "to": phone_number,
+                "type": "interactive",
+                "interactive": interactive_data
+            }
+            
+            response = requests.post(
+                f"{self.base_url}/messages",
+                headers=self._get_headers(),
+                json=payload,
+                timeout=10
+            )
+            
+            if response.status_code == 200:
+                logger.info(f"✅ Interactive button message sent successfully to {phone_number}")
+                return True
+            else:
+                logger.error(f"❌ Failed to send interactive message: {response.status_code} - {response.text}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"❌ Error sending interactive message: {e}")
+            return False
+
 # Global instance
 whatsapp_api = WhatsAppAPI()
