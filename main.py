@@ -3868,71 +3868,156 @@ def handle_flow_init(flow_token, data):
 def handle_onboarding_flow_submission(data, flow_token):
     """Handle onboarding form submission from encrypted flow"""
     try:
-        logger.info("📝 Processing onboarding flow submission")
+        import hashlib
+        from datetime import datetime
+        import uuid
         
+        logger.info("📝 Processing onboarding flow submission")
+        logger.info(f"📋 Received data: {data}")
+        logger.info(f"🎫 Flow token: {flow_token}")
+        
+        # Extract form data
         full_name = data.get('full_name')
-        email = data.get('email')
+        email = data.get('email') 
+        phone = data.get('phone')
         pin = data.get('pin')
         terms_agreement = data.get('terms_agreement')
         
+        # Log what we received
+        logger.info(f"📋 Form fields received:")
+        logger.info(f"   full_name: {full_name}")
+        logger.info(f"   email: {email}")
+        logger.info(f"   phone: {phone}")
+        logger.info(f"   pin: {'****' if pin else 'None'}")
+        logger.info(f"   terms_agreement: {terms_agreement}")
+        
         # Validate input
-        if not all([full_name, email, pin, terms_agreement]):
+        if not all([full_name, email, phone, pin]):
             logger.warning("❌ Missing required onboarding fields")
             return {
-                "screen": "ONBOARDING",
+                "screen": "screen_oxjvpn",
                 "data": {
-                    "error_message": "All fields are required"
+                    "error_message": "All fields are required",
+                    "full_name": full_name or "",
+                    "email": email or "",
+                    "phone": phone or ""
                 }
             }
         
         if len(pin) != 4 or not pin.isdigit():
             logger.warning("❌ Invalid PIN format")
             return {
-                "screen": "ONBOARDING",
+                "screen": "screen_oxjvpn", 
                 "data": {
-                    "error_message": "PIN must be exactly 4 digits"
+                    "error_message": "PIN must be exactly 4 digits",
+                    "full_name": full_name,
+                    "email": email,
+                    "phone": phone
                 }
             }
         
-        # Extract phone number from flow token
-        phone_number = extract_phone_from_flow_token(flow_token)
-        if not phone_number:
-            phone_number = "2348104611794"  # Default for testing
+        # Clean phone number (ensure it has country code)
+        clean_phone = phone.strip()
+        if not clean_phone.startswith('+'):
+            if clean_phone.startswith('0'):
+                clean_phone = '+234' + clean_phone[1:]  # Nigeria
+            elif clean_phone.startswith('234'):
+                clean_phone = '+' + clean_phone
+            else:
+                clean_phone = '+234' + clean_phone
         
-        # Generate account number
-        account_number = generate_account_number()
+        # Generate unique account number
+        account_number = str(int(time.time()))[-10:]  # Last 10 digits of timestamp
+        user_id = str(uuid.uuid4())
         
-        # Hash PIN
+        # Hash PIN for security
         pin_hash = hashlib.sha256(pin.encode()).hexdigest()
         
-        # Create user account
+        logger.info(f"🏦 Creating account for {full_name} with phone {clean_phone}")
+        
+        # Create user account in database
         user_data = {
-            'phone_number': phone_number,
+            'id': user_id,
+            'whatsapp_number': clean_phone,
             'full_name': full_name,
             'email': email,
             'pin_hash': pin_hash,
-            'account_number': account_number,
-            'balance': 0.00,
-            'is_active': True,
-            'created_at': datetime.utcnow().isoformat()
+            'wallet_balance': 0.0,
+            'status': 'active',
+            'registration_completed': True,
+            'signup_source': 'whatsapp_flow',
+            'created_at': datetime.now().isoformat(),
+            'updated_at': datetime.now().isoformat()
         }
         
+        # Insert into database
         result = supabase.table('users').insert(user_data).execute()
         
         if result.data:
-            logger.info(f"✅ Account created: {account_number}")
+            logger.info(f"✅ Account created successfully for {full_name}")
             
-            # Create virtual account
-            create_virtual_account(phone_number, account_number, full_name)
+            # Create virtual account with Paystack
+            try:
+                from utils.paystack_virtual_accounts import PaystackVirtualAccount
+                paystack_va = PaystackVirtualAccount()
+                
+                va_result = paystack_va.create_virtual_account(
+                    email=email,
+                    first_name=full_name.split()[0],
+                    last_name=' '.join(full_name.split()[1:]) if len(full_name.split()) > 1 else '',
+                    phone=clean_phone,
+                    preferred_bank='wema-bank'  # Default bank
+                )
+                
+                if va_result.get('success'):
+                    # Update user with virtual account details
+                    va_data = va_result['data']
+                    update_data = {
+                        'virtual_account_number': va_data.get('account_number'),
+                        'virtual_account_name': va_data.get('account_name'),
+                        'virtual_bank_name': va_data.get('bank_name'),
+                        'paystack_customer_code': va_data.get('customer_code')
+                    }
+                    
+                    supabase.table('users').update(update_data).eq('id', user_id).execute()
+                    logger.info(f"✅ Virtual account created: {va_data.get('account_number')}")
+                    
+            except Exception as va_error:
+                logger.error(f"⚠️ Virtual account creation failed: {va_error}")
+            
+            # Send welcome message to WhatsApp
+            try:
+                welcome_message = (
+                    f"🎉 *Welcome to Sofi AI, {full_name}!*\n\n"
+                    f"✅ Your account has been created successfully!\n\n"
+                    f"💳 *Your Account Details:*\n"
+                    f"📱 Phone: {clean_phone}\n"
+                    f"✉️ Email: {email}\n\n"
+                    f"🚀 *You can now:*\n"
+                    f"💰 Fund your account and send money\n"
+                    f"📱 Buy airtime & data\n"
+                    f"💸 Receive payments from anywhere\n"
+                    f"💬 Chat with me for financial help\n\n"
+                    f"*Try saying: \"Check my balance\" or \"Send money\"*"
+                )
+                
+                # Send message to user
+                send_whatsapp_message(clean_phone.replace('+', ''), welcome_message)
+                logger.info(f"✅ Welcome message sent to {clean_phone}")
+                
+            except Exception as msg_error:
+                logger.error(f"⚠️ Failed to send welcome message: {msg_error}")
             
             # Success response - terminate flow
             return {
                 "screen": "SUCCESS",
                 "data": {
+                    "success_title": "Account Created! 🎉",
+                    "success_message": f"Welcome {full_name}! Your Sofi AI account is ready. Check WhatsApp for your account details.",
                     "extension_message_response": {
                         "params": {
                             "flow_token": flow_token,
-                            "account_number": account_number,
+                            "phone_number": clean_phone,
                             "full_name": full_name,
                             "status": "account_created"
                         }
@@ -3940,13 +4025,30 @@ def handle_onboarding_flow_submission(data, flow_token):
                 }
             }
         else:
-            logger.error("❌ Account creation failed")
+            logger.error("❌ Database insertion failed")
+            logger.error(f"❌ Supabase error: {result}")
             return {
-                "screen": "ONBOARDING",
+                "screen": "screen_oxjvpn",
                 "data": {
-                    "error_message": "Account creation failed. Please try again."
+                    "error_message": "Account creation failed. Please try again.",
+                    "full_name": full_name,
+                    "email": email,
+                    "phone": phone
                 }
             }
+            
+    except Exception as e:
+        logger.error(f"❌ Onboarding flow error: {e}")
+        logger.error(f"❌ Traceback: {traceback.format_exc()}")
+        return {
+            "screen": "screen_oxjvpn",
+            "data": {
+                "error_message": "An error occurred. Please try again.",
+                "full_name": data.get('full_name', ''),
+                "email": data.get('email', ''),
+                "phone": data.get('phone', '')
+            }
+        }
             
     except Exception as e:
         logger.error(f"❌ Onboarding flow error: {e}")
