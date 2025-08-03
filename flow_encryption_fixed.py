@@ -15,7 +15,7 @@ from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.backends import default_backend
 
-class FlowEncryption:
+class FlowEncryptionFixed:
     """WhatsApp Flow encryption handler following Meta's official specification"""
     
     def __init__(self):
@@ -59,7 +59,7 @@ class FlowEncryption:
             initial_vector (str): Base64 encoded initialization vector
             
         Returns:
-            dict: Decrypted JSON payload or None if decryption fails
+            tuple: (decrypted_payload, aes_key, iv) or None if decryption fails
         """
         try:
             print("🔓 Decrypting WhatsApp Flow request...")
@@ -125,11 +125,7 @@ class FlowEncryption:
                 print("✅ JSON parsing successful")
                 print(f"📋 Payload keys: {list(payload.keys())}")
                 
-                # Store AES key and IV for response encryption
-                self.last_aes_key = aes_key
-                self.last_iv = iv
-                
-                return payload
+                return payload, aes_key, iv
                 
             except UnicodeDecodeError as decode_error:
                 print(f"❌ UTF-8 decode failed: {decode_error}")
@@ -145,9 +141,9 @@ class FlowEncryption:
             print(f"❌ Decryption error: {e}")
             import traceback
             traceback.print_exc()
-            return None
+            return None, None, None
     
-    def encrypt_response(self, response_data, aes_key=None):
+    def encrypt_response(self, response_data, aes_key, original_iv):
         """
         Encrypt response using AES-GCM with flipped IV as per Meta's documentation
         
@@ -159,23 +155,14 @@ class FlowEncryption:
         
         Args:
             response_data (dict): Response data to encrypt
-            aes_key (bytes): AES key from the request (optional, uses stored key)
+            aes_key (bytes): AES key from the request
+            original_iv (bytes): Original IV from request (will be flipped)
             
         Returns:
             str: Base64 encoded encrypted response
         """
         try:
             print("🔒 Encrypting WhatsApp Flow response...")
-            
-            # Use provided key or stored key from last request
-            if aes_key is None:
-                aes_key = getattr(self, 'last_aes_key', None)
-                if aes_key is None:
-                    raise ValueError("No AES key available for response encryption")
-            
-            original_iv = getattr(self, 'last_iv', None)
-            if original_iv is None:
-                raise ValueError("No IV available for response encryption")
             
             # Convert response to JSON string
             response_json = json.dumps(response_data)
@@ -218,65 +205,3 @@ class FlowEncryption:
             import traceback
             traceback.print_exc()
             return None
-    
-    def decrypt_aes_key(self, encrypted_aes_key):
-        """
-        Decrypt AES key for response encryption
-        
-        Args:
-            encrypted_aes_key (str): Base64 encoded encrypted AES key
-            
-        Returns:
-            bytes: Decrypted AES key or None if decryption fails
-        """
-        try:
-            encrypted_key_bytes = base64.b64decode(encrypted_aes_key)
-            
-            aes_key = self.private_key.decrypt(
-                encrypted_key_bytes,
-                padding.OAEP(
-                    mgf=padding.MGF1(algorithm=hashes.SHA256()),
-                    algorithm=hashes.SHA256(),
-                    label=None
-                )
-            )
-            
-            return aes_key
-            
-        except Exception as e:
-            print(f"❌ AES key decryption error: {e}")
-            return None
-
-# Global instance
-flow_encryption = None
-
-def get_flow_encryption():
-    """Get or create flow encryption instance"""
-    global flow_encryption
-    
-    if flow_encryption is None:
-        try:
-            flow_encryption = FlowEncryption()
-        except Exception as e:
-            print(f"❌ Failed to initialize flow encryption: {e}")
-            return None
-    
-    return flow_encryption
-
-def test_encryption_setup():
-    """Test if encryption setup is working"""
-    try:
-        encryption = get_flow_encryption()
-        if encryption:
-            print("✅ Flow encryption setup is working")
-            return True
-        else:
-            print("❌ Flow encryption setup failed")
-            return False
-    except Exception as e:
-        print(f"❌ Encryption test failed: {e}")
-        return False
-
-if __name__ == "__main__":
-    # Test encryption setup
-    test_encryption_setup()

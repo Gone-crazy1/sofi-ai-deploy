@@ -3154,15 +3154,9 @@ def handle_encrypted_flow_data(payload):
         # Process the flow request
         response_data = process_flow_request(decrypted_data)
         
-        # Decrypt AES key for response encryption
-        aes_key = flow_encryption.decrypt_aes_key(encrypted_aes_key)
-        if not aes_key:
-            logger.error("❌ AES key decryption failed")
-            return 'Key decryption failed', 500
-        
-        # Encrypt response
+        # Encrypt response using stored AES key and IV from decryption
         logger.info("🔒 Encrypting flow response...")
-        encrypted_response = flow_encryption.encrypt_response(response_data, aes_key)
+        encrypted_response = flow_encryption.encrypt_response(response_data)
         
         if not encrypted_response:
             logger.error("❌ Response encryption failed")
