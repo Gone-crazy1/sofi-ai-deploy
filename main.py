@@ -3876,29 +3876,48 @@ def handle_onboarding_flow_submission(data, flow_token):
         logger.info(f"📋 Received data: {data}")
         logger.info(f"🎫 Flow token: {flow_token}")
         
-        # Extract form data
-        full_name = data.get('full_name')
-        email = data.get('email') 
-        phone = data.get('phone')
-        pin = data.get('pin')
-        terms_agreement = data.get('terms_agreement')
+        # Extract form data - UPDATED to match actual Flow field names
+        first_name = data.get('first_name') or data.get('First Name') or data.get('firstName')
+        last_name = data.get('last_name') or data.get('Last Name') or data.get('lastName')
+        bvn = data.get('bvn') or data.get('BVN')
+        address = data.get('address') or data.get('Address')
+        pin = data.get('pin') or data.get('Enter 4-digit pin') or data.get('secure_pin')
+        email = data.get('email') or data.get('Email')
+        phone = data.get('phone') or data.get('Phone Number') or data.get('phoneNumber')
+        
+        # Combine first and last name
+        full_name = f"{first_name} {last_name}".strip() if first_name and last_name else (first_name or last_name or "")
         
         # Log what we received
-        logger.info(f"📋 Form fields received:")
+        logger.info(f"📋 Form fields extracted:")
+        logger.info(f"   first_name: {first_name}")
+        logger.info(f"   last_name: {last_name}")
         logger.info(f"   full_name: {full_name}")
+        logger.info(f"   bvn: {bvn[:3] + '***' if bvn else 'None'}")
+        logger.info(f"   address: {address}")
         logger.info(f"   email: {email}")
         logger.info(f"   phone: {phone}")
         logger.info(f"   pin: {'****' if pin else 'None'}")
-        logger.info(f"   terms_agreement: {terms_agreement}")
         
-        # Validate input
-        if not all([full_name, email, phone, pin]):
-            logger.warning("❌ Missing required onboarding fields")
+        # Validate input - Updated validation
+        if not all([first_name, last_name, bvn, email, phone, pin]):
+            missing_fields = []
+            if not first_name: missing_fields.append("First Name")
+            if not last_name: missing_fields.append("Last Name") 
+            if not bvn: missing_fields.append("BVN")
+            if not email: missing_fields.append("Email")
+            if not phone: missing_fields.append("Phone Number")
+            if not pin: missing_fields.append("PIN")
+            
+            logger.warning(f"❌ Missing required fields: {missing_fields}")
             return {
                 "screen": "screen_oxjvpn",
                 "data": {
-                    "error_message": "All fields are required",
-                    "full_name": full_name or "",
+                    "error_message": f"Missing required fields: {', '.join(missing_fields)}",
+                    "first_name": first_name or "",
+                    "last_name": last_name or "",
+                    "bvn": bvn or "",
+                    "address": address or "",
                     "email": email or "",
                     "phone": phone or ""
                 }
@@ -3935,17 +3954,22 @@ def handle_onboarding_flow_submission(data, flow_token):
         
         logger.info(f"🏦 Creating account for {full_name} with phone {clean_phone}")
         
-        # Create user account in database
+        # Create user account in database - Updated schema
         user_data = {
             'id': user_id,
             'whatsapp_number': clean_phone,
             'full_name': full_name,
+            'first_name': first_name,
+            'last_name': last_name,
             'email': email,
+            'bvn': bvn,
+            'address': address,
             'pin_hash': pin_hash,
             'wallet_balance': 0.0,
             'status': 'active',
             'registration_completed': True,
             'signup_source': 'whatsapp_flow',
+            'flow_token': flow_token,
             'created_at': datetime.now().isoformat(),
             'updated_at': datetime.now().isoformat()
         }
@@ -3963,8 +3987,8 @@ def handle_onboarding_flow_submission(data, flow_token):
                 
                 va_result = paystack_va.create_virtual_account(
                     email=email,
-                    first_name=full_name.split()[0],
-                    last_name=' '.join(full_name.split()[1:]) if len(full_name.split()) > 1 else '',
+                    first_name=first_name,
+                    last_name=last_name,
                     phone=clean_phone,
                     preferred_bank='wema-bank'  # Default bank
                 )
@@ -4002,11 +4026,19 @@ def handle_onboarding_flow_submission(data, flow_token):
                 )
                 
                 # Send message to user
-                send_whatsapp_message(clean_phone.replace('+', ''), welcome_message)
+                send_whatsapp_message(clean_phone, welcome_message)
                 logger.info(f"✅ Welcome message sent to {clean_phone}")
                 
             except Exception as msg_error:
                 logger.error(f"⚠️ Failed to send welcome message: {msg_error}")
+                
+                # Also try sending without country code
+                try:
+                    phone_without_plus = clean_phone.replace('+234', '').replace('+', '')
+                    send_whatsapp_message(phone_without_plus, welcome_message)
+                    logger.info(f"✅ Welcome message sent to {phone_without_plus} (fallback)")
+                except Exception as fallback_error:
+                    logger.error(f"❌ Fallback message send also failed: {fallback_error}")
             
             # Success response - terminate flow
             return {
