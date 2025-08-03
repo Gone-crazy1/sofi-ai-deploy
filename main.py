@@ -3371,15 +3371,118 @@ def create_encrypted_health_response():
         return 'Internal Server Error', 500
 
 def get_flow_encryption():
-    """Get Flow encryption handler - returns None if not configured"""
+    """Get Flow encryption handler with actual implementation"""
     try:
-        # Try to import encryption handler 
-        # This would be where you implement actual encryption
-        # For now, return None to indicate encryption not configured
-        return None
+        # Import the Flow encryption handler
+        from utils.flow_encryption import FlowEncryption
+        return FlowEncryption()
+    except ImportError:
+        # If utils.flow_encryption doesn't exist, return inline implementation
+        return InlineFlowEncryption()
     except Exception as e:
         logger.error(f"❌ Error getting flow encryption: {e}")
         return None
+
+class InlineFlowEncryption:
+    """Inline Flow encryption implementation for WhatsApp Flows"""
+    
+    def __init__(self):
+        import os
+        # Get private key from environment
+        self.private_key_pem = os.getenv('WHATSAPP_FLOW_PRIVATE_KEY')
+        if not self.private_key_pem:
+            logger.warning("⚠️ WHATSAPP_FLOW_PRIVATE_KEY not set - Flow encryption disabled")
+    
+    def decrypt_request(self, encrypted_flow_data, encrypted_aes_key, initial_vector):
+        """Decrypt incoming Flow request from Meta"""
+        try:
+            import base64
+            import json
+            from cryptography.hazmat.primitives.asymmetric import rsa, padding
+            from cryptography.hazmat.primitives import hashes, serialization
+            from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+            
+            if not self.private_key_pem:
+                logger.warning("🔧 Private key not configured - cannot decrypt")
+                return None
+            
+            # Load private key
+            private_key = serialization.load_pem_private_key(
+                self.private_key_pem.encode(),
+                password=None
+            )
+            
+            # Decode Base64 data
+            encrypted_aes_key_bytes = base64.b64decode(encrypted_aes_key)
+            encrypted_flow_data_bytes = base64.b64decode(encrypted_flow_data)
+            iv_bytes = base64.b64decode(initial_vector)
+            
+            # Decrypt AES key using RSA private key
+            aes_key = private_key.decrypt(
+                encrypted_aes_key_bytes,
+                padding.OAEP(
+                    mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                    algorithm=hashes.SHA256(),
+                    label=None
+                )
+            )
+            
+            # Decrypt flow data using AES
+            cipher = Cipher(algorithms.AES(aes_key), modes.CBC(iv_bytes))
+            decryptor = cipher.decryptor()
+            
+            # Decrypt and remove padding
+            decrypted_padded = decryptor.update(encrypted_flow_data_bytes) + decryptor.finalize()
+            
+            # Remove PKCS7 padding
+            padding_length = decrypted_padded[-1]
+            decrypted_data = decrypted_padded[:-padding_length]
+            
+            # Parse JSON
+            flow_data = json.loads(decrypted_data.decode('utf-8'))
+            
+            # Store AES key and IV for response encryption
+            self.response_aes_key = aes_key
+            self.response_iv = iv_bytes
+            
+            logger.info("✅ Flow request decrypted successfully")
+            return flow_data
+            
+        except Exception as e:
+            logger.error(f"❌ Flow decryption error: {e}")
+            return None
+    
+    def encrypt_response(self, response_data):
+        """Encrypt Flow response for Meta"""
+        try:
+            import base64
+            import json
+            from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+            
+            if not hasattr(self, 'response_aes_key'):
+                logger.error("❌ No AES key available for response encryption")
+                return None
+            
+            # Convert response to JSON
+            response_json = json.dumps(response_data)
+            response_bytes = response_json.encode('utf-8')
+            
+            # Add PKCS7 padding
+            block_size = 16
+            padding_length = block_size - (len(response_bytes) % block_size)
+            padded_response = response_bytes + bytes([padding_length] * padding_length)
+            
+            # Encrypt using stored AES key and IV
+            cipher = Cipher(algorithms.AES(self.response_aes_key), modes.CBC(self.response_iv))
+            encryptor = cipher.encryptor()
+            encrypted_response = encryptor.update(padded_response) + encryptor.finalize()
+            
+            # Return Base64 encoded encrypted response
+            return base64.b64encode(encrypted_response).decode('utf-8')
+            
+        except Exception as e:
+            logger.error(f"❌ Flow encryption error: {e}")
+            return None
 
 def handle_encrypted_flow_data(payload):
     """Handle encrypted WhatsApp Flow data exchange"""
@@ -3433,7 +3536,7 @@ def handle_encrypted_flow_data(payload):
         except:
             flow_encryption = None
             
-        if not flow_encryption:
+        if not flow_encryption or not hasattr(flow_encryption, 'private_key_pem') or not flow_encryption.private_key_pem:
             logger.info("🔧 Flow encryption not configured - returning Base64 test response")
             # Return Base64 encoded response indicating encryption setup needed
             test_response = {
