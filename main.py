@@ -142,7 +142,7 @@ Balance: ₦{balance:,.2f}
     return receipt
 
 # WhatsApp Flow Configuration
-WHATSAPP_FLOW_ID = os.getenv("WHATSAPP_FLOW_ID", "1912417042942213")  # Real Flow ID from Meta Business Manager
+WHATSAPP_FLOW_ID = os.getenv("WHATSAPP_FLOW_ID", "1464051321611573")  # Real Flow ID from Meta Business Manager
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_KEY")
 WHATSAPP_ACCESS_TOKEN = os.getenv("WHATSAPP_ACCESS_TOKEN")
@@ -1967,7 +1967,7 @@ def send_whatsapp_onboarding_flow(phone_number: str) -> bool:
                         "flow_message_version": "3",
                         "flow_id": flow_id,
                         "flow_cta": "Create Account",
-                        "flow_token": "flows-builder-45407699",
+                        "flow_token": "create_an_account_with_sofi",
                         "flow_action": "navigate",
                         "flow_action_payload": {
                             "screen": "screen_oxjvpn"
@@ -4072,7 +4072,7 @@ def handle_flow_init(flow_token, data):
     logger.info(f"🎯 Handling flow initialization - Token: {flow_token}")
     
     # Check if this is the correct Flow token
-    if flow_token == "flows-builder-45407699":
+    if flow_token in ["create_an_account_with_sofi", "flows-builder-45407699"]:
         logger.info("✅ Correct Flow token detected")
         return {
             "screen": "screen_oxjvpn",  # First screen: Create Your Account
@@ -4501,7 +4501,7 @@ def handle_flow_completion(decrypted_data, flow_token):
         }, 500
 
 def handle_onboarding_flow_submission(data, flow_token):
-    """Handle onboarding form submission from encrypted flow"""
+    """Handle onboarding form submission from encrypted flow - Using same logic as /api/register"""
     try:
         import hashlib
         import time
@@ -4590,6 +4590,189 @@ def handle_onboarding_flow_submission(data, flow_token):
                 "screen": "screen_oxjvpn", 
                 "data": {
                     "error_message": "PIN must be exactly 4 digits",
+                    "full_name": full_name,
+                    "email": email,
+                    "phone": phone
+                }
+            }
+        
+        # 🚀 CALL THE SAME REGISTRATION LOGIC AS TELEGRAM WEB APP
+        # Prepare data in the same format as /api/register endpoint
+        registration_data = {
+            'fullName': full_name,
+            'email': email,
+            'phone': phone,
+            'pin': pin,
+            'bvn': bvn,
+            'dateOfBirth': '',  # Not collected in Flow yet
+            'address': address,
+            'state': ''  # Not collected in Flow yet
+        }
+        
+        logger.info("🚀 CALLING SAME REGISTRATION LOGIC AS TELEGRAM WEB APP")
+        
+        # Create a mock request object to pass to our existing registration function
+        class MockRequest:
+            def get_json(self):
+                return registration_data
+        
+        # Temporarily replace Flask's request object
+        original_request = request
+        
+        try:
+            # Simulate the registration process from /api/register
+            # Extract user data from form
+            full_name = registration_data.get('fullName', '').strip()
+            email = registration_data.get('email', '').strip()
+            phone = registration_data.get('phone', '').strip()
+            pin = registration_data.get('pin', '')
+            bvn = registration_data.get('bvn', '').strip()
+            date_of_birth = registration_data.get('dateOfBirth', '')
+            address = registration_data.get('address', '').strip()
+            state = registration_data.get('state', '').strip()
+            
+            # Check if user already exists
+            existing_user = supabase.table("users").select("id").eq("email", email).execute()
+            if existing_user.data:
+                logger.info(f"❌ User already exists with email {email}")
+                return {
+                    "screen": "screen_oxjvpn",
+                    "data": {
+                        "error_message": "User already exists with this email",
+                        "email": email
+                    }
+                }
+                
+            # Also check by phone number
+            existing_phone = supabase.table("users").select("id").eq("whatsapp_number", phone).execute()
+            if existing_phone.data:
+                # Update existing WhatsApp user with full registration data
+                user_id = existing_phone.data[0]["id"]
+                update_data = {
+                    "full_name": full_name,
+                    "email": email,
+                    "pin_hash": pin,  # In production, hash this properly
+                    "bvn": bvn,
+                    "date_of_birth": date_of_birth,
+                    "address": address,
+                    "state": state,
+                    "registration_completed": True,
+                    "updated_at": datetime.now().isoformat()
+                }
+                
+                result = supabase.table("users").update(update_data).eq("id", user_id).execute()
+                
+                if result.data:
+                    logger.info(f"✅ Updated existing WhatsApp user: {phone}")
+                    
+                    # Send completion webhook to WhatsApp (same as Telegram)
+                    try:
+                        completion_data = {
+                            'phone_number': phone,
+                            'name': first_name,
+                            'account_number': 'Processing...'
+                        }
+                        
+                        # Call the same webhook endpoint
+                        import requests
+                        webhook_response = requests.post(
+                            request.url_root + 'webhook/onboarding-complete',
+                            json=completion_data,
+                            headers={'Content-Type': 'application/json'},
+                            timeout=5
+                        )
+                        logger.info('✅ Completion message sent to WhatsApp')
+                    except Exception as webhook_error:
+                        logger.error(f'Webhook error: {webhook_error}')
+                        # Don't fail the whole process if webhook fails
+                    
+                    return {
+                        "screen": "success",
+                        "data": {
+                            "success": "true",
+                            "message": "Registration completed successfully!",
+                            "user_id": user_id,
+                            "account_number": "Processing..."
+                        }
+                    }
+            else:
+                # Create completely new user - SAME LOGIC AS /api/register
+                import uuid
+                user_id = str(uuid.uuid4())
+                
+                user_data = {
+                    "id": user_id,
+                    "full_name": full_name,
+                    "email": email,
+                    "whatsapp_number": phone,
+                    "pin_hash": pin,  # In production, hash this properly
+                    "bvn": bvn,
+                    "date_of_birth": date_of_birth,
+                    "address": address,
+                    "state": state,
+                    "wallet_balance": 0.0,
+                    "registration_completed": True,
+                    "signup_source": "whatsapp_flow",
+                    "created_at": datetime.now().isoformat(),
+                    "updated_at": datetime.now().isoformat()
+                }
+                
+                # Insert into database
+                result = supabase.table("users").insert(user_data).execute()
+                
+                if result.data:
+                    logger.info(f"✅ New user created successfully: {full_name}")
+                    
+                    # Send completion webhook to WhatsApp (same as Telegram)
+                    try:
+                        completion_data = {
+                            'phone_number': phone,
+                            'name': first_name,
+                            'account_number': 'Processing...'
+                        }
+                        
+                        # Call the same webhook endpoint
+                        import requests
+                        webhook_response = requests.post(
+                            request.url_root + 'webhook/onboarding-complete',
+                            json=completion_data,
+                            headers={'Content-Type': 'application/json'},
+                            timeout=5
+                        )
+                        logger.info('✅ Completion message sent to WhatsApp')
+                    except Exception as webhook_error:
+                        logger.error(f'Webhook error: {webhook_error}')
+                        # Don't fail the whole process if webhook fails
+                    
+                    return {
+                        "screen": "success",
+                        "data": {
+                            "success": "true",
+                            "message": "Account created successfully!",
+                            "user_id": user_id,
+                            "account_number": "Processing..."
+                        }
+                    }
+                else:
+                    logger.error("❌ Failed to create user in database")
+                    return {
+                        "screen": "screen_oxjvpn",
+                        "data": {
+                            "error_message": "Database error - please try again",
+                            "full_name": full_name,
+                            "email": email,
+                            "phone": phone
+                        }
+                    }
+        
+        except Exception as reg_error:
+            logger.error(f"❌ Registration error: {reg_error}")
+            import traceback
+            logger.error(f"❌ Registration traceback: {traceback.format_exc()}")
+            return {
+                "screen": "screen_oxjvpn",
+                "data": {
+                    "error_message": f"Registration failed: {str(reg_error)}",
                     "full_name": full_name,
                     "email": email,
                     "phone": phone
