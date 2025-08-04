@@ -3311,6 +3311,34 @@ def whatsapp_flow_webhook():
             user_agent = request.headers.get('User-Agent', '')
             content_type = request.headers.get('Content-Type', '')
             
+            # CRITICAL: Log EVERY incoming POST immediately - this helps distinguish WhatsApp vs test submissions
+            import time
+            timestamp = time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime())
+            
+            # Get raw body for analysis
+            try:
+                raw_body = request.get_data(as_text=True)
+                raw_body_length = len(raw_body) if raw_body else 0
+            except:
+                raw_body = ""
+                raw_body_length = 0
+            
+            # Quick check for submission type
+            is_encrypted = 'encrypted_flow_data' in raw_body if raw_body else False
+            is_direct = any(key in raw_body for key in ['action', 'flow_token', 'screen']) if raw_body else False
+            
+            # UNCONDITIONAL LOG - This should appear for EVERY POST regardless of source
+            logger.info("=" * 80)
+            logger.info(f"🚨 [FLOW INBOUND] {timestamp} - RAW POST RECEIVED 🚨")
+            logger.info(f"📊 Raw body length: {raw_body_length} bytes")
+            logger.info(f"🔐 Has encrypted_flow_data: {is_encrypted}")
+            logger.info(f"📱 Has direct action/flow_token: {is_direct}")
+            logger.info(f"🌐 Client IP: {client_ip}")
+            logger.info(f"🕷️ User-Agent: {user_agent[:100]}{'...' if len(user_agent) > 100 else ''}")
+            logger.info(f"📋 Content-Type: {content_type}")
+            logger.info(f"📄 Raw body preview: {raw_body[:200]}{'...' if len(raw_body) > 200 else ''}")
+            logger.info("=" * 80)
+            
             # Log ALL request details for debugging
             logger.info("🚨 FLOW WEBHOOK POST REQUEST RECEIVED 🚨")
             logger.info(f"🔍 Client IP: {client_ip}")
@@ -3379,14 +3407,20 @@ def whatsapp_flow_webhook():
             # PRIORITY: Handle ALL types of Flow submissions
             # Check if this is encrypted flow data (standard Meta format)
             if any(key in payload for key in ['encrypted_flow_data', 'encrypted_aes_key', 'initial_vector']):
-                logger.info("🔐 Encrypted Flow data detected")
+                logger.info("🔐 Encrypted Flow data detected - PROCESSING ENCRYPTED SUBMISSION")
+                logger.info(f"🔐 This is likely a REAL WhatsApp submission (not terminal test)")
                 result = handle_encrypted_flow_data(payload)
                 logger.info(f"🔐 Encrypted handler result: {result}")
                 return result
             
             # Check for direct Flow submission (unencrypted format)
             elif any(key in payload for key in ['action', 'data', 'flow_token', 'screen']):
-                logger.info("📱 Direct Flow submission detected")
+                logger.info("📱 Direct Flow submission detected - PROCESSING DIRECT SUBMISSION")
+                logger.info(f"📱 This is likely a terminal/builder test submission")
+                action = payload.get('action', 'unknown')
+                screen = payload.get('screen', 'unknown')
+                flow_token = payload.get('flow_token', 'unknown')
+                logger.info(f"📱 Direct submission details: action={action}, screen={screen}, token={flow_token}")
                 result = handle_direct_flow_submission(payload)
                 logger.info(f"📱 Direct handler result: {result}")
                 return result
@@ -3780,6 +3814,31 @@ def handle_encrypted_flow_data(payload):
                 }), 200
             else:
                 return 'Decryption failed', 421
+        
+        # CRITICAL: Log what we got after decryption - this shows if WhatsApp submissions are reaching us
+        logger.info("🎯 DECRYPTION SUCCESSFUL - ANALYZING PAYLOAD")
+        action = decrypted_data.get('action', 'unknown')
+        screen = decrypted_data.get('screen', 'unknown') 
+        flow_token = decrypted_data.get('flow_token', 'unknown')
+        data_keys = list(decrypted_data.get('data', {}).keys()) if decrypted_data.get('data') else []
+        
+        logger.info(f"🎯 Decrypted action: {action}")
+        logger.info(f"🎯 Decrypted screen: {screen}")
+        logger.info(f"🎯 Decrypted flow_token: {flow_token}")
+        logger.info(f"🎯 Decrypted data keys: {data_keys}")
+        logger.info(f"🎯 Full decrypted payload: {decrypted_data}")
+        
+        # Check if this is the account creation submission we're looking for
+        if action == 'data_exchange' and screen in ['screen_oxjvpn', 'screen_pqknwp']:
+            logger.info("🚀 WHATSAPP ACCOUNT CREATION SUBMISSION DETECTED!")
+            logger.info("🚀 This should create the account if all fields are present")
+        elif action == 'complete':
+            logger.info("🚀 WHATSAPP FLOW COMPLETION DETECTED!")
+            logger.info("🚀 This should create the account if all fields are present")
+        elif action == 'ping':
+            logger.info("💊 WhatsApp health check/ping detected")
+        else:
+            logger.warning(f"⚠️ Unknown action from WhatsApp: {action}")
         
         # Process the flow request
         response_data = process_flow_request(decrypted_data)
@@ -4908,6 +4967,85 @@ def catch_all_flow_webhook():
 
 @app.route("/debug/flow", methods=["GET", "POST"])
 def debug_flow_webhook():
+    """Debug endpoint to track all Flow submissions"""
+    try:
+        if request.method == 'GET':
+            return jsonify({
+                "status": "debug_endpoint_active",
+                "message": "This endpoint logs all Flow submissions for debugging",
+                "method": "GET"
+            })
+        
+        # Log everything for debugging
+        import time
+        timestamp = time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime())
+        
+        logger.info("🐛 DEBUG FLOW ENDPOINT HIT")
+        logger.info(f"🐛 Timestamp: {timestamp}")
+        logger.info(f"🐛 Method: {request.method}")
+        logger.info(f"🐛 Headers: {dict(request.headers)}")
+        logger.info(f"🐛 Args: {dict(request.args)}")
+        
+        if request.method == 'POST':
+            try:
+                json_data = request.get_json()
+                logger.info(f"🐛 JSON Data: {json_data}")
+            except:
+                logger.info("🐛 No JSON data")
+            
+            try:
+                raw_data = request.get_data(as_text=True)
+                logger.info(f"🐛 Raw Data: {raw_data[:500]}{'...' if len(raw_data) > 500 else ''}")
+            except:
+                logger.info("🐛 No raw data")
+        
+        return jsonify({
+            "status": "logged",
+            "timestamp": timestamp,
+            "method": request.method
+        })
+        
+    except Exception as e:
+        logger.error(f"🐛 Debug endpoint error: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/test/flow-submission", methods=["POST"])
+def test_flow_submission():
+    """Test endpoint to simulate a flow submission"""
+    try:
+        logger.info("🧪 TEST FLOW SUBMISSION ENDPOINT HIT")
+        
+        # Simulate a direct flow submission
+        test_payload = {
+            "action": "data_exchange",
+            "screen": "screen_pqknwp", 
+            "flow_token": "flows-builder-45407699",
+            "data": {
+                "screen_0_First_Name__0": "Test",
+                "screen_0_Last_Name__1": "User",
+                "screen_0_BVN__2": "12345678901",
+                "screen_0_Address__3": "123 Test Street",
+                "screen_1_Enter_4digit_pin__0": "1234",
+                "screen_1_Email__1": "test@example.com",
+                "screen_1_Phone_Number__2": "+2348123456789"
+            }
+        }
+        
+        logger.info(f"🧪 Simulating flow submission: {test_payload}")
+        
+        # Process through the same handler
+        result = handle_direct_flow_submission(test_payload)
+        
+        logger.info(f"🧪 Test result: {result}")
+        
+        return jsonify({
+            "status": "test_completed",
+            "result": result.get_json() if hasattr(result, 'get_json') else str(result)
+        })
+        
+    except Exception as e:
+        logger.error(f"🧪 Test endpoint error: {e}")
+        return jsonify({"error": str(e)}), 500
     """Debug endpoint to test Flow webhook functionality"""
     logger.info("🛠️ FLOW DEBUG ENDPOINT ACCESSED")
     
