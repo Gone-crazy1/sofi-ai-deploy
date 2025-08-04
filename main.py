@@ -3358,52 +3358,54 @@ def whatsapp_flow_webhook():
             else:
                 logger.warning(f"⚠️ No payload received - might be health check")
             
-        # Handle Meta health checks and test requests
-        if is_meta_request and (not payload or len(payload) == 0):
-            logger.info("💊 Meta health check or test request detected")
-            # Return encrypted test response
-            return create_encrypted_health_response()
+            # Handle Meta health checks and test requests
+            if is_meta_request and (not payload or len(payload) == 0):
+                logger.info("💊 Meta health check or test request detected")
+                # Return encrypted test response
+                return create_encrypted_health_response()
 
-        if not payload:
-            logger.error("❌ No payload received")
-            logger.error(f"❌ Request method: {request.method}")
-            logger.error(f"❌ Content-Type: {request.headers.get('Content-Type')}")
-            logger.error(f"❌ Content-Length: {request.headers.get('Content-Length')}")
-            logger.error(f"❌ Raw data length: {len(raw_data) if raw_data else 0}")
-            return 'Bad Request: No payload', 400
+            if not payload:
+                logger.error("❌ No payload received")
+                logger.error(f"❌ Request method: {request.method}")
+                logger.error(f"❌ Content-Type: {request.headers.get('Content-Type')}")
+                logger.error(f"❌ Content-Length: {request.headers.get('Content-Length')}")
+                logger.error(f"❌ Raw data length: {len(raw_data) if raw_data else 0}")
+                return 'Bad Request: No payload', 400
 
-        logger.info("🔐 PROCESSING FLOW DATA")
-        logger.info(f"📋 Payload keys: {list(payload.keys())}")
-        logger.info(f"📋 Full payload: {payload}")
+            logger.info("🔐 PROCESSING FLOW DATA")
+            logger.info(f"📋 Payload keys: {list(payload.keys())}")
+            logger.info(f"📋 Full payload: {payload}")
 
-        # PRIORITY: Handle ALL types of Flow submissions
-        # Check if this is encrypted flow data (standard Meta format)
-        if any(key in payload for key in ['encrypted_flow_data', 'encrypted_aes_key', 'initial_vector']):
-            logger.info("🔐 Encrypted Flow data detected")
-            result = handle_encrypted_flow_data(payload)
-            logger.info(f"🔐 Encrypted handler result: {result}")
-            return result
-        
-        # Check for direct Flow submission (unencrypted format)
-        elif any(key in payload for key in ['action', 'data', 'flow_token', 'screen']):
-            logger.info("📱 Direct Flow submission detected")
-            result = handle_direct_flow_submission(payload)
-            logger.info(f"📱 Direct handler result: {result}")
-            return result
-        
-        # Check for legacy webhook format
-        elif 'entry' in payload:
-            logger.info("📱 Legacy webhook format detected")
-            result = handle_webhook_entry_format(payload)
-            logger.info(f"📱 Legacy handler result: {result}")
-            return result
-        
-        # Handle unencrypted legacy format or test data
-        else:
-            logger.info("📱 Handling legacy flow data format")
-            result = handle_legacy_flow_data(payload)
-            logger.info(f"📱 Legacy handler result: {result}")
-            return result        except Exception as e:
+            # PRIORITY: Handle ALL types of Flow submissions
+            # Check if this is encrypted flow data (standard Meta format)
+            if any(key in payload for key in ['encrypted_flow_data', 'encrypted_aes_key', 'initial_vector']):
+                logger.info("🔐 Encrypted Flow data detected")
+                result = handle_encrypted_flow_data(payload)
+                logger.info(f"🔐 Encrypted handler result: {result}")
+                return result
+            
+            # Check for direct Flow submission (unencrypted format)
+            elif any(key in payload for key in ['action', 'data', 'flow_token', 'screen']):
+                logger.info("📱 Direct Flow submission detected")
+                result = handle_direct_flow_submission(payload)
+                logger.info(f"📱 Direct handler result: {result}")
+                return result
+            
+            # Check for legacy webhook format
+            elif 'entry' in payload:
+                logger.info("📱 Legacy webhook format detected")
+                result = handle_webhook_entry_format(payload)
+                logger.info(f"📱 Legacy handler result: {result}")
+                return result
+            
+            # Handle unencrypted legacy format or test data
+            else:
+                logger.info("📱 Handling legacy flow data format")
+                result = handle_legacy_flow_data(payload)
+                logger.info(f"📱 Legacy handler result: {result}")
+                return result
+            
+        except Exception as e:
             logger.error(f"❌ Flow webhook error: {e}")
             import traceback
             traceback.print_exc()
