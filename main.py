@@ -3953,8 +3953,13 @@ def process_flow_request(decrypted_data):
             }
         }
     
+    # Handle Flow completion - CRITICAL for account creation
+    elif action == 'complete':
+        logger.info("🎯 FLOW COMPLETION DETECTED - Creating account!")
+        return handle_flow_completion(decrypted_data, flow_token)
+    
     # Handle different actions
-    if action == 'INIT':
+    elif action == 'INIT':
         return handle_flow_init(flow_token, data)
     
     elif action == 'data_exchange':
@@ -3967,6 +3972,11 @@ def process_flow_request(decrypted_data):
         return handle_flow_back(screen, data)
     
     # Default success response
+    else:
+        logger.warning(f"🔍 Unknown Flow action: {action}")
+        logger.info(f"🔍 Available actions to handle: ping, complete, INIT, data_exchange, BACK")
+        logger.info(f"🔍 Full decrypted data for debugging: {decrypted_data}")
+    
     return {
         "screen": "SUCCESS",
         "data": {
@@ -4002,6 +4012,288 @@ def handle_flow_init(flow_token, data):
                 "subtitle": "Complete your account setup to get started"
             }
         }
+
+def handle_flow_completion(decrypted_data, flow_token):
+    """Handle Flow completion when user clicks Submit - MAIN ACCOUNT CREATION"""
+    try:
+        import hashlib
+        import time
+        import uuid
+        import traceback
+        from datetime import datetime
+        
+        logger.info("🎯 PROCESSING FLOW COMPLETION - ACCOUNT CREATION")
+        logger.info(f"📋 Full decrypted data: {decrypted_data}")
+        
+        # Extract WhatsApp user ID from the Flow context
+        # This might be in different places depending on Meta's structure
+        whatsapp_id = None
+        for key in ['whatsapp_id', 'user_id', 'sender_id', 'chat_id']:
+            if key in decrypted_data:
+                whatsapp_id = decrypted_data[key]
+                break
+        
+        if not whatsapp_id:
+            logger.warning("⚠️ No WhatsApp ID found in Flow completion data")
+            # Try to extract from flow_token or use a default
+            whatsapp_id = flow_token or "unknown_user"
+        
+        logger.info(f"📱 WhatsApp ID: {whatsapp_id}")
+        
+        # Extract form fields from Flow completion data
+        # Meta sends field names in specific format: screen_X_FieldName_Y
+        first_name = (
+            decrypted_data.get("screen_0_First_Name0") or
+            decrypted_data.get("screen_0_First_Name_0") or
+            decrypted_data.get("first_name") or
+            decrypted_data.get("First Name")
+        )
+        
+        last_name = (
+            decrypted_data.get("screen_0_Last_Name1") or
+            decrypted_data.get("screen_0_Last_Name_1") or
+            decrypted_data.get("last_name") or
+            decrypted_data.get("Last Name")
+        )
+        
+        bvn = (
+            decrypted_data.get("screen_0_BVN2") or
+            decrypted_data.get("screen_0_BVN_2") or
+            decrypted_data.get("bvn") or
+            decrypted_data.get("BVN")
+        )
+        
+        address = (
+            decrypted_data.get("screen_0_Address3") or
+            decrypted_data.get("screen_0_Address_3") or
+            decrypted_data.get("address") or
+            decrypted_data.get("Address")
+        )
+        
+        email = (
+            decrypted_data.get("screen_1_Email1") or
+            decrypted_data.get("screen_1_Email_1") or
+            decrypted_data.get("email") or
+            decrypted_data.get("Email")
+        )
+        
+        phone = (
+            decrypted_data.get("screen_1_Phone_Number__2") or
+            decrypted_data.get("screen_1_Phone_Number_2") or
+            decrypted_data.get("phone") or
+            decrypted_data.get("Phone Number")
+        )
+        
+        pin = (
+            decrypted_data.get("screen_1_Enter_4digit_pin__0") or
+            decrypted_data.get("screen_1_Enter_4digit_pin_0") or
+            decrypted_data.get("pin") or
+            decrypted_data.get("Enter 4-digit pin")
+        )
+        
+        # Log extracted fields (sanitized)
+        logger.info("📊 ONBOARDING SUBMISSION DATA:")
+        logger.info(f"   whatsapp_id: {whatsapp_id}")
+        logger.info(f"   first_name: {first_name}")
+        logger.info(f"   last_name: {last_name}")
+        logger.info(f"   email: {email}")
+        logger.info(f"   phone: {phone}")
+        logger.info(f"   bvn: {bvn[:3] + '***' if bvn else 'None'}")
+        logger.info(f"   address: {address}")
+        logger.info(f"   pin: {'****' if pin else 'None'}")
+        
+        # Validate required fields
+        if not all([first_name, last_name, email, phone, pin]):
+            missing_fields = []
+            if not first_name: missing_fields.append("First Name")
+            if not last_name: missing_fields.append("Last Name")
+            if not email: missing_fields.append("Email")
+            if not phone: missing_fields.append("Phone")
+            if not pin: missing_fields.append("PIN")
+            
+            logger.error(f"❌ Missing required onboarding fields: {missing_fields}")
+            logger.error(f"❌ Full decrypted data keys: {list(decrypted_data.keys())}")
+            
+            return {"status": "error", "message": f"Missing required fields: {', '.join(missing_fields)}"}, 400
+        
+        # Clean phone number
+        clean_phone = phone.strip()
+        if not clean_phone.startswith('+'):
+            if clean_phone.startswith('0'):
+                clean_phone = '+234' + clean_phone[1:]
+            elif clean_phone.startswith('234'):
+                clean_phone = '+' + clean_phone
+            else:
+                clean_phone = '+234' + clean_phone
+        
+        full_name = f"{first_name} {last_name}".strip()
+        
+        # Check if user already exists
+        existing_user = supabase.table('users').select('*').eq('whatsapp_number', clean_phone).execute()
+        
+        if existing_user.data:
+            logger.info(f"📱 Updating existing user: {clean_phone}")
+            user = existing_user.data[0]
+            user_id = user['id']
+            
+            # Update user with new information
+            update_data = {
+                'first_name': first_name,
+                'last_name': last_name,
+                'full_name': full_name,
+                'email': email,
+                'bvn': bvn,
+                'address': address,
+                'pin_hash': hashlib.sha256(pin.encode()).hexdigest(),
+                'registration_completed': True,
+                'signup_source': 'whatsapp_flow',
+                'flow_token': flow_token,
+                'updated_at': datetime.now().isoformat()
+            }
+            
+            supabase.table('users').update(update_data).eq('id', user_id).execute()
+            logger.info(f"✅ User updated successfully: {full_name}")
+            
+        else:
+            logger.info(f"👤 Creating new user: {clean_phone}")
+            user_id = str(uuid.uuid4())
+            
+            # Create new user
+            user_data = {
+                'id': user_id,
+                'whatsapp_number': clean_phone,
+                'full_name': full_name,
+                'first_name': first_name,
+                'last_name': last_name,
+                'email': email,
+                'bvn': bvn,
+                'address': address,
+                'pin_hash': hashlib.sha256(pin.encode()).hexdigest(),
+                'wallet_balance': 0.0,
+                'status': 'active',
+                'registration_completed': True,
+                'signup_source': 'whatsapp_flow',
+                'flow_token': flow_token,
+                'created_at': datetime.now().isoformat(),
+                'updated_at': datetime.now().isoformat()
+            }
+            
+            result = supabase.table('users').insert(user_data).execute()
+            
+            if not result.data:
+                logger.error(f"❌ Failed to create user in database")
+                return {"status": "error", "message": "Database creation failed"}, 500
+            
+            logger.info(f"✅ User created successfully: {full_name}")
+        
+        # Create Paystack virtual account
+        try:
+            from utils.paystack_account_manager import PaystackVirtualAccountManager
+            import asyncio
+            
+            logger.info(f"🏦 Creating Paystack account for {full_name}")
+            
+            paystack_manager = PaystackVirtualAccountManager()
+            whatsapp_data = {
+                'whatsapp_number': clean_phone,
+                'full_name': full_name,
+                'first_name': first_name,
+                'last_name': last_name,
+                'email': email,
+                'phone': phone,
+                'address': address,
+                'bvn': bvn,
+                'pin': pin
+            }
+            
+            # Handle async function
+            if asyncio.iscoroutinefunction(paystack_manager.create_whatsapp_account):
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                paystack_result = loop.run_until_complete(
+                    paystack_manager.create_whatsapp_account(whatsapp_data)
+                )
+                loop.close()
+            else:
+                paystack_result = paystack_manager.create_whatsapp_account(whatsapp_data)
+            
+            if paystack_result.get('success'):
+                account_data = paystack_result.get('account_data', {})
+                logger.info(f"✅ Paystack account created: {account_data.get('account_number', 'N/A')}")
+                
+                # Update user with Paystack details
+                paystack_update = {
+                    'paystack_customer_code': account_data.get('customer_code'),
+                    'paystack_dva_id': account_data.get('dva_id'),
+                    'paystack_account_number': account_data.get('account_number'),
+                    'paystack_bank_name': account_data.get('bank_name', 'Wema Bank'),
+                    'is_verified': True
+                }
+                
+                supabase.table('users').update(paystack_update).eq('id', user_id).execute()
+                logger.info(f"✅ User updated with Paystack details")
+                
+            else:
+                logger.error(f"❌ Paystack account creation failed: {paystack_result.get('message', 'Unknown error')}")
+                
+        except Exception as paystack_error:
+            logger.error(f"⚠️ Paystack integration failed: {paystack_error}")
+            logger.error(f"⚠️ Paystack traceback: {traceback.format_exc()}")
+        
+        # Send WhatsApp confirmation
+        try:
+            # Get final user data with Paystack info
+            final_user = supabase.table('users').select('*').eq('id', user_id).execute()
+            account_number = None
+            if final_user.data:
+                account_number = final_user.data[0].get('paystack_account_number')
+            
+            welcome_message = (
+                f"🎉 *Welcome to Sofi AI, {full_name}!*\n\n"
+                f"✅ Your account has been created successfully!\n\n"
+                f"💳 *Your Account Details:*\n"
+                f"📱 Phone: {clean_phone}\n"
+                f"✉️ Email: {email}\n"
+            )
+            
+            if account_number:
+                welcome_message += f"🏦 Account: {account_number}\n🏛️ Bank: Wema Bank\n"
+            
+            welcome_message += (
+                f"\n🚀 *You can now:*\n"
+                f"💰 Fund your account and send money\n"
+                f"📱 Buy airtime & data\n"
+                f"💸 Receive payments from anywhere\n"
+                f"💬 Chat with me for financial help\n\n"
+                f"*Try saying: \"Check my balance\" or \"Send money\"*"
+            )
+            
+            # Send message to user
+            send_whatsapp_message(clean_phone, welcome_message)
+            logger.info(f"✅ Welcome message sent to {clean_phone}")
+            
+        except Exception as msg_error:
+            logger.error(f"⚠️ Failed to send welcome message: {msg_error}")
+        
+        # Return success response to Meta
+        logger.info("🎉 FLOW COMPLETION SUCCESSFUL - Account created!")
+        return {
+            "status": "completed",
+            "data": {
+                "success": True,
+                "message": f"Account created successfully for {full_name}",
+                "user_id": user_id,
+                "account_number": account_number
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Flow completion error: {e}")
+        logger.error(f"❌ Traceback: {traceback.format_exc()}")
+        return {
+            "status": "error", 
+            "message": "Account creation failed. Please try again."
+        }, 500
 
 def handle_onboarding_flow_submission(data, flow_token):
     """Handle onboarding form submission from encrypted flow"""
@@ -4122,10 +4414,13 @@ def handle_onboarding_flow_submission(data, flow_token):
             
             # Create Paystack virtual account and complete setup
             try:
-                from utils.paystack_account_manager import paystack_account_manager
+                from utils.paystack_account_manager import PaystackVirtualAccountManager
                 import asyncio
                 
                 logger.info(f"🏦 Creating complete Paystack account for {full_name}")
+                
+                # Initialize Paystack account manager
+                paystack_manager = PaystackVirtualAccountManager()
                 
                 # Prepare WhatsApp account data for Paystack
                 whatsapp_data = {
@@ -4141,17 +4436,17 @@ def handle_onboarding_flow_submission(data, flow_token):
                 }
                 
                 # Create account asynchronously
-                if asyncio.iscoroutinefunction(paystack_account_manager.create_whatsapp_account):
+                if asyncio.iscoroutinefunction(paystack_manager.create_whatsapp_account):
                     # Run async function
                     loop = asyncio.new_event_loop()
                     asyncio.set_event_loop(loop)
                     paystack_result = loop.run_until_complete(
-                        paystack_account_manager.create_whatsapp_account(whatsapp_data)
+                        paystack_manager.create_whatsapp_account(whatsapp_data)
                     )
                     loop.close()
                 else:
                     # Run sync function
-                    paystack_result = paystack_account_manager.create_whatsapp_account(whatsapp_data)
+                    paystack_result = paystack_manager.create_whatsapp_account(whatsapp_data)
                 
                 if paystack_result.get('success'):
                     account_data = paystack_result.get('account_data', {})
