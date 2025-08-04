@@ -4501,7 +4501,7 @@ def handle_flow_completion(decrypted_data, flow_token):
         }, 500
 
 def handle_onboarding_flow_submission(data, flow_token):
-    """Handle onboarding form submission from encrypted flow - Using same logic as /api/register"""
+    """Handle onboarding form submission from encrypted flow - sends reply directly."""
     try:
         import hashlib
         import time
@@ -4511,13 +4511,148 @@ def handle_onboarding_flow_submission(data, flow_token):
         
         logger.info("📝 Processing onboarding flow submission")
         logger.info(f"📋 Received data: {data}")
-        logger.info(f"🎫 Flow token: {flow_token}")
+        logger.info(f"🗓️ Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         
-        # Extract form data - EXACT field names from Meta Flow JSON config
-        first_name = (data.get('screen_0_First_Name__0') or 
-                     data.get('First_Name') or 
-                     data.get('first_name') or 
-                     data.get('First Name'))
+        # Extract form data - Try multiple field name patterns
+        first_name = (data.get('first_name') or data.get('First_Name') or 
+                     data.get('screen_0_First_Name__0') or data.get('First Name'))
+        
+        last_name = (data.get('last_name') or data.get('Last_Name') or 
+                    data.get('screen_0_Last_Name__1') or data.get('Last Name'))
+        
+        email = (data.get('email') or data.get('Email') or 
+                data.get('screen_1_Email__1'))
+        
+        phone = (data.get('phone') or data.get('Phone_Number') or 
+                data.get('screen_1_Phone_Number__2') or data.get('Phone Number'))
+        
+        bvn = (data.get('bvn') or data.get('BVN') or 
+              data.get('screen_0_BVN__2'))
+        
+        address = (data.get('address') or data.get('Address') or 
+                  data.get('screen_0_Address__3'))
+        
+        pin = (data.get('pin') or data.get('PIN') or 
+              data.get('screen_1_Enter_4digit_pin__0') or data.get('Enter 4-digit pin'))
+        
+        full_name = f"{first_name} {last_name}".strip() if first_name and last_name else ""
+        
+        logger.info(f"📊 EXTRACTED FIELDS:")
+        logger.info(f"   👤 Full Name: {full_name}")
+        logger.info(f"   📧 Email: {email}")
+        logger.info(f"   📱 Phone: {phone}")
+        logger.info(f"   🏦 BVN: {bvn[:3] + '***' if bvn else 'None'}")
+        logger.info(f"   🏠 Address: {address}")
+        logger.info(f"   🔐 PIN: {'****' if pin else 'None'}")
+
+        # Basic validation
+        if not all([full_name, email, phone, pin]):
+            logger.warning("❌ Missing required fields in Flow submission.")
+            return { 
+                "screen": "error", 
+                "data": { 
+                    "error_message": "Missing required fields. Please fill all fields.",
+                    "timestamp": datetime.now().isoformat()
+                } 
+            }
+
+        # Check if user already exists
+        existing_user = supabase.table("users").select("id").eq("email", email).execute()
+        if existing_user.data:
+            logger.info(f"✅ User with email {email} already exists - sending welcome back message")
+            try:
+                send_whatsapp_message(phone, f"Welcome back, {full_name}! Your Sofi account is already active. 🎉")
+                logger.info(f"✅ Welcome back message sent to {phone}")
+            except Exception as msg_error:
+                logger.error(f"⚠️ Failed to send welcome back message: {msg_error}")
+            
+            return { 
+                "screen": "SUCCESS", 
+                "data": { 
+                    "success_title": "Welcome Back! 👋", 
+                    "success_message": "You already have an account with us.",
+                    "timestamp": datetime.now().isoformat()
+                } 
+            }
+
+        # Create new user
+        user_id = str(uuid.uuid4())
+        pin_hash = hashlib.sha256(pin.encode()).hexdigest()
+        
+        user_data = {
+            "id": user_id,
+            "full_name": full_name,
+            "email": email,
+            "whatsapp_number": phone,
+            "pin_hash": pin_hash,
+            "bvn": bvn or "",
+            "address": address or "",
+            "wallet_balance": 0.0,
+            "registration_completed": True,
+            "signup_source": "whatsapp_flow",
+            "created_at": datetime.now().isoformat(),
+            "updated_at": datetime.now().isoformat()
+        }
+        
+        logger.info(f"💾 Creating user in database: {full_name}")
+        result = supabase.table("users").insert(user_data).execute()
+        
+        if result.data:
+            logger.info(f"✅ NEW USER CREATED SUCCESSFULLY: {full_name}")
+            logger.info(f"🎉 USER ID: {user_id}")
+            logger.info(f"📅 CREATION DATE: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            
+            # 🚀 SEND THE REPLY MESSAGE DIRECTLY TO WHATSAPP
+            try:
+                welcome_message = (
+                    f"🎉 Welcome to Sofi AI, {full_name}!\n\n"
+                    f"✅ Your account has been created successfully!\n\n"
+                    f"You can now:\n"
+                    f"💸 Send money instantly\n"
+                    f"📱 Buy airtime & data\n"
+                    f"💰 Check your balance\n\n"
+                    f"Try saying: 'What's my balance?' or 'Send money'"
+                )
+                
+                send_whatsapp_message(phone, welcome_message)
+                logger.info(f"✅ WELCOME MESSAGE SENT SUCCESSFULLY TO {phone}")
+                logger.info(f"📨 MESSAGE CONTENT: {welcome_message[:50]}...")
+                
+            except Exception as msg_error:
+                logger.error(f"⚠️ Failed to send welcome message after onboarding: {msg_error}")
+
+            # Return success to the Flow UI
+            return {
+                "screen": "SUCCESS",
+                "data": {
+                    "success_title": "Account Created! 🎉",
+                    "success_message": f"Welcome {full_name}! Check your WhatsApp chat for a confirmation message.",
+                    "user_id": user_id,
+                    "timestamp": datetime.now().isoformat()
+                }
+            }
+        else:
+            logger.error(f"❌ DATABASE INSERTION FAILED")
+            logger.error(f"❌ Error details: {result}")
+            return { 
+                "screen": "error", 
+                "data": { 
+                    "error_message": "Could not create your account. Please try again.",
+                    "timestamp": datetime.now().isoformat()
+                } 
+            }
+
+    except Exception as e:
+        logger.error(f"❌ ONBOARDING FLOW ERROR: {e}")
+        logger.error(f"❌ Traceback: {traceback.format_exc()}")
+        logger.error(f"🗓️ Error occurred at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        return { 
+            "screen": "error", 
+            "data": { 
+                "error_message": "A server error occurred. Please try again later.",
+                "timestamp": datetime.now().isoformat()
+            } 
+        }
         
         last_name = (data.get('screen_0_Last_Name__1') or
                     data.get('Last_Name') or
