@@ -4020,6 +4020,7 @@ def handle_flow_completion(decrypted_data, flow_token):
         import time
         import uuid
         import traceback
+        import asyncio
         from datetime import datetime
         
         logger.info("🎯 PROCESSING FLOW COMPLETION - ACCOUNT CREATION")
@@ -4040,59 +4041,52 @@ def handle_flow_completion(decrypted_data, flow_token):
         
         logger.info(f"📱 WhatsApp ID: {whatsapp_id}")
         
-        # Extract form fields from Flow completion data
-        # Meta sends field names in specific format: screen_X_FieldName_Y
-        first_name = (
-            decrypted_data.get("screen_0_First_Name0") or
-            decrypted_data.get("screen_0_First_Name_0") or
-            decrypted_data.get("first_name") or
-            decrypted_data.get("First Name")
-        )
+        # Log ALL available keys for debugging
+        logger.info(f"🔍 ALL AVAILABLE KEYS in form data: {list(decrypted_data.keys())}")
         
-        last_name = (
-            decrypted_data.get("screen_0_Last_Name1") or
-            decrypted_data.get("screen_0_Last_Name_1") or
-            decrypted_data.get("last_name") or
-            decrypted_data.get("Last Name")
-        )
+        # Extract form fields using EXACT Meta Flow field names from your JSON config
+        # These are the exact keys Meta sends based on your Flow configuration:
+        first_name = decrypted_data.get("screen_0_First_Name__0")
+        last_name = decrypted_data.get("screen_0_Last_Name__1") 
+        bvn = decrypted_data.get("screen_0_BVN__2")
+        address = decrypted_data.get("screen_0_Address__3")
+        pin = decrypted_data.get("screen_1_Enter_4digit_pin__0")
+        email = decrypted_data.get("screen_1_Email__1")
+        phone = decrypted_data.get("screen_1_Phone_Number__2")
         
-        bvn = (
-            decrypted_data.get("screen_0_BVN2") or
-            decrypted_data.get("screen_0_BVN_2") or
-            decrypted_data.get("bvn") or
-            decrypted_data.get("BVN")
-        )
+        # Log field extraction results
+        logger.info("📊 FLOW FIELD EXTRACTION:")
+        logger.info(f"   screen_0_First_Name__0: {first_name}")
+        logger.info(f"   screen_0_Last_Name__1: {last_name}")
+        logger.info(f"   screen_0_BVN__2: {bvn[:3] + '***' if bvn else 'None'}")
+        logger.info(f"   screen_0_Address__3: {address}")
+        logger.info(f"   screen_1_Enter_4digit_pin__0: {'****' if pin else 'None'}")
+        logger.info(f"   screen_1_Email__1: {email}")
+        logger.info(f"   screen_1_Phone_Number__2: {phone}")
         
-        address = (
-            decrypted_data.get("screen_0_Address3") or
-            decrypted_data.get("screen_0_Address_3") or
-            decrypted_data.get("address") or
-            decrypted_data.get("Address")
-        )
+        # Fallback extraction for any missing fields (backup only)
+        if not first_name:
+            first_name = (decrypted_data.get("first_name") or decrypted_data.get("First Name"))
+            if first_name: logger.info(f"   ✅ Fallback first_name found: {first_name}")
         
-        email = (
-            decrypted_data.get("screen_1_Email1") or
-            decrypted_data.get("screen_1_Email_1") or
-            decrypted_data.get("email") or
-            decrypted_data.get("Email")
-        )
+        if not last_name:
+            last_name = (decrypted_data.get("last_name") or decrypted_data.get("Last Name"))
+            if last_name: logger.info(f"   ✅ Fallback last_name found: {last_name}")
         
-        phone = (
-            decrypted_data.get("screen_1_Phone_Number__2") or
-            decrypted_data.get("screen_1_Phone_Number_2") or
-            decrypted_data.get("phone") or
-            decrypted_data.get("Phone Number")
-        )
+        if not email:
+            email = (decrypted_data.get("email") or decrypted_data.get("Email"))
+            if email: logger.info(f"   ✅ Fallback email found: {email}")
         
-        pin = (
-            decrypted_data.get("screen_1_Enter_4digit_pin__0") or
-            decrypted_data.get("screen_1_Enter_4digit_pin_0") or
-            decrypted_data.get("pin") or
-            decrypted_data.get("Enter 4-digit pin")
-        )
+        if not phone:
+            phone = (decrypted_data.get("phone") or decrypted_data.get("Phone Number"))
+            if phone: logger.info(f"   ✅ Fallback phone found: {phone}")
         
-        # Log extracted fields (sanitized)
-        logger.info("📊 ONBOARDING SUBMISSION DATA:")
+        if not pin:
+            pin = (decrypted_data.get("pin") or decrypted_data.get("Enter 4-digit pin"))
+            if pin: logger.info(f"   ✅ Fallback pin found: ****")
+        
+        # Log extracted fields (sanitized) - FINAL SUMMARY
+        logger.info("📊 FINAL ONBOARDING SUBMISSION DATA:")
         logger.info(f"   whatsapp_id: {whatsapp_id}")
         logger.info(f"   first_name: {first_name}")
         logger.info(f"   last_name: {last_name}")
@@ -4113,6 +4107,9 @@ def handle_flow_completion(decrypted_data, flow_token):
             
             logger.error(f"❌ Missing required onboarding fields: {missing_fields}")
             logger.error(f"❌ Full decrypted data keys: {list(decrypted_data.keys())}")
+            logger.error(f"❌ Expected field names from Flow config:")
+            logger.error(f"   - screen_0_First_Name__0, screen_0_Last_Name__1, screen_0_BVN__2, screen_0_Address__3")
+            logger.error(f"   - screen_1_Enter_4digit_pin__0, screen_1_Email__1, screen_1_Phone_Number__2")
             
             return {"status": "error", "message": f"Missing required fields: {', '.join(missing_fields)}"}, 400
         
