@@ -202,11 +202,29 @@ Stay secure! 🔒
             '91.108.12.0/22', '91.108.16.0/22', '91.108.56.0/22'
         ]
         
-        for ip in telegram_ips:
+        # Add WhatsApp/Meta IP ranges to whitelist for Flow webhooks
+        whatsapp_meta_ips = [
+            '173.252.0.0/16',    # Facebook/Meta primary range
+            '31.13.0.0/16',      # Facebook/Meta secondary range
+            '157.240.0.0/16',    # Facebook/Meta tertiary range
+            '69.63.176.0/20',    # Facebook/Meta fourth range
+            '102.89.68.161',     # The specific IP that was blocked
+            '102.89.0.0/16',     # Broader range for that IP
+            '185.60.216.0/22',   # WhatsApp Business API range
+            '185.60.217.0/24',   # WhatsApp Business API specific
+            '18.156.13.208',     # Additional Meta/WhatsApp ranges
+            '18.184.99.224',
+            '3.33.128.0/25',
+            '169.45.248.118'
+        ]
+        
+        # Add all IPs to whitelist
+        for ip in telegram_ips + whatsapp_meta_ips:
             if '/' not in ip:  # Single IP, not range
                 self.whitelist_ips.add(ip)
         
         logger.info(f"✅ Whitelisted {len(telegram_ips)} Telegram bot IPs")
+        logger.info(f"✅ Whitelisted {len(whatsapp_meta_ips)} WhatsApp/Meta IPs for Flow webhooks")
         
         # Alert thresholds
         self.thresholds = {
@@ -428,9 +446,23 @@ Stay secure! 🔒
         severity = AlertLevel.LOW
         details = {}
         
-        # Skip security checks for whitelisted IPs (like Telegram bots)
+        # Skip security checks for whitelisted IPs (like Telegram bots and Meta/WhatsApp)
         if self.is_ip_whitelisted(ip):
             return None
+        
+        # Skip security checks entirely for WhatsApp Flow webhook endpoints
+        whatsapp_webhook_paths = [
+            '/whatsapp-flow-webhook',
+            '/api/paystack/webhook',
+            '/paystack-webhook',
+            '/whatsapp-webhook'
+        ]
+        
+        for webhook_path in whatsapp_webhook_paths:
+            if path.startswith(webhook_path):
+                # Always allow WhatsApp/Meta webhooks through
+                logger.info(f"✅ Allowing WhatsApp/Meta webhook: {ip} -> {path}")
+                return None
         
         # Skip security checks for trusted bots on /verify-pin route
         if path.startswith('/verify-pin'):

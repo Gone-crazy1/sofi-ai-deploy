@@ -142,7 +142,7 @@ Balance: ₦{balance:,.2f}
     return receipt
 
 # WhatsApp Flow Configuration
-WHATSAPP_FLOW_ID = os.getenv("WHATSAPP_FLOW_ID", "1234567890123456789")  # Replace with your actual Flow ID from Meta Business Manager
+WHATSAPP_FLOW_ID = os.getenv("WHATSAPP_FLOW_ID", "1912417042942213")  # Real Flow ID from Meta Business Manager
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_KEY")
 WHATSAPP_ACCESS_TOKEN = os.getenv("WHATSAPP_ACCESS_TOKEN")
