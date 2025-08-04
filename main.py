@@ -1967,7 +1967,7 @@ def send_whatsapp_onboarding_flow(phone_number: str) -> bool:
                         "flow_message_version": "3",
                         "flow_id": flow_id,
                         "flow_cta": "Create Account",
-                        "flow_token": "create_an_account_with_sofi",
+                        "flow_token": "flows-builder-b701fbc6",
                         "flow_action": "navigate",
                         "flow_action_payload": {
                             "screen": "screen_oxjvpn"
