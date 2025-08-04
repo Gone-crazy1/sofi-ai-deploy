@@ -2,7 +2,7 @@ import os
 from flask import Flask, request, jsonify, url_for, render_template, abort, make_response
 from flask_cors import CORS
 import os, requests, logging, json, asyncio, tempfile, re, threading, uuid, time
-import hashlib  # Built-in module - import separately
+import hashlib, traceback, base64  # Built-in modules - import separately
 from datetime import datetime
 
 from dotenv import load_dotenv
@@ -3358,42 +3358,52 @@ def whatsapp_flow_webhook():
             else:
                 logger.warning(f"⚠️ No payload received - might be health check")
             
-            # Handle Meta health checks and test requests
-            if is_meta_request and (not payload or len(payload) == 0):
-                logger.info("💊 Meta health check or test request detected")
-                # Return encrypted test response
-                return create_encrypted_health_response()
+        # Handle Meta health checks and test requests
+        if is_meta_request and (not payload or len(payload) == 0):
+            logger.info("💊 Meta health check or test request detected")
+            # Return encrypted test response
+            return create_encrypted_health_response()
 
-            if not payload:
-                logger.error("❌ No payload received")
-                return 'Bad Request', 400
+        if not payload:
+            logger.error("❌ No payload received")
+            logger.error(f"❌ Request method: {request.method}")
+            logger.error(f"❌ Content-Type: {request.headers.get('Content-Type')}")
+            logger.error(f"❌ Content-Length: {request.headers.get('Content-Length')}")
+            logger.error(f"❌ Raw data length: {len(raw_data) if raw_data else 0}")
+            return 'Bad Request: No payload', 400
 
-            logger.info("🔐 PROCESSING FLOW DATA")
-            logger.info(f"📋 Payload keys: {list(payload.keys())}")
-            logger.info(f"📋 Full payload: {payload}")
+        logger.info("🔐 PROCESSING FLOW DATA")
+        logger.info(f"📋 Payload keys: {list(payload.keys())}")
+        logger.info(f"📋 Full payload: {payload}")
 
-            # PRIORITY: Handle ALL types of Flow submissions
-            # Check if this is encrypted flow data (standard Meta format)
-            if any(key in payload for key in ['encrypted_flow_data', 'encrypted_aes_key', 'initial_vector']):
-                logger.info("🔐 Encrypted Flow data detected")
-                return handle_encrypted_flow_data(payload)
-            
-            # Check for direct Flow submission (unencrypted format)
-            elif any(key in payload for key in ['action', 'data', 'flow_token', 'screen']):
-                logger.info("📱 Direct Flow submission detected")
-                return handle_direct_flow_submission(payload)
-            
-            # Check for legacy webhook format
-            elif 'entry' in payload:
-                logger.info("📱 Legacy webhook format detected")
-                return handle_webhook_entry_format(payload)
-            
-            # Handle unencrypted legacy format or test data
-            else:
-                logger.info("📱 Handling legacy flow data format")
-                return handle_legacy_flow_data(payload)
-                
-        except Exception as e:
+        # PRIORITY: Handle ALL types of Flow submissions
+        # Check if this is encrypted flow data (standard Meta format)
+        if any(key in payload for key in ['encrypted_flow_data', 'encrypted_aes_key', 'initial_vector']):
+            logger.info("🔐 Encrypted Flow data detected")
+            result = handle_encrypted_flow_data(payload)
+            logger.info(f"🔐 Encrypted handler result: {result}")
+            return result
+        
+        # Check for direct Flow submission (unencrypted format)
+        elif any(key in payload for key in ['action', 'data', 'flow_token', 'screen']):
+            logger.info("📱 Direct Flow submission detected")
+            result = handle_direct_flow_submission(payload)
+            logger.info(f"📱 Direct handler result: {result}")
+            return result
+        
+        # Check for legacy webhook format
+        elif 'entry' in payload:
+            logger.info("📱 Legacy webhook format detected")
+            result = handle_webhook_entry_format(payload)
+            logger.info(f"📱 Legacy handler result: {result}")
+            return result
+        
+        # Handle unencrypted legacy format or test data
+        else:
+            logger.info("📱 Handling legacy flow data format")
+            result = handle_legacy_flow_data(payload)
+            logger.info(f"📱 Legacy handler result: {result}")
+            return result        except Exception as e:
             logger.error(f"❌ Flow webhook error: {e}")
             import traceback
             traceback.print_exc()
@@ -3807,13 +3817,17 @@ def handle_direct_flow_submission(payload):
         logger.info(f"🎯 Form data: {data}")
         
         # Handle different Flow actions
-        if action == 'data_exchange' and screen == 'screen_oxjvpn':
+        if action == 'data_exchange' and screen in ['screen_oxjvpn', 'screen_pqknwp']:
             logger.info("🎯 Account creation form submission detected!")
-            return jsonify(handle_onboarding_flow_submission(data, flow_token))
+            result = handle_onboarding_flow_submission(data, flow_token)
+            logger.info(f"🎯 handle_onboarding_flow_submission result: {result}")
+            return jsonify(result)
         
         elif action == 'INIT':
             logger.info("🎯 Flow initialization detected")
-            return jsonify(handle_flow_init(flow_token, data))
+            result = handle_flow_init(flow_token, data)
+            logger.info(f"🎯 handle_flow_init result: {result}")
+            return jsonify(result)
         
         elif action == 'ping':
             logger.info("🎯 Flow ping/health check")
@@ -3822,6 +3836,7 @@ def handle_direct_flow_submission(payload):
         else:
             logger.info(f"🎯 Processing Flow action: {action}")
             response_data = process_flow_request(payload)
+            logger.info(f"🎯 process_flow_request result: {response_data}")
             return jsonify(response_data)
             
     except Exception as e:
@@ -3956,7 +3971,9 @@ def process_flow_request(decrypted_data):
     # Handle Flow completion - CRITICAL for account creation
     elif action == 'complete':
         logger.info("🎯 FLOW COMPLETION DETECTED - Creating account!")
-        return handle_flow_completion(decrypted_data, flow_token)
+        result = handle_flow_completion(decrypted_data, flow_token)
+        logger.info(f"🎯 handle_flow_completion result: {result}")
+        return result
     
     # Handle different actions
     elif action == 'INIT':
@@ -4044,46 +4061,56 @@ def handle_flow_completion(decrypted_data, flow_token):
         # Log ALL available keys for debugging
         logger.info(f"🔍 ALL AVAILABLE KEYS in form data: {list(decrypted_data.keys())}")
         
+        # Extract the nested data object - the form fields are in decrypted_data['data']
+        form_data = decrypted_data.get('data', decrypted_data)
+        logger.info(f"🔍 FORM DATA KEYS: {list(form_data.keys()) if isinstance(form_data, dict) else 'Not a dict'}")
+        
         # Extract form fields using EXACT Meta Flow field names from your JSON config
-        # These are the exact keys Meta sends based on your Flow configuration:
-        first_name = decrypted_data.get("screen_0_First_Name__0")
-        last_name = decrypted_data.get("screen_0_Last_Name__1") 
-        bvn = decrypted_data.get("screen_0_BVN__2")
-        address = decrypted_data.get("screen_0_Address__3")
-        pin = decrypted_data.get("screen_1_Enter_4digit_pin__0")
-        email = decrypted_data.get("screen_1_Email__1")
-        phone = decrypted_data.get("screen_1_Phone_Number__2")
+        # Based on testing, your Flow sends these field names:
+        first_name = (form_data.get("screen_0_First_Name__0") or
+                     form_data.get("First_Name") or 
+                     form_data.get("first_name") or 
+                     form_data.get("First Name"))
+        
+        last_name = (form_data.get("screen_0_Last_Name__1") or
+                    form_data.get("Last_Name") or
+                    form_data.get("last_name") or
+                    form_data.get("Last Name"))
+        
+        email = (form_data.get("screen_1_Email__1") or
+                form_data.get("Email") or
+                form_data.get("email"))
+        
+        phone = (form_data.get("screen_1_Phone_Number__2") or
+                form_data.get("Phone_Number") or
+                form_data.get("phone") or
+                form_data.get("Phone Number"))
+        
+        bvn = (form_data.get("screen_0_BVN__2") or
+              form_data.get("BVN") or
+              form_data.get("bvn"))
+        
+        address = (form_data.get("screen_0_Address__3") or
+                  form_data.get("Address") or
+                  form_data.get("address"))
+        
+        pin = (form_data.get("screen_1_Enter_4digit_pin__0") or
+              form_data.get("PIN") or
+              form_data.get("pin") or
+              form_data.get("Enter 4-digit pin"))
         
         # Log field extraction results
         logger.info("📊 FLOW FIELD EXTRACTION:")
-        logger.info(f"   screen_0_First_Name__0: {first_name}")
-        logger.info(f"   screen_0_Last_Name__1: {last_name}")
-        logger.info(f"   screen_0_BVN__2: {bvn[:3] + '***' if bvn else 'None'}")
-        logger.info(f"   screen_0_Address__3: {address}")
-        logger.info(f"   screen_1_Enter_4digit_pin__0: {'****' if pin else 'None'}")
-        logger.info(f"   screen_1_Email__1: {email}")
-        logger.info(f"   screen_1_Phone_Number__2: {phone}")
+        logger.info(f"   first_name: {first_name}")
+        logger.info(f"   last_name: {last_name}")
+        logger.info(f"   email: {email}")
+        logger.info(f"   phone: {phone}")
+        logger.info(f"   bvn: {bvn[:3] + '***' if bvn else 'None'}")
+        logger.info(f"   address: {address}")
+        logger.info(f"   pin: {'****' if pin else 'None'}")
+        logger.info(f"   available_keys: {list(decrypted_data.keys())}")
         
-        # Fallback extraction for any missing fields (backup only)
-        if not first_name:
-            first_name = (decrypted_data.get("first_name") or decrypted_data.get("First Name"))
-            if first_name: logger.info(f"   ✅ Fallback first_name found: {first_name}")
-        
-        if not last_name:
-            last_name = (decrypted_data.get("last_name") or decrypted_data.get("Last Name"))
-            if last_name: logger.info(f"   ✅ Fallback last_name found: {last_name}")
-        
-        if not email:
-            email = (decrypted_data.get("email") or decrypted_data.get("Email"))
-            if email: logger.info(f"   ✅ Fallback email found: {email}")
-        
-        if not phone:
-            phone = (decrypted_data.get("phone") or decrypted_data.get("Phone Number"))
-            if phone: logger.info(f"   ✅ Fallback phone found: {phone}")
-        
-        if not pin:
-            pin = (decrypted_data.get("pin") or decrypted_data.get("Enter 4-digit pin"))
-            if pin: logger.info(f"   ✅ Fallback pin found: ****")
+        # REMOVED OLD FALLBACK LOGIC - Now handled in primary extraction above
         
         # Log extracted fields (sanitized) - FINAL SUMMARY
         logger.info("📊 FINAL ONBOARDING SUBMISSION DATA:")
@@ -4102,16 +4129,32 @@ def handle_flow_completion(decrypted_data, flow_token):
             if not first_name: missing_fields.append("First Name")
             if not last_name: missing_fields.append("Last Name")
             if not email: missing_fields.append("Email")
-            if not phone: missing_fields.append("Phone")
+            if not phone: missing_fields.append("Phone Number")
             if not pin: missing_fields.append("PIN")
             
             logger.error(f"❌ Missing required onboarding fields: {missing_fields}")
-            logger.error(f"❌ Full decrypted data keys: {list(decrypted_data.keys())}")
-            logger.error(f"❌ Expected field names from Flow config:")
-            logger.error(f"   - screen_0_First_Name__0, screen_0_Last_Name__1, screen_0_BVN__2, screen_0_Address__3")
-            logger.error(f"   - screen_1_Enter_4digit_pin__0, screen_1_Email__1, screen_1_Phone_Number__2")
+            logger.error(f"❌ Full decrypted data keys available: {list(decrypted_data.keys())}")
+            logger.error(f"❌ Form data keys available: {list(form_data.keys()) if isinstance(form_data, dict) else 'Not a dict'}")
+            logger.error(f"❌ Raw form data (sanitized): {dict(form_data) if isinstance(form_data, dict) else form_data}")
             
-            return {"status": "error", "message": f"Missing required fields: {', '.join(missing_fields)}"}, 400
+            # Return structured error for debugging and Flow display
+            error_response = {
+                "status": "error",
+                "message": f"Missing required fields: {', '.join(missing_fields)}",
+                "debug_info": {
+                    "available_keys": list(decrypted_data.keys()),
+                    "form_data_keys": list(form_data.keys()) if isinstance(form_data, dict) else "Not a dict",
+                    "extracted_fields": {
+                        "first_name": first_name or "",
+                        "last_name": last_name or "", 
+                        "email": email or "",
+                        "phone": phone or "",
+                        "bvn": bvn or "",
+                        "address": address or ""
+                    }
+                }
+            }
+            return error_response
         
         # Clean phone number
         clean_phone = phone.strip()
@@ -4167,7 +4210,7 @@ def handle_flow_completion(decrypted_data, flow_token):
                 'address': address,
                 'pin_hash': hashlib.sha256(pin.encode()).hexdigest(),
                 'wallet_balance': 0.0,
-                'status': 'active',
+                'is_active': True,  # Changed from 'status': 'active'
                 'registration_completed': True,
                 'signup_source': 'whatsapp_flow',
                 'flow_token': flow_token,
@@ -4305,14 +4348,38 @@ def handle_onboarding_flow_submission(data, flow_token):
         logger.info(f"📋 Received data: {data}")
         logger.info(f"🎫 Flow token: {flow_token}")
         
-        # Extract form data - UPDATED to match actual Flow field names
-        first_name = data.get('first_name') or data.get('First Name') or data.get('firstName')
-        last_name = data.get('last_name') or data.get('Last Name') or data.get('lastName')
-        bvn = data.get('bvn') or data.get('BVN')
-        address = data.get('address') or data.get('Address')
-        pin = data.get('pin') or data.get('Enter 4-digit pin') or data.get('secure_pin')
-        email = data.get('email') or data.get('Email')
-        phone = data.get('phone') or data.get('Phone Number') or data.get('phoneNumber')
+        # Extract form data - EXACT field names from Meta Flow JSON config
+        first_name = (data.get('screen_0_First_Name__0') or 
+                     data.get('First_Name') or 
+                     data.get('first_name') or 
+                     data.get('First Name'))
+        
+        last_name = (data.get('screen_0_Last_Name__1') or
+                    data.get('Last_Name') or
+                    data.get('last_name') or 
+                    data.get('Last Name'))
+        
+        bvn = (data.get('screen_0_BVN__2') or
+              data.get('BVN') or 
+              data.get('bvn'))
+        
+        address = (data.get('screen_0_Address__3') or
+                  data.get('Address') or 
+                  data.get('address'))
+        
+        pin = (data.get('screen_1_Enter_4digit_pin__0') or
+              data.get('PIN') or
+              data.get('pin') or 
+              data.get('Enter 4-digit pin'))
+        
+        email = (data.get('screen_1_Email__1') or
+                data.get('Email') or
+                data.get('email'))
+        
+        phone = (data.get('screen_1_Phone_Number__2') or
+                data.get('Phone_Number') or
+                data.get('phone') or 
+                data.get('Phone Number'))
         
         # Combine first and last name
         full_name = f"{first_name} {last_name}".strip() if first_name and last_name else (first_name or last_name or "")
@@ -4395,7 +4462,7 @@ def handle_onboarding_flow_submission(data, flow_token):
             'address': address,
             'pin_hash': pin_hash,
             'wallet_balance': 0.0,
-            'status': 'active',
+            'is_active': True,  # Changed from 'status': 'active'
             'registration_completed': True,
             'signup_source': 'whatsapp_flow',
             'flow_token': flow_token,
