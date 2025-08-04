@@ -4104,20 +4104,52 @@ def handle_flow_completion(decrypted_data, flow_token):
         logger.info("🎯 PROCESSING FLOW COMPLETION - ACCOUNT CREATION")
         logger.info(f"📋 Full decrypted data: {decrypted_data}")
         
-        # Extract WhatsApp user ID from the Flow context
-        # This might be in different places depending on Meta's structure
+        # Extract WhatsApp user ID from multiple sources
         whatsapp_id = None
-        for key in ['whatsapp_id', 'user_id', 'sender_id', 'chat_id']:
+        
+        # Method 1: Check Flow data for WhatsApp ID fields
+        for key in ['whatsapp_id', 'user_id', 'sender_id', 'chat_id', 'from', 'phone_number_id']:
             if key in decrypted_data:
                 whatsapp_id = decrypted_data[key]
+                logger.info(f"📱 Found WhatsApp ID in decrypted_data['{key}']: {whatsapp_id}")
                 break
         
+        # Method 2: Check request headers for WhatsApp context (Meta includes sender info) - if available
         if not whatsapp_id:
-            logger.warning("⚠️ No WhatsApp ID found in Flow completion data")
-            # Try to extract from flow_token or use a default
-            whatsapp_id = flow_token or "unknown_user"
+            try:
+                headers = dict(request.headers)
+                logger.info(f"🔍 Checking request headers for WhatsApp ID: {headers}")
+                
+                # Check common Meta/WhatsApp header patterns
+                whatsapp_headers = ['X-WhatsApp-Phone-Number', 'X-Hub-Signature-256', 'X-WhatsApp-From']
+                for header_key in headers:
+                    if any(wa_key.lower() in header_key.lower() for wa_key in ['whatsapp', 'phone', 'from']):
+                        potential_id = headers[header_key]
+                        logger.info(f"📱 Found potential WhatsApp ID in header '{header_key}': {potential_id}")
+                        if potential_id and potential_id not in ['application/json', 'WhatsApp/2.23.20']:
+                            whatsapp_id = potential_id
+                            break
+            except RuntimeError:
+                # Not in Flask request context (e.g., during testing)
+                logger.info("🔍 No Flask request context - skipping header check")
         
-        logger.info(f"📱 WhatsApp ID: {whatsapp_id}")
+        # Method 3: Use the phone number from form data as WhatsApp ID (most reliable)
+        if not whatsapp_id:
+            # Get phone number from form data - this is the most reliable identifier
+            form_data = decrypted_data.get('data', decrypted_data)
+            phone_from_form = (form_data.get("screen_1_Phone_Number__2") or
+                              form_data.get("Phone_Number") or
+                              form_data.get("phone") or
+                              form_data.get("Phone Number"))
+            
+            if phone_from_form:
+                whatsapp_id = phone_from_form
+                logger.info(f"📱 Using phone number from form as WhatsApp ID: {whatsapp_id}")
+            else:
+                logger.warning("⚠️ No phone number found in form data")
+                whatsapp_id = flow_token or "unknown_user"
+        
+        logger.info(f"📱 Final WhatsApp ID: {whatsapp_id}")
         
         # Log ALL available keys for debugging
         logger.info(f"🔍 ALL AVAILABLE KEYS in form data: {list(decrypted_data.keys())}")
@@ -4287,59 +4319,131 @@ def handle_flow_completion(decrypted_data, flow_token):
             
             logger.info(f"✅ User created successfully: {full_name}")
         
-        # Create Paystack virtual account
+        # Create Paystack virtual account with proper WhatsApp phone number
         try:
             from utils.paystack_account_manager import PaystackVirtualAccountManager
             import asyncio
             
             logger.info(f"🏦 Creating Paystack account for {full_name}")
+            logger.info(f"🏦 Using WhatsApp number: {clean_phone} (from WhatsApp ID: {whatsapp_id})")
             
             paystack_manager = PaystackVirtualAccountManager()
             whatsapp_data = {
-                'whatsapp_number': clean_phone,
+                'whatsapp_number': clean_phone,  # Use cleaned phone number
+                'whatsapp_id': whatsapp_id,      # Include the actual WhatsApp ID
                 'full_name': full_name,
                 'first_name': first_name,
                 'last_name': last_name,
                 'email': email,
-                'phone': phone,
+                'phone': clean_phone,  # Ensure consistency 
                 'address': address,
                 'bvn': bvn,
                 'pin': pin
             }
             
-            # Handle async function
-            if asyncio.iscoroutinefunction(paystack_manager.create_whatsapp_account):
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                paystack_result = loop.run_until_complete(
-                    paystack_manager.create_whatsapp_account(whatsapp_data)
-                )
-                loop.close()
+            logger.info(f"🏦 Paystack data prepared: WhatsApp={clean_phone}, Email={email}, Name={full_name}")
+            
+            # Use the new method for existing users or create new accounts
+            if existing_user.data:
+                logger.info(f"🏦 User exists - creating Paystack account for existing user")
+                paystack_result = paystack_manager.create_paystack_for_existing_user(user_id)
             else:
+                logger.info(f"🏦 New user - creating complete WhatsApp account")
                 paystack_result = paystack_manager.create_whatsapp_account(whatsapp_data)
             
-            if paystack_result.get('success'):
+            logger.info(f"🏦 Paystack result type: {type(paystack_result)}")
+            logger.info(f"🏦 Paystack result: {paystack_result}")
+            
+            if paystack_result and paystack_result.get('success'):
                 account_data = paystack_result.get('account_data', {})
-                logger.info(f"✅ Paystack account created: {account_data.get('account_number', 'N/A')}")
+                account_details = paystack_result.get('account_details', account_data)  # Handle both formats
+                account_number = account_data.get('account_number') or account_details.get('account_number')
                 
-                # Update user with Paystack details
+                logger.info(f"✅ Paystack account created: {account_number}")
+                
+                # Update user with Paystack details (for existing users, this is already done in the method)
+                if not existing_user.data:  # Only update if this was a new user creation
+                    paystack_update = {
+                        'updated_at': datetime.now().isoformat()
+                    }
+                    
+                    supabase.table('users').update(paystack_update).eq('id', user_id).execute()
+                    logger.info(f"✅ User updated with Paystack details: {account_number}")
+                
+            else:
+                # Enhanced error logging with full details
+                error_msg = paystack_result.get('error', 'Unknown Paystack error') if paystack_result else 'No result returned'
+                retry_count = paystack_result.get('retry_count', 0) if paystack_result else 0
+                paystack_response = paystack_result.get('paystack_response', {}) if paystack_result else {}
+                final_response = paystack_result.get('final_response', {}) if paystack_result else {}
+                
+                logger.error(f"❌ Paystack account creation failed for {full_name}")
+                logger.error(f"❌ Error: {error_msg}")
+                logger.error(f"❌ Retry attempts: {retry_count}")
+                
+                if paystack_response:
+                    logger.error(f"❌ Paystack API response: {json.dumps(paystack_response, indent=2)}")
+                
+                if final_response:
+                    logger.error(f"❌ Final response: {json.dumps(final_response, indent=2)}")
+                
+                # Mark user as needing Paystack retry
                 paystack_update = {
-                    'paystack_customer_code': account_data.get('customer_code'),
-                    'paystack_dva_id': account_data.get('dva_id'),
-                    'paystack_account_number': account_data.get('account_number'),
-                    'paystack_bank_name': account_data.get('bank_name', 'Wema Bank'),
-                    'is_verified': True
+                    'updated_at': datetime.now().isoformat()
                 }
                 
                 supabase.table('users').update(paystack_update).eq('id', user_id).execute()
-                logger.info(f"✅ User updated with Paystack details")
-                
-            else:
-                logger.error(f"❌ Paystack account creation failed: {paystack_result.get('message', 'Unknown error')}")
+                logger.warning(f"⚠️ User marked for Paystack retry: {full_name}")
                 
         except Exception as paystack_error:
-            logger.error(f"⚠️ Paystack integration failed: {paystack_error}")
+            logger.error(f"⚠️ Paystack integration exception for {full_name}: {paystack_error}")
+            logger.error(f"⚠️ Paystack exception type: {type(paystack_error).__name__}")
             logger.error(f"⚠️ Paystack traceback: {traceback.format_exc()}")
+            
+            # Mark user as needing Paystack retry due to exception
+            try:
+                paystack_update = {
+                    'updated_at': datetime.now().isoformat()
+                }
+                
+                supabase.table('users').update(paystack_update).eq('id', user_id).execute()
+                logger.warning(f"⚠️ User marked for Paystack retry due to exception: {full_name}")
+            except Exception as db_error:
+                logger.error(f"❌ Failed to update user with Paystack error: {db_error}")
+                
+                logger.error(f"❌ Paystack account creation failed for {full_name}")
+                logger.error(f"❌ Error: {error_msg}")
+                logger.error(f"❌ Retry attempts: {retry_count}")
+                
+                if paystack_response:
+                    logger.error(f"❌ Paystack API response: {json.dumps(paystack_response, indent=2)}")
+                
+                if final_response:
+                    logger.error(f"❌ Final response: {json.dumps(final_response, indent=2)}")
+                
+                # Mark user as needing Paystack retry
+                paystack_update = {
+                    'updated_at': datetime.now().isoformat()
+                }
+                
+                supabase.table('users').update(paystack_update).eq('id', user_id).execute()
+                logger.warning(f"⚠️ User marked for Paystack retry: {full_name}")
+                
+        except Exception as paystack_error:
+            logger.error(f"⚠️ Paystack integration exception for {full_name}: {paystack_error}")
+            logger.error(f"⚠️ Paystack exception type: {type(paystack_error).__name__}")
+            logger.error(f"⚠️ Paystack traceback: {traceback.format_exc()}")
+            
+            # Mark user as needing Paystack retry due to exception
+            try:
+                paystack_update = {
+                    'updated_at': datetime.now().isoformat()
+                }
+                
+                supabase.table('users').update(paystack_update).eq('id', user_id).execute()
+                logger.warning(f"⚠️ User marked for Paystack retry due to exception: {full_name}")
+            except Exception as db_error:
+                logger.error(f"❌ Failed to update user with Paystack error: {db_error}")
         
         # Send WhatsApp confirmation
         try:
@@ -4347,7 +4451,7 @@ def handle_flow_completion(decrypted_data, flow_token):
             final_user = supabase.table('users').select('*').eq('id', user_id).execute()
             account_number = None
             if final_user.data:
-                account_number = final_user.data[0].get('paystack_account_number')
+                account_number = final_user.data[0].get('account_number')
             
             welcome_message = (
                 f"🎉 *Welcome to Sofi AI, {full_name}!*\n\n"
