@@ -4118,46 +4118,92 @@ def handle_onboarding_flow_submission(data, flow_token):
         result = supabase.table('users').insert(user_data).execute()
         
         if result.data:
-            logger.info(f"✅ Account created successfully for {full_name}")
+            logger.info(f"✅ User account created successfully for {full_name}")
             
-            # Create virtual account with Paystack
+            # Create Paystack virtual account and complete setup
             try:
-                from utils.paystack_virtual_accounts import PaystackVirtualAccount
-                paystack_va = PaystackVirtualAccount()
+                from utils.paystack_account_manager import paystack_account_manager
+                import asyncio
                 
-                va_result = paystack_va.create_virtual_account(
-                    email=email,
-                    first_name=first_name,
-                    last_name=last_name,
-                    phone=clean_phone,
-                    preferred_bank='wema-bank'  # Default bank
-                )
+                logger.info(f"🏦 Creating complete Paystack account for {full_name}")
                 
-                if va_result.get('success'):
-                    # Update user with virtual account details
-                    va_data = va_result['data']
+                # Prepare WhatsApp account data for Paystack
+                whatsapp_data = {
+                    'whatsapp_number': clean_phone,
+                    'full_name': full_name,
+                    'first_name': first_name,
+                    'last_name': last_name,
+                    'email': email,
+                    'phone': phone,
+                    'address': address,
+                    'bvn': bvn,
+                    'pin': pin  # Will be hashed in the account manager
+                }
+                
+                # Create account asynchronously
+                if asyncio.iscoroutinefunction(paystack_account_manager.create_whatsapp_account):
+                    # Run async function
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    paystack_result = loop.run_until_complete(
+                        paystack_account_manager.create_whatsapp_account(whatsapp_data)
+                    )
+                    loop.close()
+                else:
+                    # Run sync function
+                    paystack_result = paystack_account_manager.create_whatsapp_account(whatsapp_data)
+                
+                if paystack_result.get('success'):
+                    account_data = paystack_result.get('account_data', {})
+                    logger.info(f"✅ Paystack account created successfully")
+                    logger.info(f"🏦 Account number: {account_data.get('account_number', 'N/A')}")
+                    
+                    # Update user with complete account info
                     update_data = {
-                        'virtual_account_number': va_data.get('account_number'),
-                        'virtual_account_name': va_data.get('account_name'),
-                        'virtual_bank_name': va_data.get('bank_name'),
-                        'paystack_customer_code': va_data.get('customer_code')
+                        'paystack_customer_code': account_data.get('customer_code'),
+                        'paystack_dva_id': account_data.get('dva_id'), 
+                        'paystack_account_number': account_data.get('account_number'),
+                        'paystack_bank_name': account_data.get('bank_name', 'Wema Bank'),
+                        'is_verified': True,
+                        'registration_completed': True
                     }
                     
                     supabase.table('users').update(update_data).eq('id', user_id).execute()
-                    logger.info(f"✅ Virtual account created: {va_data.get('account_number')}")
+                    logger.info(f"✅ User updated with Paystack account details")
                     
-            except Exception as va_error:
-                logger.error(f"⚠️ Virtual account creation failed: {va_error}")
+                else:
+                    logger.error(f"❌ Paystack account creation failed: {paystack_result.get('message', 'Unknown error')}")
+                    # Continue anyway - user account was created, Paystack can be retried later
+                    
+            except Exception as paystack_error:
+                logger.error(f"⚠️ Paystack integration failed: {paystack_error}")
+                import traceback
+                logger.error(f"⚠️ Paystack error traceback: {traceback.format_exc()}")
+                # Continue anyway - user account exists, Paystack can be retried later
             
             # Send welcome message to WhatsApp
             try:
+                # Get updated user data with Paystack info
+                updated_user = supabase.table('users').select('*').eq('id', user_id).execute()
+                account_number = None
+                if updated_user.data:
+                    account_number = updated_user.data[0].get('paystack_account_number')
+                
+                # Create welcome message with account details
                 welcome_message = (
                     f"🎉 *Welcome to Sofi AI, {full_name}!*\n\n"
                     f"✅ Your account has been created successfully!\n\n"
                     f"💳 *Your Account Details:*\n"
                     f"📱 Phone: {clean_phone}\n"
-                    f"✉️ Email: {email}\n\n"
-                    f"🚀 *You can now:*\n"
+                    f"✉️ Email: {email}\n"
+                )
+                
+                if account_number:
+                    welcome_message += f"🏦 Account: {account_number}\n"
+                    welcome_message += f"🏛️ Bank: Wema Bank\n"
+                
+                welcome_message += (
+                    f"\n🚀 *You can now:*\n"
                     f"💰 Fund your account and send money\n"
                     f"📱 Buy airtime & data\n"
                     f"💸 Receive payments from anywhere\n"
