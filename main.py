@@ -2231,7 +2231,12 @@ async def route_whatsapp_message(sender: str, text: str, message_id: str = None)
             supabase = create_client(supabase_url, supabase_key)
             
             # Check if user has ACTUAL account with account_number (not just user record)
-            user_result = supabase.table("users").select("*").eq("whatsapp_number", sender).execute()
+            # Try to find user by whatsapp_phone, then whatsapp_number, then phone for compatibility
+            user_result = supabase.table("users").select("*").eq("whatsapp_phone", sender).execute()
+            if not user_result.data:
+                user_result = supabase.table("users").select("*").eq("whatsapp_number", sender).execute()
+            if not user_result.data:
+                user_result = supabase.table("users").select("*").eq("phone", sender).execute()
             
             has_sofi_account = False
             if user_result.data and len(user_result.data) > 0:
